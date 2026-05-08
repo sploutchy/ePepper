@@ -97,28 +97,35 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
     chars_left = max(10, col_left_w // 8)
     chars_right = max(10, col_right_w // 8)
 
-    # --- Left column: Ingredients ---
-    y_left = col_top
-    draw.text((MARGIN, y_left), strings["ingredients"], font=font_heading, fill=0)
-    y_left += font_heading.size + 8
-
-    ingredients = recipe.get("ingredients", [])
     line_h = font_body.size + 4
+    heading_line_h = font_heading.size + 4
+    heading_space = font_heading.size + 8  # space for column heading
+    footer_reserve = 20
+    available_h = RECIPE_HEIGHT - col_top - MARGIN - heading_space - footer_reserve
 
+    # --- Pre-wrap ingredients into line groups ---
+    ingredients = recipe.get("ingredients", [])
+    ingr_groups: list[list[str]] = []  # each group = wrapped lines for one ingredient
     for item in ingredients:
-        wrapped = textwrap.wrap(f"· {item}", width=chars_left)
-        for wline in wrapped:
-            if y_left + line_h > RECIPE_HEIGHT - MARGIN:
-                break
-            draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
-            y_left += line_h
+        ingr_groups.append(textwrap.wrap(f"· {item}", width=chars_left))
 
-    # --- Vertical divider ---
-    div_x = MARGIN + col_left_w + COLUMN_GAP // 2
-    draw.line([(div_x, col_top), (div_x, RECIPE_HEIGHT - MARGIN)], fill=0, width=1)
+    # Paginate ingredients
+    ingr_pages: list[list[int]] = []  # each page = list of ingredient group indices
+    current_page: list[int] = []
+    used_h = 0
+    for idx, lines in enumerate(ingr_groups):
+        block_h = len(lines) * line_h
+        if used_h + block_h > available_h and current_page:
+            ingr_pages.append(current_page)
+            current_page = [idx]
+            used_h = block_h
+        else:
+            current_page.append(idx)
+            used_h += block_h
+    if current_page:
+        ingr_pages.append(current_page)
 
-    # --- Right column: Instructions (paginated) ---
-    # Normalize instructions: support both list[str] (old) and list[dict] (new)
+    # --- Pre-wrap instructions into blocks ---
     raw_instructions = recipe.get("instructions", [])
     instructions: list[dict] = []
     for item in raw_instructions:
@@ -127,11 +134,8 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
         else:
             instructions.append(item)
 
-    # Pre-wrap all instruction blocks with their fonts and labels
-    # Each block: {"type": "heading"|"step", "lines": [...], "font": font}
     all_blocks: list[dict] = []
     step_num = 0
-    heading_line_h = font_heading.size + 4
     for item in instructions:
         if item["type"] == "heading":
             wrapped = textwrap.wrap(item["text"], width=chars_right)
@@ -141,46 +145,61 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
             wrapped = textwrap.wrap(f"{step_num}. {item['text']}", width=chars_right)
             all_blocks.append({"type": "step", "lines": wrapped, "font": font_body, "line_h": line_h})
 
-    # Calculate how many blocks fit per page
-    available_h = RECIPE_HEIGHT - col_top - MARGIN - (font_heading.size + 8) - 20  # reserve footer
-    pages: list[list[int]] = []  # each page is a list of block indices
-    current_page_blocks: list[int] = []
+    # Paginate instructions
+    instr_pages: list[list[int]] = []
+    current_page = []
     used_h = 0
-
     for idx, block in enumerate(all_blocks):
-        block_h = len(block["lines"]) * block["line_h"] + 6  # 6px gap between blocks
+        block_h = len(block["lines"]) * block["line_h"] + 6
         if block["type"] == "heading":
-            block_h += 4  # extra spacing before heading
-        if used_h + block_h > available_h and current_page_blocks:
-            pages.append(current_page_blocks)
-            current_page_blocks = [idx]
+            block_h += 4
+        if used_h + block_h > available_h and current_page:
+            instr_pages.append(current_page)
+            current_page = [idx]
             used_h = block_h
         else:
-            current_page_blocks.append(idx)
+            current_page.append(idx)
             used_h += block_h
+    if current_page:
+        instr_pages.append(current_page)
 
-    if current_page_blocks:
-        pages.append(current_page_blocks)
-
-    total_pages = max(len(pages), 1)
+    # Total pages = whichever column needs more
+    total_pages = max(len(ingr_pages), len(instr_pages), 1)
     page = max(1, min(page, total_pages))
 
-    # Draw the instructions for this page
+    # --- Draw left column: Ingredients for this page ---
+    y_left = col_top
+    draw.text((MARGIN, y_left), strings["ingredients"], font=font_heading, fill=0)
+    y_left += heading_space
+
+    if page <= len(ingr_pages):
+        for grp_idx in ingr_pages[page - 1]:
+            for wline in ingr_groups[grp_idx]:
+                if y_left + line_h > RECIPE_HEIGHT - MARGIN - footer_reserve:
+                    break
+                draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
+                y_left += line_h
+
+    # --- Vertical divider ---
+    div_x = MARGIN + col_left_w + COLUMN_GAP // 2
+    draw.line([(div_x, col_top), (div_x, RECIPE_HEIGHT - MARGIN)], fill=0, width=1)
+
+    # --- Draw right column: Instructions for this page ---
     y_right = col_top
     draw.text((col_right_x, y_right), strings["instructions"], font=font_heading, fill=0)
-    y_right += font_heading.size + 8
+    y_right += heading_space
 
-    if pages:
-        for block_idx in pages[page - 1]:
+    if page <= len(instr_pages):
+        for block_idx in instr_pages[page - 1]:
             block = all_blocks[block_idx]
             if block["type"] == "heading":
-                y_right += 4  # extra space before heading
+                y_right += 4
             for wline in block["lines"]:
-                if y_right + block["line_h"] > RECIPE_HEIGHT - MARGIN - 18:
+                if y_right + block["line_h"] > RECIPE_HEIGHT - MARGIN - footer_reserve:
                     break
                 draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
                 y_right += block["line_h"]
-            y_right += 6  # gap between blocks
+            y_right += 6
 
     # --- Footer: page indicator ---
     if total_pages > 1:
