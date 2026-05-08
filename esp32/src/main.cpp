@@ -22,6 +22,7 @@
 void connectWiFi();
 bool pollServer();
 bool downloadImage(int page);
+int requestNextPage();
 void displayImage(const uint8_t* data, size_t len);
 void drawStatusBar();
 void updateClock();
@@ -79,25 +80,27 @@ void setup() {
     // display.begin();
 
     if (wokeByButton) {
-        // Button press: force check server
+        // Button press: advance to next page via server API
         digitalWrite(LED_PIN, LOW); // LED on
         connectWiFi();
         if (WiFi.status() == WL_CONNECTED) {
             bool changed = pollServer();
             if (changed) {
+                // New content from server — display it
                 downloadImage(currentPage);
                 // TODO: full refresh display with downloaded image
                 Serial.println("[ePepper] New content displayed");
-            } else {
-                // Cycle to next page if multi-page
-                if (totalPages > 1) {
-                    currentPage = (currentPage % totalPages) + 1;
+            } else if (totalPages > 1) {
+                // No new content — cycle to next page on server
+                int newPage = requestNextPage();
+                if (newPage > 0 && newPage != currentPage) {
+                    currentPage = newPage;
                     downloadImage(currentPage);
                     // TODO: full refresh display
                     Serial.printf("[ePepper] Page %d/%d\n", currentPage, totalPages);
-                } else {
-                    Serial.println("[ePepper] No changes");
                 }
+            } else {
+                Serial.println("[ePepper] No changes, single page");
             }
             reportDeviceStatus();
             WiFi.disconnect(true);
@@ -238,6 +241,42 @@ bool downloadImage(int page) {
     http.end();
     Serial.printf("[API] Downloaded %d bytes\n", bytesRead);
     return bytesRead == imageSize;
+}
+
+
+int requestNextPage() {
+    HTTPClient http;
+    String url = String(SERVER_URL) + "/page/next";
+    http.begin(url);
+    http.addHeader("Authorization", String("Bearer ") + API_KEY);
+
+    int code = http.POST("");
+    if (code != 200) {
+        Serial.printf("[API] /page/next returned %d\n", code);
+        http.end();
+        return -1;
+    }
+
+    String body = http.getString();
+    http.end();
+
+    JsonDocument doc;
+    DeserializationError err = deserializeJson(doc, body);
+    if (err) {
+        Serial.printf("[API] JSON parse error: %s\n", err.c_str());
+        return -1;
+    }
+
+    bool ok = doc["ok"] | false;
+    if (!ok) {
+        Serial.println("[API] /page/next: single page, no change");
+        return -1;
+    }
+
+    int newPage = doc["page"] | 1;
+    totalPages = doc["total_pages"] | 1;
+    Serial.printf("[API] Page next → %d/%d\n", newPage, totalPages);
+    return newPage;
 }
 
 
