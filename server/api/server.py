@@ -71,6 +71,7 @@ async def image(request: Request, page: int = Query(None, ge=1)):
         content=bmp_data,
         media_type="image/bmp",
         headers={
+            "Cache-Control": "no-store",
             "X-Hash": state["hash"],
             "X-Page": str(state["page"]),
             "X-Total-Pages": str(state["total_pages"]),

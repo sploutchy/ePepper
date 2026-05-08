@@ -1,5 +1,6 @@
 """Render structured recipe data to a beautiful 800x430 B/W image."""
 
+import re
 import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
@@ -16,12 +17,12 @@ from config import (
 
 # Localized column headings and page label
 _L10N = {
-    "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite"},
-    "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page"},
-    "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina"},
-    "es": {"ingredients": "Ingredientes", "instructions": "Preparación", "page": "página"},
-    "nl": {"ingredients": "Ingrediënten", "instructions": "Bereiding", "page": "pagina"},
-    "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page"},
+    "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen"},
+    "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page", "servings": "portions"},
+    "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina", "servings": "porzioni"},
+    "es": {"ingredients": "Ingredientes", "instructions": "Preparación", "page": "página", "servings": "porciones"},
+    "nl": {"ingredients": "Ingrediënten", "instructions": "Bereiding", "page": "pagina", "servings": "porties"},
+    "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page", "servings": "servings"},
 }
 
 
@@ -69,7 +70,13 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
     if recipe.get("total_time"):
         meta_parts.append(f"{recipe['total_time']} min")
     if recipe.get("servings"):
-        meta_parts.append(str(recipe["servings"]))
+        servings_raw = str(recipe["servings"])
+        # Extract just the number, replace the label with the localized version
+        servings_num = re.sub(r"[^\d]", "", servings_raw)
+        if servings_num:
+            meta_parts.append(f"{servings_num} {strings['servings']}")
+        else:
+            meta_parts.append(servings_raw)
     if meta_parts:
         meta_text = "  ·  ".join(meta_parts)
         draw.text((MARGIN, y), meta_text, font=font_meta, fill=0)
