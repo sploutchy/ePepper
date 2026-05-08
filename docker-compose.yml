@@ -1,9 +1,9 @@
 services:
   epepper:
-    build: .
+    build: ./server
     container_name: epepper
     restart: unless-stopped
-    env_file: .env
+    env_file: ./server/.env
     ports:
       - "8080:8080"
     volumes:
