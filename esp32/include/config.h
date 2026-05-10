@@ -15,7 +15,7 @@
 
 // ----- Server -----
 #define SERVER_URL        "https://epepper.fyx.ch"
-#define API_KEY           "7URcfTuHTgbR8DThZuntibWNlfvOPLOdbeR_GOavoNU"
+#define API_KEY           "CHANGE_ME"  // generate with: python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 
 // ----- Display -----
 // reTerminal E1001: 7.5" mono, UC8179, 800x480
