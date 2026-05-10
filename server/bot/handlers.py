@@ -1,6 +1,7 @@
 """Telegram bot handlers for ePepper."""
 
 import logging
+import time
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -78,28 +79,7 @@ async def cmd_recipe(update: Update, context) -> None:
     url = context.args[0]
     log.info("Recipe command from user %s: %s", update.effective_user.id, url)
     msg = await update.message.reply_text("🔍 Fetching recipe...")
-
-    recipe = await process_recipe_url(url)
-    if recipe is None:
-        await msg.edit_text("❌ Couldn't parse a recipe from that URL.")
-        return
-
-    img, total_pages = render_recipe(recipe, page=1)
-
-    # Store all pages
-    pages = {1: img}
-    for p in range(2, total_pages + 1):
-        page_img, _ = render_recipe(recipe, page=p)
-        pages[p] = page_img
-
-    display_state.set_recipe_pages(pages, title=recipe.get("title", ""))
-
-    reply = f"✅ *{recipe['title']}*\nSent to display!"
-    if total_pages > 1:
-        reply += f"\n📄 {total_pages} pages"
-        await msg.edit_text(reply, parse_mode="Markdown", reply_markup=_page_keyboard(1, total_pages))
-    else:
-        await msg.edit_text(reply, parse_mode="Markdown")
+    await _fetch_and_display_recipe(url, msg)
 
 
 async def cmd_clear(update: Update, context) -> None:
@@ -136,7 +116,6 @@ async def cmd_status(update: Update, context) -> None:
     if device["rssi"]:
         lines.append(f"📶 WiFi: {device['rssi']} dBm")
     if device["last_seen"]:
-        import time
         ago = int(time.time() - device["last_seen"])
         lines.append(f"Last seen: {ago}s ago")
     else:
@@ -178,13 +157,16 @@ async def on_text(update: Update, context) -> None:
         )
         return
 
-    # Try to parse as recipe
     log.info("Received URL from user %s: %s", update.effective_user.id, text)
     msg = await update.message.reply_text("🔍 Fetching recipe...")
+    await _fetch_and_display_recipe(text, msg)
 
-    recipe = await process_recipe_url(text)
+
+async def _fetch_and_display_recipe(url: str, msg) -> None:
+    """Fetch a recipe URL, render all pages, store in display state, and reply."""
+    recipe = await process_recipe_url(url)
     if recipe is None:
-        log.warning("Failed to parse recipe from URL: %s", text)
+        log.warning("Failed to parse recipe from URL: %s", url)
         await msg.edit_text("❌ Couldn't parse a recipe from that URL.\nTry sending a screenshot instead.")
         return
 

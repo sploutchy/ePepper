@@ -312,6 +312,12 @@ bool downloadImage(int page) {
     }
 
     imageSize = http.getSize();
+    size_t maxSize = DISPLAY_WIDTH * DISPLAY_HEIGHT / 8 + 1024;
+    if (imageSize > maxSize) {
+        Serial.printf("[API] Image too large: %d > %d\n", imageSize, maxSize);
+        http.end();
+        return false;
+    }
     Serial.printf("[API] Image size: %d bytes\n", imageSize);
 
     WiFiClient* stream = http.getStreamPtr();

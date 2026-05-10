@@ -93,12 +93,12 @@ def _is_section_heading(line: str, next_line: str | None) -> bool:
     """Detect if a line is a section heading (e.g. 'Farce', 'Liaison', 'Cuisson').
 
     Heuristics:
-    - Short (1-4 words, under 40 chars)
+    - Non-empty, short (1-4 words, under 40 chars)
     - No ending punctuation (no period, comma, etc.)
     - Starts with uppercase
-    - Next line exists and is longer (actual instruction text)
+    - Next line exists and is substantially longer (actual instruction text)
     """
-    if len(line) > 40:
+    if not line or len(line) > 40:
         return False
     word_count = len(line.split())
     if word_count > 4:
@@ -107,10 +107,12 @@ def _is_section_heading(line: str, next_line: str | None) -> bool:
         return False
     if not line[0].isupper():
         return False
-    if next_line and len(next_line) > len(line) * 2:
+    # Must have a following line that's meaningfully longer
+    if not next_line:
+        return False
+    if len(next_line) > len(line) * 2:
         return True
-    # Also match if it's just 1-2 capitalized words
-    if word_count <= 2 and next_line:
+    if word_count <= 2:
         return True
     return False
 

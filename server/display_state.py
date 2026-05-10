@@ -1,6 +1,7 @@
 """Shared display state — tracks current image, recipe, and device status.
 
-Simple in-memory state with BMP file persistence. No database needed for MVP.
+Pure in-memory state. Content is lost on container restart — the ESP32 will
+pick up whatever gets sent next via Telegram. No database needed for MVP.
 """
 
 import hashlib
