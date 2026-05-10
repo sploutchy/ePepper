@@ -1,13 +1,25 @@
 /**
- * ePepper firmware — ESP32-S3 + reTerminal E1001
+ * ePepper firmware — XIAO ESP32-S3 + reTerminal E1001
+ *
+ * Buttons (active-low, hw 10K pull-up + 100nF debounce):
+ *   KEY0 (GPIO3)  — Refresh: force poll server for new content
+ *   KEY1 (GPIO4)  — Next page
+ *   KEY2 (GPIO5)  — Previous page
+ *
+ * Wake sources:
+ *   - Timer: CLOCK_INTERVAL_S for status bar, POLL_INTERVAL_S for server poll
+ *   - Any button press via ext1 bitmask (GPIO 3, 4, 5)
  *
  * Loop:
- *   1. Wake from deep sleep (timer or button press)
- *   2. If button press → connect WiFi, poll server, display, sleep
- *   3. If timer:
- *      a. Every CLOCK_INTERVAL_S  → update clock/temp (partial refresh, no WiFi)
- *      b. Every POLL_INTERVAL_S   → connect WiFi, poll server for new recipe
- *   4. Deep sleep
+ *   1. Wake from deep sleep
+ *   2. Read buttons to determine intent (refresh / next / prev)
+ *   3. If button:
+ *      a. Refresh → connect WiFi, poll server, fetch image if changed
+ *      b. Next/Prev → connect WiFi, call /page/next or /page/prev, fetch image
+ *   4. If timer:
+ *      a. Every CLOCK_INTERVAL_S → update status bar (partial refresh, no WiFi)
+ *      b. Every POLL_INTERVAL_S → connect WiFi, poll server for new recipe
+ *   5. Deep sleep
  */
 
 #include <Arduino.h>
@@ -18,19 +30,24 @@
 #include <time.h>
 #include "config.h"
 
+// ---- Types ----
+enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
+
 // ---- Forward declarations ----
 void connectWiFi();
 bool pollServer();
 bool downloadImage(int page);
-int requestNextPage();
+int requestPageChange(const char* direction);
 void displayImage(const uint8_t* data, size_t len);
 void drawStatusBar();
-void updateClock();
 void reportDeviceStatus();
 void syncNTP();
+void buzzerBeep(int count, int duration_ms);
+float readBatteryVoltage();
 void goToSleep(uint64_t seconds);
+WakeAction detectWakeAction();
 
-// ---- State ----
+// ---- RTC-persistent state (survives deep sleep) ----
 RTC_DATA_ATTR char lastHash[16] = "";
 RTC_DATA_ATTR int currentPage = 1;
 RTC_DATA_ATTR int totalPages = 1;
@@ -38,12 +55,10 @@ RTC_DATA_ATTR int wakeCount = 0;
 RTC_DATA_ATTR time_t lastNTPSync = 0;
 RTC_DATA_ATTR bool hasContent = false;
 
-// Image buffer in PSRAM
+// ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
 size_t imageSize = 0;
 
-// Wake reason
-bool wokeByButton = false;
 
 void setup() {
     Serial.begin(115200);
@@ -52,20 +67,16 @@ void setup() {
     wakeCount++;
     Serial.printf("\n[ePepper] Wake #%d\n", wakeCount);
 
-    // Determine wake reason
-    esp_sleep_wakeup_cause_t wakeReason = esp_sleep_get_wakeup_cause();
-    wokeByButton = (wakeReason == ESP_SLEEP_WAKEUP_EXT0);
-
-    if (wokeByButton) {
-        Serial.println("[ePepper] Woke by button press");
-    }
-
-    // Init LED
+    // Init outputs
     pinMode(LED_PIN, OUTPUT);
-    digitalWrite(LED_PIN, HIGH); // OFF (active LOW)
+    digitalWrite(LED_PIN, HIGH);  // LED off (active-low)
+    pinMode(BUZZER_PIN, OUTPUT);
+    digitalWrite(BUZZER_PIN, LOW);  // Buzzer off (active-high)
 
-    // Init button
-    pinMode(BUTTON_PIN, INPUT_PULLUP);
+    // Init buttons (hw pull-ups on board, just set as input)
+    pinMode(BTN_REFRESH, INPUT);
+    pinMode(BTN_NEXT, INPUT);
+    pinMode(BTN_PREV, INPUT);
 
     // Allocate image buffer in PSRAM
     imageBuffer = (uint8_t*)ps_malloc(DISPLAY_WIDTH * DISPLAY_HEIGHT / 8 + 1024);
@@ -75,76 +86,153 @@ void setup() {
         return;
     }
 
-    // TODO: Initialize display driver (Seeed_GFX)
-    // This depends on the exact library setup. Placeholder for now.
+    // TODO: Initialize e-paper display driver
     // display.begin();
 
-    if (wokeByButton) {
-        // Button press: advance to next page via server API
-        digitalWrite(LED_PIN, LOW); // LED on
-        connectWiFi();
-        if (WiFi.status() == WL_CONNECTED) {
-            bool changed = pollServer();
-            if (changed) {
-                // New content from server — display it
-                downloadImage(currentPage);
-                // TODO: full refresh display with downloaded image
-                Serial.println("[ePepper] New content displayed");
-            } else if (totalPages > 1) {
-                // No new content — cycle to next page on server
-                int newPage = requestNextPage();
-                if (newPage > 0 && newPage != currentPage) {
-                    currentPage = newPage;
-                    downloadImage(currentPage);
-                    // TODO: full refresh display
-                    Serial.printf("[ePepper] Page %d/%d\n", currentPage, totalPages);
-                }
-            } else {
-                Serial.println("[ePepper] No changes, single page");
-            }
-            reportDeviceStatus();
-            WiFi.disconnect(true);
-        }
-        digitalWrite(LED_PIN, HIGH); // LED off
+    WakeAction action = detectWakeAction();
 
-    } else {
-        // Timer wake
-        bool needsServerPoll = (wakeCount % (POLL_INTERVAL_S / CLOCK_INTERVAL_S) == 0);
-
-        if (needsServerPoll) {
-            Serial.println("[ePepper] Server poll cycle");
-            connectWiFi();
-            if (WiFi.status() == WL_CONNECTED) {
-                // Sync NTP if needed
-                time_t now;
-                time(&now);
-                if (now - lastNTPSync > NTP_SYNC_INTERVAL_S || lastNTPSync == 0) {
-                    syncNTP();
-                    lastNTPSync = now;
-                }
-
-                bool changed = pollServer();
-                if (changed) {
-                    downloadImage(currentPage);
-                    // TODO: full refresh display with new content
-                    Serial.println("[ePepper] New content from server");
-                }
-                reportDeviceStatus();
-                WiFi.disconnect(true);
-            }
-        }
-
-        // Always update status bar (clock + temp) via partial refresh
-        drawStatusBar();
+    switch (action) {
+        case WAKE_REFRESH:
+            handleRefresh();
+            break;
+        case WAKE_NEXT:
+            handlePageChange("next");
+            break;
+        case WAKE_PREV:
+            handlePageChange("prev");
+            break;
+        case WAKE_TIMER:
+            handleTimerWake();
+            break;
     }
 
-    // Sleep until next cycle
     goToSleep(CLOCK_INTERVAL_S);
 }
 
 
 void loop() {
     // Never reached — we use deep sleep
+}
+
+
+// ---- Wake detection ----
+
+WakeAction detectWakeAction() {
+    esp_sleep_wakeup_cause_t reason = esp_sleep_get_wakeup_cause();
+    if (reason != ESP_SLEEP_WAKEUP_EXT1) {
+        Serial.println("[Wake] Timer");
+        return WAKE_TIMER;
+    }
+
+    // ext1: check which GPIO triggered the wake
+    uint64_t mask = esp_sleep_get_ext1_wakeup_status();
+    if (mask & (1ULL << BTN_NEXT)) {
+        Serial.println("[Wake] Button: Next");
+        return WAKE_NEXT;
+    }
+    if (mask & (1ULL << BTN_PREV)) {
+        Serial.println("[Wake] Button: Prev");
+        return WAKE_PREV;
+    }
+    // Default to refresh (KEY0 or unknown)
+    Serial.println("[Wake] Button: Refresh");
+    return WAKE_REFRESH;
+}
+
+
+// ---- Button handlers ----
+
+void handleRefresh() {
+    Serial.println("[Action] Refresh — polling server");
+    digitalWrite(LED_PIN, LOW);  // LED on
+    buzzerBeep(1, 50);
+
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) {
+        buzzerBeep(3, 100);  // Error beep
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    bool changed = pollServer();
+    if (changed) {
+        if (downloadImage(currentPage)) {
+            displayImage(imageBuffer, imageSize);
+            Serial.println("[Action] New content displayed");
+        }
+    } else {
+        Serial.println("[Action] No changes");
+    }
+
+    reportDeviceStatus();
+    WiFi.disconnect(true);
+    digitalWrite(LED_PIN, HIGH);
+}
+
+
+void handlePageChange(const char* direction) {
+    Serial.printf("[Action] Page %s\n", direction);
+    digitalWrite(LED_PIN, LOW);
+
+    if (totalPages <= 1) {
+        Serial.println("[Action] Single page, nothing to do");
+        buzzerBeep(2, 50);  // Two short beeps = can't navigate
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) {
+        buzzerBeep(3, 100);
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    int newPage = requestPageChange(direction);
+    if (newPage > 0 && newPage != currentPage) {
+        currentPage = newPage;
+        if (downloadImage(currentPage)) {
+            displayImage(imageBuffer, imageSize);
+            buzzerBeep(1, 30);
+            Serial.printf("[Action] Page %d/%d displayed\n", currentPage, totalPages);
+        }
+    }
+
+    reportDeviceStatus();
+    WiFi.disconnect(true);
+    digitalWrite(LED_PIN, HIGH);
+}
+
+
+void handleTimerWake() {
+    bool needsServerPoll = (wakeCount % (POLL_INTERVAL_S / CLOCK_INTERVAL_S) == 0);
+
+    if (needsServerPoll) {
+        Serial.println("[Timer] Server poll cycle");
+        connectWiFi();
+        if (WiFi.status() == WL_CONNECTED) {
+            // Sync NTP if stale
+            time_t now;
+            time(&now);
+            if (now - lastNTPSync > NTP_SYNC_INTERVAL_S || lastNTPSync == 0) {
+                syncNTP();
+                lastNTPSync = now;
+            }
+
+            bool changed = pollServer();
+            if (changed) {
+                if (downloadImage(currentPage)) {
+                    displayImage(imageBuffer, imageSize);
+                    Serial.println("[Timer] New content from server");
+                }
+            }
+            reportDeviceStatus();
+            WiFi.disconnect(true);
+        }
+    }
+
+    // Always update status bar (clock + temp) via partial refresh
+    drawStatusBar();
 }
 
 
@@ -244,15 +332,15 @@ bool downloadImage(int page) {
 }
 
 
-int requestNextPage() {
+int requestPageChange(const char* direction) {
     HTTPClient http;
-    String url = String(SERVER_URL) + "/page/next";
+    String url = String(SERVER_URL) + "/page/" + direction;
     http.begin(url);
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
 
     int code = http.POST("");
     if (code != 200) {
-        Serial.printf("[API] /page/next returned %d\n", code);
+        Serial.printf("[API] /page/%s returned %d\n", direction, code);
         http.end();
         return -1;
     }
@@ -269,13 +357,13 @@ int requestNextPage() {
 
     bool ok = doc["ok"] | false;
     if (!ok) {
-        Serial.println("[API] /page/next: single page, no change");
+        Serial.printf("[API] /page/%s: no change\n", direction);
         return -1;
     }
 
     int newPage = doc["page"] | 1;
     totalPages = doc["total_pages"] | 1;
-    Serial.printf("[API] Page next → %d/%d\n", newPage, totalPages);
+    Serial.printf("[API] Page %s → %d/%d\n", direction, newPage, totalPages);
     return newPage;
 }
 
@@ -283,8 +371,9 @@ int requestNextPage() {
 void reportDeviceStatus() {
     HTTPClient http;
 
-    // Read battery voltage (ADC — platform specific, placeholder)
-    int batteryMv = 0; // TODO: read actual battery voltage via ADC
+    // Enable battery ADC, read, disable
+    float battV = readBatteryVoltage();
+    int batteryMv = (int)(battV * 1000);
 
     String url = String(SERVER_URL) + "/device/status"
                  + "?battery_mv=" + String(batteryMv)
@@ -294,24 +383,58 @@ void reportDeviceStatus() {
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
 
     int code = http.POST("");
-    Serial.printf("[API] Device status reported: %d\n", code);
+    Serial.printf("[API] Device status: battery=%dmV rssi=%d → %d\n",
+                  batteryMv, WiFi.RSSI(), code);
     http.end();
+}
+
+
+// ---- Battery ----
+
+float readBatteryVoltage() {
+    // Enable battery voltage divider
+    pinMode(BATTERY_ENABLE_PIN, OUTPUT);
+    digitalWrite(BATTERY_ENABLE_PIN, HIGH);
+    delay(10);  // Let ADC settle
+
+    int raw = analogRead(BATTERY_ADC_PIN);
+
+    // Disable to save power
+    digitalWrite(BATTERY_ENABLE_PIN, LOW);
+
+    // ESP32-S3 ADC: 12-bit (0-4095), 0-3.3V range
+    // Battery voltage divider ratio depends on board design (typically 2:1)
+    float voltage = (raw / 4095.0f) * 3.3f * 2.0f;
+    Serial.printf("[Battery] ADC raw=%d → %.2fV\n", raw, voltage);
+    return voltage;
+}
+
+
+// ---- Buzzer ----
+
+void buzzerBeep(int count, int duration_ms) {
+    for (int i = 0; i < count; i++) {
+        digitalWrite(BUZZER_PIN, HIGH);
+        delay(duration_ms);
+        digitalWrite(BUZZER_PIN, LOW);
+        if (i < count - 1) delay(duration_ms);  // Gap between beeps
+    }
 }
 
 
 // ---- NTP ----
 
 void syncNTP() {
-    Serial.println("[NTP] Syncing time...");
+    Serial.println("[NTP] Syncing...");
     configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
 
     struct tm timeinfo;
     if (getLocalTime(&timeinfo, 5000)) {
-        Serial.printf("[NTP] Time: %04d-%02d-%02d %02d:%02d:%02d\n",
+        Serial.printf("[NTP] %04d-%02d-%02d %02d:%02d:%02d\n",
                       timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
                       timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
     } else {
-        Serial.println("[NTP] Failed to get time");
+        Serial.println("[NTP] Failed");
     }
 }
 
@@ -319,53 +442,38 @@ void syncNTP() {
 // ---- Display ----
 
 void drawStatusBar() {
-    // TODO: Implement with Seeed_GFX partial refresh
-    // Draw time, date, temperature in the top STATUS_BAR_HEIGHT pixels
+    // TODO: Implement with e-paper partial refresh
+    // Draw time + date + temperature in the top STATUS_BAR_HEIGHT pixels
     //
-    // Pseudocode:
     //   struct tm timeinfo;
     //   getLocalTime(&timeinfo);
-    //   float temp = readTemperatureSensor();
+    //   float temp = readSHT40Temperature();
     //
     //   display.setPartialWindow(0, 0, DISPLAY_WIDTH, STATUS_BAR_HEIGHT);
     //   display.fillRect(0, 0, DISPLAY_WIDTH, STATUS_BAR_HEIGHT, WHITE);
-    //   display.setCursor(20, 15);
-    //   display.setFont(&FreeSansBold18pt7b);
     //   display.printf("%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
-    //   display.setCursor(300, 15);
-    //   display.printf("%s %d %s", dayStr, timeinfo.tm_mday, monthStr);
-    //   display.setCursor(650, 15);
     //   display.printf("%.1f°C", temp);
-    //   display.display(true); // partial refresh
+    //   display.display(true);  // partial refresh
 
     struct tm timeinfo;
     if (getLocalTime(&timeinfo, 100)) {
-        Serial.printf("[Display] Status bar: %02d:%02d  %02d/%02d  ",
+        Serial.printf("[Display] Status bar: %02d:%02d %02d/%02d (placeholder)\n",
                       timeinfo.tm_hour, timeinfo.tm_min,
                       timeinfo.tm_mday, timeinfo.tm_mon + 1);
     }
-
-    // TODO: Read temp/humidity from onboard sensor (I2C)
-    // Wire.begin(I2C_SDA, I2C_SCL);
-    // ... read sensor ...
-    Serial.println("(display update placeholder)");
 }
 
 
 void displayImage(const uint8_t* data, size_t len) {
-    // TODO: Parse BMP header, extract pixel data, push to display
-    // The BMP from the server is 800x430 1-bit
-    // Skip BMP header (typically 62 bytes for 1-bit BMP)
-    // Feed raw pixel data to the display driver
+    // TODO: Parse BMP header, push pixel data to e-paper
     //
-    // Pseudocode:
-    //   uint32_t dataOffset = *(uint32_t*)(data + 10);  // BMP data offset
+    //   uint32_t dataOffset = *(uint32_t*)(data + 10);  // BMP pixel data offset
     //   const uint8_t* pixels = data + dataOffset;
     //   display.drawBitmap(0, STATUS_BAR_HEIGHT, pixels,
     //                      DISPLAY_WIDTH, DISPLAY_HEIGHT - STATUS_BAR_HEIGHT, BLACK);
-    //   display.display(false); // full refresh
+    //   display.display(false);  // full refresh
 
-    Serial.printf("[Display] Would display %d bytes of image data\n", len);
+    Serial.printf("[Display] Would display %d bytes of image data (placeholder)\n", len);
 }
 
 
@@ -374,13 +482,14 @@ void displayImage(const uint8_t* data, size_t len) {
 void goToSleep(uint64_t seconds) {
     Serial.printf("[ePepper] Sleeping for %llu seconds...\n\n", seconds);
 
-    // Enable wake by button (GPIO3, active LOW)
-    esp_sleep_enable_ext0_wakeup((gpio_num_t)BUTTON_PIN, 0);
+    // Wake on any of the 3 buttons (ext1, active-low → wake on LOW)
+    uint64_t buttonMask = (1ULL << BTN_REFRESH) | (1ULL << BTN_NEXT) | (1ULL << BTN_PREV);
+    esp_sleep_enable_ext1_wakeup(buttonMask, ESP_EXT1_WAKEUP_ANY_LOW);
 
-    // Enable wake by timer
+    // Wake on timer
     esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
 
-    // Free PSRAM buffer before sleep
+    // Free PSRAM before sleep
     if (imageBuffer) {
         free(imageBuffer);
         imageBuffer = nullptr;

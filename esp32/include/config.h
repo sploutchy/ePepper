@@ -39,14 +39,21 @@
 // Status LED (active LOW)
 #define LED_PIN   6
 
-// Button (user button for force refresh)
-#define BUTTON_PIN 3
+// Buttons (active LOW, hardware pull-ups)
+#define BTN_REFRESH  3   // KEY0 — right (green), refresh display
+#define BTN_NEXT     4   // KEY1 — middle, next page
+#define BTN_PREV     5   // KEY2 — left, previous page
+#define BTN_DEBOUNCE_MS 50
 
-// I2C for temp/humidity sensor
+// I2C for SHT4x temp/humidity sensor
 #define I2C_SDA   19
 #define I2C_SCL   20
 
-// Buzzer
+// Buzzer (piezo)
 #define BUZZER_PIN 45
+
+// Battery ADC
+#define BATTERY_ADC_PIN    1
+#define BATTERY_ENABLE_PIN 21
 
 #endif // EPEPPER_CONFIG_H

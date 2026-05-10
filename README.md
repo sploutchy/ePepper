@@ -73,18 +73,33 @@ pio device monitor -b 115200
 
 ### Pin Mapping (reTerminal E1001)
 
-| Function | GPIO |
-|---|---|
-| EPD CLK | 7 |
-| EPD MOSI | 9 |
-| EPD CS | 10 |
-| EPD DC | 11 |
-| EPD RST | 12 |
-| EPD BUSY | 13 |
-| User button | 3 |
-| Status LED | 6 |
-| I2C SDA | 19 |
-| I2C SCL | 20 |
+From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10xx/res/202004307_reTerminal_E1001_V1_2_SCH_251120.pdf) (CC BY-SA 4.0):
+
+| Function | GPIO | Notes |
+|---|---|---|
+| **Buttons** | | Active-low, 10K pull-up, 100nF debounce |
+| KEY0 — Refresh | 3 | Right (green) button |
+| KEY1 — Next page | 4 | Middle button |
+| KEY2 — Prev page | 5 | Left button |
+| **Display (SPI)** | | UC8179 via 50P FPC |
+| EPD CLK | 7 | |
+| EPD MOSI | 9 | |
+| EPD CS | 10 | |
+| EPD DC | 11 | |
+| EPD RST | 12 | |
+| EPD BUSY | 13 | |
+| **Peripherals** | | |
+| Status LED | 6 | Active-low (green) |
+| Buzzer | 45 | Active-high, MLT-8530 piezo |
+| Battery ADC | 1 | Enable via GPIO21 |
+| Battery enable | 21 | High to read ADC |
+| **I2C (bus 0)** | | SHT40 (0x44), PCF8563 RTC (0x51) |
+| SDA | 19 | |
+| SCL | 20 | |
+| **SD Card** | | |
+| SD CS | 14 | |
+| SD enable | 16 | |
+| SD detect | 15 | |
 
 ## Usage
 
