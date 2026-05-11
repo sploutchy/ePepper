@@ -21,7 +21,14 @@
 // reTerminal E1001: 7.5" mono, UC8179, 800x480
 #define DISPLAY_WIDTH     800
 #define DISPLAY_HEIGHT    480
-#define STATUS_BAR_HEIGHT 50
+
+// Clock/date overlay (drawn over the server-rendered footer strip, bottom-left)
+#define CLOCK_X        16   // x where text starts; mirrors server MARGIN
+#define CLOCK_Y        462  // top of text; baseline aligns with page indicator
+#define CLOCK_RECT_X   8
+#define CLOCK_RECT_Y   456
+#define CLOCK_RECT_W   240
+#define CLOCK_RECT_H   24
 
 // ----- Timing -----
 #define POLL_INTERVAL_S       300   // check server every 5 minutes
