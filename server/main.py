@@ -16,6 +16,9 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
 )
+# python-telegram-bot embeds the bot token in URLs; httpx logs full URLs at INFO.
+# Bump httpx to WARNING so the token never lands in container logs.
+logging.getLogger("httpx").setLevel(logging.WARNING)
 log = logging.getLogger("epepper")
 
 
