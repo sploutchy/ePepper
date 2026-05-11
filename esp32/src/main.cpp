@@ -7,7 +7,7 @@
  *   KEY2 (GPIO5)  — Previous page
  *
  * Wake sources:
- *   - Timer: CLOCK_INTERVAL_S for status bar, POLL_INTERVAL_S for server poll
+ *   - Timer: CLOCK_INTERVAL_S for clock overlay, POLL_INTERVAL_S for server poll
  *   - Any button press via ext1 bitmask (GPIO 3, 4, 5)
  *
  * Loop:
@@ -17,7 +17,7 @@
  *      a. Refresh → connect WiFi, poll server, fetch image if changed
  *      b. Next/Prev → connect WiFi, call /page/next or /page/prev, fetch image
  *   4. If timer:
- *      a. Every CLOCK_INTERVAL_S → update status bar (partial refresh, no WiFi)
+ *      a. Every CLOCK_INTERVAL_S → update clock overlay (partial refresh, no WiFi)
  *      b. Every POLL_INTERVAL_S → connect WiFi, poll server for new recipe
  *   5. Deep sleep
  */
@@ -28,18 +28,26 @@
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <time.h>
+#include "TFT_eSPI.h"
 #include "config.h"
+
+EPaper epaper;
 
 // ---- Types ----
 enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
 
 // ---- Forward declarations ----
+void handleRefresh();
+void handlePageChange(const char* direction);
+void handleTimerWake();
 void connectWiFi();
 bool pollServer();
 bool downloadImage(int page);
 int requestPageChange(const char* direction);
-void displayImage(const uint8_t* data, size_t len);
-void drawStatusBar();
+void displayImage(uint8_t* data, size_t len);
+void drawClockOverlay();
+void drawClockContent();
+void syncNTPIfStale();
 void reportDeviceStatus();
 void syncNTP();
 void buzzerBeep(int count, int duration_ms);
@@ -86,8 +94,7 @@ void setup() {
         return;
     }
 
-    // TODO: Initialize e-paper display driver
-    // display.begin();
+    epaper.begin();
 
     WakeAction action = detectWakeAction();
 
@@ -154,6 +161,8 @@ void handleRefresh() {
         return;
     }
 
+    syncNTPIfStale();
+
     bool changed = pollServer();
     if (changed) {
         if (downloadImage(currentPage)) {
@@ -188,6 +197,8 @@ void handlePageChange(const char* direction) {
         return;
     }
 
+    syncNTPIfStale();
+
     int newPage = requestPageChange(direction);
     if (newPage > 0 && newPage != currentPage) {
         currentPage = newPage;
@@ -211,13 +222,7 @@ void handleTimerWake() {
         Serial.println("[Timer] Server poll cycle");
         connectWiFi();
         if (WiFi.status() == WL_CONNECTED) {
-            // Sync NTP if stale
-            time_t now;
-            time(&now);
-            if (now - lastNTPSync > NTP_SYNC_INTERVAL_S || lastNTPSync == 0) {
-                syncNTP();
-                lastNTPSync = now;
-            }
+            syncNTPIfStale();
 
             bool changed = pollServer();
             if (changed) {
@@ -231,8 +236,8 @@ void handleTimerWake() {
         }
     }
 
-    // Always update status bar (clock + temp) via partial refresh
-    drawStatusBar();
+    // Always tick the clock overlay via partial refresh
+    drawClockOverlay();
 }
 
 
@@ -430,9 +435,19 @@ void buzzerBeep(int count, int duration_ms) {
 
 // ---- NTP ----
 
+void syncNTPIfStale() {
+    time_t now;
+    time(&now);
+    if (lastNTPSync != 0 && now - lastNTPSync < NTP_SYNC_INTERVAL_S) return;
+    syncNTP();
+    lastNTPSync = now;
+}
+
+
 void syncNTP() {
     Serial.println("[NTP] Syncing...");
-    configTime(3600, 3600, "pool.ntp.org", "time.nist.gov");
+    // Europe/Zurich: CET (UTC+1) / CEST (UTC+2), DST last Sun of Mar→Oct
+    configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov");
 
     struct tm timeinfo;
     if (getLocalTime(&timeinfo, 5000)) {
@@ -447,39 +462,79 @@ void syncNTP() {
 
 // ---- Display ----
 
-void drawStatusBar() {
-    // TODO: Implement with e-paper partial refresh
-    // Draw time + date + temperature in the top STATUS_BAR_HEIGHT pixels
-    //
-    //   struct tm timeinfo;
-    //   getLocalTime(&timeinfo);
-    //   float temp = readSHT40Temperature();
-    //
-    //   display.setPartialWindow(0, 0, DISPLAY_WIDTH, STATUS_BAR_HEIGHT);
-    //   display.fillRect(0, 0, DISPLAY_WIDTH, STATUS_BAR_HEIGHT, WHITE);
-    //   display.printf("%02d:%02d", timeinfo.tm_hour, timeinfo.tm_min);
-    //   display.printf("%.1f°C", temp);
-    //   display.display(true);  // partial refresh
+void drawClockContent() {
+    epaper.fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, TFT_WHITE);
 
     struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 100)) {
-        Serial.printf("[Display] Status bar: %02d:%02d %02d/%02d (placeholder)\n",
-                      timeinfo.tm_hour, timeinfo.tm_min,
-                      timeinfo.tm_mday, timeinfo.tm_mon + 1);
+    if (!getLocalTime(&timeinfo, 100)) {
+        Serial.println("[Display] Clock: no time yet");
+        return;
     }
+
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%02d:%02d  %02d/%02d",
+             timeinfo.tm_hour, timeinfo.tm_min,
+             timeinfo.tm_mday, timeinfo.tm_mon + 1);
+
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
+    // Font 1 (GLCD, 8 px tall) at size 1 — smaller than the server's 14 px page indicator
+    epaper.setTextFont(1);
+    epaper.setTextSize(1);
+    epaper.drawString(buf, CLOCK_X, CLOCK_Y);
+    Serial.printf("[Display] Clock: %s\n", buf);
 }
 
 
-void displayImage(const uint8_t* data, size_t len) {
-    // TODO: Parse BMP header, push pixel data to e-paper
-    //
-    //   uint32_t dataOffset = *(uint32_t*)(data + 10);  // BMP pixel data offset
-    //   const uint8_t* pixels = data + dataOffset;
-    //   display.drawBitmap(0, STATUS_BAR_HEIGHT, pixels,
-    //                      DISPLAY_WIDTH, DISPLAY_HEIGHT - STATUS_BAR_HEIGHT, BLACK);
-    //   display.display(false);  // full refresh
+void drawClockOverlay() {
+    drawClockContent();
+    epaper.updataPartial(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H);
+}
 
-    Serial.printf("[Display] Would display %d bytes of image data (placeholder)\n", len);
+
+void displayImage(uint8_t* data, size_t len) {
+    if (len < 62) {
+        Serial.printf("[Display] BMP too small: %d bytes\n", len);
+        return;
+    }
+
+    uint32_t pixelOffset;
+    int32_t bmpWidth, bmpHeight;
+    memcpy(&pixelOffset, data + 10, sizeof(pixelOffset));
+    memcpy(&bmpWidth, data + 18, sizeof(bmpWidth));
+    memcpy(&bmpHeight, data + 22, sizeof(bmpHeight));
+
+    bool topDown = bmpHeight < 0;
+    int h = topDown ? -bmpHeight : bmpHeight;
+    int w = bmpWidth;
+    int rowBytes = ((w + 31) / 32) * 4;
+
+    if (pixelOffset + (size_t)rowBytes * h > len) {
+        Serial.printf("[Display] BMP invalid: offset=%u w=%d h=%d row=%d len=%d\n",
+                      pixelOffset, w, h, rowBytes, len);
+        return;
+    }
+
+    uint8_t* pixels = data + pixelOffset;
+
+    // BMP is bottom-up by default — swap rows in place so drawBitmap renders right-side-up
+    if (!topDown && rowBytes <= 128) {
+        uint8_t tmp[128];
+        for (int y = 0; y < h / 2; y++) {
+            uint8_t* top = pixels + y * rowBytes;
+            uint8_t* bot = pixels + (h - 1 - y) * rowBytes;
+            memcpy(tmp, top, rowBytes);
+            memcpy(top, bot, rowBytes);
+            memcpy(bot, tmp, rowBytes);
+        }
+    }
+
+    epaper.fillScreen(TFT_WHITE);
+    // PIL "1" mode → BMP: bit 1 = white, bit 0 = black
+    epaper.drawBitmap(0, 0, pixels, w, h, TFT_WHITE, TFT_BLACK);
+    drawClockContent();
+    epaper.update();
+
+    Serial.printf("[Display] Pushed %dx%d image to panel\n", w, h);
 }
 
 

@@ -10,7 +10,7 @@ from config import DISPLAY_WIDTH, RECIPE_HEIGHT
 def process_photo(image_bytes: bytes) -> Image.Image:
     """Resize and dither an image for the e-ink display.
 
-    Returns an 800x430 1-bit BMP-ready image (top 50px left for ESP32 status bar).
+    Returns a 1-bit BMP-ready image sized to the full display (800x480).
     """
     img = Image.open(BytesIO(image_bytes))
     img = img.convert("RGB")

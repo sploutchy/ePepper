@@ -11,8 +11,7 @@ ALLOWED_USERS: list[int] = [
 # Display (reTerminal E1001: 7.5" mono, 800x480)
 DISPLAY_WIDTH: int = 800
 DISPLAY_HEIGHT: int = 480
-STATUS_BAR_HEIGHT: int = 50  # reserved for ESP32 clock/temp
-RECIPE_HEIGHT: int = DISPLAY_HEIGHT - STATUS_BAR_HEIGHT  # 430px for content
+RECIPE_HEIGHT: int = DISPLAY_HEIGHT  # full panel; ESP32 overlays clock in the footer strip
 
 # API
 API_HOST: str = os.environ.get("API_HOST", "0.0.0.0")
