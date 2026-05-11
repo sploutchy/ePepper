@@ -31,9 +31,11 @@
 #define CLOCK_RECT_H   28
 
 // ----- Timing -----
-#define POLL_INTERVAL_S       300   // check server every 5 minutes
-#define CLOCK_INTERVAL_S      60    // update clock every 1 minute
-#define NTP_SYNC_INTERVAL_S   3600  // sync NTP every hour
+#define POLL_INTERVAL_S         300    // check server every 5 minutes
+#define CLOCK_INTERVAL_S        60     // update clock every 1 minute
+#define NTP_SYNC_INTERVAL_S     3600   // sync NTP every hour
+#define WARM_WINDOW_MS          15000  // stay awake after a button press to skip cold-start next time
+#define FULL_REFRESH_INTERVAL_S 1800   // force full panel refresh every 30 min so partial-refresh artifacts don't accumulate
 
 // ----- Pins (reTerminal E1001) -----
 #define EPD_CLK   7

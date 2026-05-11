@@ -40,6 +40,7 @@ enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
 void handleRefresh();
 void handlePageChange(const char* direction);
 void handleTimerWake();
+void warmWindow();
 void connectWiFi();
 bool pollServer();
 bool downloadImage(int page);
@@ -62,6 +63,7 @@ RTC_DATA_ATTR int totalPages = 1;
 RTC_DATA_ATTR int wakeCount = 0;
 RTC_DATA_ATTR time_t lastNTPSync = 0;
 RTC_DATA_ATTR bool hasContent = false;
+RTC_DATA_ATTR int lastFullRefreshWake = 0;  // wakeCount of the last full-panel refresh; used to throttle anti-ghost full refreshes
 
 // ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
@@ -111,6 +113,12 @@ void setup() {
         case WAKE_TIMER:
             handleTimerWake();
             break;
+    }
+
+    // After a button press, hold awake (and WiFi connected) for a warm window
+    // so quick follow-up presses skip the cold-start + WiFi reconnect penalty.
+    if (action != WAKE_TIMER) {
+        warmWindow();
     }
 
     goToSleep(CLOCK_INTERVAL_S);
@@ -174,7 +182,6 @@ void handleRefresh() {
     }
 
     reportDeviceStatus();
-    WiFi.disconnect(true);
     digitalWrite(LED_PIN, HIGH);
 }
 
@@ -210,40 +217,49 @@ void handlePageChange(const char* direction) {
     }
 
     reportDeviceStatus();
-    WiFi.disconnect(true);
     digitalWrite(LED_PIN, HIGH);
 }
 
 
 void handleTimerWake() {
     bool needsServerPoll = (wakeCount % (POLL_INTERVAL_S / CLOCK_INTERVAL_S) == 0);
+    int fullRefreshWakes = FULL_REFRESH_INTERVAL_S / CLOCK_INTERVAL_S;
+    bool needsAntiGhostRefresh = hasContent && (wakeCount - lastFullRefreshWake) >= fullRefreshWakes;
 
-    if (needsServerPoll) {
-        Serial.println("[Timer] Server poll cycle");
+    if (needsServerPoll || needsAntiGhostRefresh) {
+        Serial.printf("[Timer] %s%s\n",
+                      needsServerPoll ? "server poll" : "",
+                      needsAntiGhostRefresh ? " + anti-ghost full refresh" : "");
         connectWiFi();
         if (WiFi.status() == WL_CONNECTED) {
             syncNTPIfStale();
 
             bool changed = pollServer();
-            if (changed) {
+            if (changed || needsAntiGhostRefresh) {
                 if (downloadImage(currentPage)) {
                     displayImage(imageBuffer, imageSize);
-                    Serial.println("[Timer] New content from server");
+                    Serial.println("[Timer] Full refresh complete");
                 }
             }
             reportDeviceStatus();
-            WiFi.disconnect(true);
         }
     }
 
-    // Always tick the clock overlay via partial refresh
-    drawClockOverlay();
+    // Tick the clock overlay via partial refresh — but skip if we just did a
+    // full refresh, which already painted the clock in the same pass.
+    if (!needsAntiGhostRefresh) {
+        drawClockOverlay();
+    }
 }
 
 
 // ---- WiFi ----
 
 void connectWiFi() {
+    if (WiFi.status() == WL_CONNECTED) {
+        Serial.printf("[WiFi] Already connected, RSSI: %d\n", WiFi.RSSI());
+        return;
+    }
     Serial.printf("[WiFi] Connecting to %s...\n", WIFI_SSID);
     WiFi.mode(WIFI_STA);
     WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
@@ -533,8 +549,38 @@ void displayImage(uint8_t* data, size_t len) {
     epaper.drawBitmap(0, 0, pixels, w, h, TFT_WHITE, TFT_BLACK);
     drawClockContent();
     epaper.update();
+    lastFullRefreshWake = wakeCount;
 
     Serial.printf("[Display] Pushed %dx%d image to panel\n", w, h);
+}
+
+
+// ---- Warm window ----
+
+void warmWindow() {
+    Serial.printf("[Warm] Watching buttons for %d ms\n", WARM_WINDOW_MS);
+    unsigned long deadline = millis() + WARM_WINDOW_MS;
+    while ((long)(deadline - millis()) > 0) {
+        delay(20);
+        int hit = -1;
+        if (digitalRead(BTN_NEXT) == LOW)         hit = BTN_NEXT;
+        else if (digitalRead(BTN_PREV) == LOW)    hit = BTN_PREV;
+        else if (digitalRead(BTN_REFRESH) == LOW) hit = BTN_REFRESH;
+        if (hit < 0) continue;
+
+        delay(BTN_DEBOUNCE_MS);
+        if (digitalRead(hit) != LOW) continue;  // bounced
+
+        if (hit == BTN_REFRESH)   handleRefresh();
+        else if (hit == BTN_NEXT) handlePageChange("next");
+        else                      handlePageChange("prev");
+
+        // Wait for release so we don't immediately re-trigger
+        while (digitalRead(hit) == LOW) delay(10);
+
+        deadline = millis() + WARM_WINDOW_MS;
+    }
+    Serial.println("[Warm] Window closed");
 }
 
 
@@ -542,6 +588,10 @@ void displayImage(uint8_t* data, size_t len) {
 
 void goToSleep(uint64_t seconds) {
     Serial.printf("[ePepper] Sleeping for %llu seconds...\n\n", seconds);
+
+    if (WiFi.status() == WL_CONNECTED) {
+        WiFi.disconnect(true);
+    }
 
     // Wake on any of the 3 buttons (ext1, active-low → wake on LOW)
     uint64_t buttonMask = (1ULL << BTN_REFRESH) | (1ULL << BTN_NEXT) | (1ULL << BTN_PREV);
