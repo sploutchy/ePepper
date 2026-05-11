@@ -24,11 +24,11 @@
 
 // Clock/date overlay (drawn over the server-rendered footer strip, bottom-left)
 #define CLOCK_X        16   // x where text starts; mirrors server MARGIN
-#define CLOCK_Y        462  // top of text; baseline aligns with page indicator
+#define CLOCK_Y        456  // top of 16-px text; bottom (y=472) matches page indicator bottom
 #define CLOCK_RECT_X   8
-#define CLOCK_RECT_Y   456
+#define CLOCK_RECT_Y   452
 #define CLOCK_RECT_W   240
-#define CLOCK_RECT_H   24
+#define CLOCK_RECT_H   28
 
 // ----- Timing -----
 #define POLL_INTERVAL_S       300   // check server every 5 minutes

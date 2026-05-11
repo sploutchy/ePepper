@@ -477,8 +477,8 @@ void drawClockContent() {
              timeinfo.tm_mday, timeinfo.tm_mon + 1);
 
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    // Font 1 (GLCD, 8 px tall) at size 1 — smaller than the server's 14 px page indicator
-    epaper.setTextFont(1);
+    // Font 2 (16 px tall) at size 1 — close to the server's 14 px page indicator
+    epaper.setTextFont(2);
     epaper.setTextSize(1);
     epaper.drawString(buf, CLOCK_X, CLOCK_Y);
     Serial.printf("[Display] Clock: %s\n", buf);
