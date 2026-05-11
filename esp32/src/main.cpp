@@ -532,6 +532,14 @@ static void formatDate(char* out, size_t outLen, const struct tm& t, const char*
 }
 
 
+static int batteryPercent(float v) {
+    // Li-Po linear approximation: 4.20 V = 100 %, 3.00 V = 0 %.
+    if (v >= 4.20f) return 100;
+    if (v <= 3.00f) return 0;
+    return (int)((v - 3.00f) / 1.20f * 100.0f);
+}
+
+
 void drawClockContent() {
     epaper.fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, TFT_WHITE);
 
@@ -545,16 +553,31 @@ void drawClockContent() {
     formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
 
     char buf[80];
-    snprintf(buf, sizeof(buf), "%02d:%02d  %s   %.2fV",
-             timeinfo.tm_hour, timeinfo.tm_min,
-             dateStr, lastBatteryV);
+    snprintf(buf, sizeof(buf), "%02d:%02d  %s   ",
+             timeinfo.tm_hour, timeinfo.tm_min, dateStr);
 
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    // Font 2 (16 px tall) at size 1 — close to the server's 14 px page indicator
     epaper.setTextFont(2);
     epaper.setTextSize(1);
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.drawString(buf, CLOCK_X, CLOCK_Y);
-    Serial.printf("[Display] Clock: %s\n", buf);
+
+    // Battery glyph: 36x14 body with a 3x6 nub on the right, fill proportional to %.
+    const int bodyW = 36, bodyH = 14;
+    const int nubW  = 3,  nubH  = 6;
+    int batX = CLOCK_X + epaper.textWidth(buf);
+    int batY = CLOCK_Y + 1;
+
+    epaper.drawRect(batX, batY, bodyW, bodyH, TFT_BLACK);
+    epaper.fillRect(batX + bodyW, batY + (bodyH - nubH) / 2, nubW, nubH, TFT_BLACK);
+
+    int pct = batteryPercent(lastBatteryV);
+    int innerMax = bodyW - 4;
+    int fillW = (innerMax * pct) / 100;
+    if (fillW > 0) {
+        epaper.fillRect(batX + 2, batY + 2, fillW, bodyH - 4, TFT_BLACK);
+    }
+
+    Serial.printf("[Display] Clock: %s [batt %.2fV %d%%]\n", buf, lastBatteryV, pct);
 }
 
 
