@@ -549,23 +549,11 @@ void drawClockContent() {
         return;
     }
 
-    char dateStr[48];
-    formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
-
-    char buf[80];
-    snprintf(buf, sizeof(buf), "%02d:%02d  %s   ",
-             timeinfo.tm_hour, timeinfo.tm_min, dateStr);
-
-    epaper.setTextFont(2);
-    epaper.setTextSize(1);
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.drawString(buf, CLOCK_X, CLOCK_Y);
-
-    // Battery glyph: 36x14 body with a 3x6 nub on the right, fill proportional to %.
-    const int bodyW = 36, bodyH = 14;
-    const int nubW  = 3,  nubH  = 6;
-    int batX = CLOCK_X + epaper.textWidth(buf);
-    int batY = CLOCK_Y + 1;
+    // Battery glyph (leftmost): 24x10 body with a 3x4 nub on the right.
+    const int bodyW = 24, bodyH = 10;
+    const int nubW  = 3,  nubH  = 4;
+    int batX = CLOCK_X;
+    int batY = CLOCK_Y + (16 - bodyH) / 2;  // vertically centered in the 16-px text line
 
     epaper.drawRect(batX, batY, bodyW, bodyH, TFT_BLACK);
     epaper.fillRect(batX + bodyW, batY + (bodyH - nubH) / 2, nubW, nubH, TFT_BLACK);
@@ -576,6 +564,19 @@ void drawClockContent() {
     if (fillW > 0) {
         epaper.fillRect(batX + 2, batY + 2, fillW, bodyH - 4, TFT_BLACK);
     }
+
+    // Time + localized date, drawn just to the right of the battery.
+    char dateStr[48];
+    formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
+
+    char buf[80];
+    snprintf(buf, sizeof(buf), "%02d:%02d  %s",
+             timeinfo.tm_hour, timeinfo.tm_min, dateStr);
+
+    epaper.setTextFont(2);
+    epaper.setTextSize(1);
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
+    epaper.drawString(buf, batX + bodyW + nubW + 8, CLOCK_Y);
 
     Serial.printf("[Display] Clock: %s [batt %.2fV %d%%]\n", buf, lastBatteryV, pct);
 }
