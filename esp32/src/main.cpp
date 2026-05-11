@@ -64,6 +64,8 @@ RTC_DATA_ATTR int wakeCount = 0;
 RTC_DATA_ATTR time_t lastNTPSync = 0;
 RTC_DATA_ATTR bool hasContent = false;
 RTC_DATA_ATTR int lastFullRefreshWake = 0;  // wakeCount of the last full-panel refresh; used to throttle anti-ghost full refreshes
+RTC_DATA_ATTR char currentLang[3] = "en";   // recipe language (ISO 639-1), localizes the date overlay
+RTC_DATA_ATTR float lastBatteryV = 3.7f;    // most recent battery voltage, refreshed during reportDeviceStatus
 
 // ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
@@ -307,6 +309,10 @@ bool pollServer() {
     totalPages = doc["total_pages"] | 1;
     currentPage = doc["page"] | 1;
 
+    const char* lang = doc["lang"] | "en";
+    strncpy(currentLang, lang, sizeof(currentLang) - 1);
+    currentLang[sizeof(currentLang) - 1] = '\0';
+
     if (hash && strcmp(hash, lastHash) != 0) {
         strncpy(lastHash, hash, sizeof(lastHash) - 1);
         hasContent = true;
@@ -400,6 +406,7 @@ void reportDeviceStatus() {
 
     // Enable battery ADC, read, disable
     float battV = readBatteryVoltage();
+    lastBatteryV = battV;
     int batteryMv = (int)(battV * 1000);
 
     String url = String(SERVER_URL) + "/device/status"
@@ -478,6 +485,53 @@ void syncNTP() {
 
 // ---- Display ----
 
+// Localized weekday/month names. ASCII-only (Font 2 is ASCII 32-127); diacritics
+// are dropped from Italian/Spanish, German uses the unaccented forms it doesn't
+// need diacritics for anyway. Indexed by tm_wday (0=Sun) and tm_mon (0=Jan).
+static const char* WEEKDAYS_EN[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
+static const char* WEEKDAYS_DE[] = {"Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"};
+static const char* WEEKDAYS_FR[] = {"dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"};
+static const char* WEEKDAYS_IT[] = {"domenica","lunedi","martedi","mercoledi","giovedi","venerdi","sabato"};
+static const char* WEEKDAYS_ES[] = {"domingo","lunes","martes","miercoles","jueves","viernes","sabado"};
+static const char* WEEKDAYS_NL[] = {"zondag","maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag"};
+
+static const char* MONTHS_EN[] = {"January","February","March","April","May","June","July","August","September","October","November","December"};
+static const char* MONTHS_DE[] = {"Januar","Februar","Maerz","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"};
+static const char* MONTHS_FR[] = {"janvier","fevrier","mars","avril","mai","juin","juillet","aout","septembre","octobre","novembre","decembre"};
+static const char* MONTHS_IT[] = {"gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"};
+static const char* MONTHS_ES[] = {"enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"};
+static const char* MONTHS_NL[] = {"januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"};
+
+
+static const char* enOrdinal(int day) {
+    if (day >= 11 && day <= 13) return "th";
+    switch (day % 10) {
+        case 1: return "st";
+        case 2: return "nd";
+        case 3: return "rd";
+        default: return "th";
+    }
+}
+
+
+static void formatDate(char* out, size_t outLen, const struct tm& t, const char* lang) {
+    int wd = t.tm_wday, mo = t.tm_mon, md = t.tm_mday;
+    if (strcmp(lang, "de") == 0) {
+        snprintf(out, outLen, "%s, %d. %s", WEEKDAYS_DE[wd], md, MONTHS_DE[mo]);
+    } else if (strcmp(lang, "fr") == 0) {
+        snprintf(out, outLen, "%s %d %s", WEEKDAYS_FR[wd], md, MONTHS_FR[mo]);
+    } else if (strcmp(lang, "it") == 0) {
+        snprintf(out, outLen, "%s %d %s", WEEKDAYS_IT[wd], md, MONTHS_IT[mo]);
+    } else if (strcmp(lang, "es") == 0) {
+        snprintf(out, outLen, "%s %d de %s", WEEKDAYS_ES[wd], md, MONTHS_ES[mo]);
+    } else if (strcmp(lang, "nl") == 0) {
+        snprintf(out, outLen, "%s %d %s", WEEKDAYS_NL[wd], md, MONTHS_NL[mo]);
+    } else {
+        snprintf(out, outLen, "%s %s %d%s", WEEKDAYS_EN[wd], MONTHS_EN[mo], md, enOrdinal(md));
+    }
+}
+
+
 void drawClockContent() {
     epaper.fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, TFT_WHITE);
 
@@ -487,10 +541,13 @@ void drawClockContent() {
         return;
     }
 
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%02d:%02d  %02d/%02d",
+    char dateStr[48];
+    formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
+
+    char buf[80];
+    snprintf(buf, sizeof(buf), "%02d:%02d  %s   %.2fV",
              timeinfo.tm_hour, timeinfo.tm_min,
-             timeinfo.tm_mday, timeinfo.tm_mon + 1);
+             dateStr, lastBatteryV);
 
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     // Font 2 (16 px tall) at size 1 — close to the server's 14 px page indicator

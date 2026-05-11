@@ -177,7 +177,7 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
         page_img, _ = render_recipe(recipe, page=p)
         pages[p] = page_img
 
-    display_state.set_recipe_pages(pages, title=recipe.get("title", ""))
+    display_state.set_recipe_pages(pages, title=recipe.get("title", ""), lang=recipe.get("lang", "en"))
 
     reply = f"✅ *{recipe['title']}*\nSent to display!"
     if total_pages > 1:

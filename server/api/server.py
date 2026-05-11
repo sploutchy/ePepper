@@ -47,6 +47,7 @@ async def version(request: Request):
         "total_pages": state["total_pages"],
         "updated_at": state["updated_at"],
         "type": state["type"],
+        "lang": state["lang"],
     }
 
 

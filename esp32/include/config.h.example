@@ -27,7 +27,7 @@
 #define CLOCK_Y        456  // top of 16-px text; bottom (y=472) matches page indicator bottom
 #define CLOCK_RECT_X   8
 #define CLOCK_RECT_Y   452
-#define CLOCK_RECT_W   240
+#define CLOCK_RECT_W   480  // wide enough for "HH:MM <localized date> X.YZV"
 #define CLOCK_RECT_H   28
 
 // ----- Timing -----

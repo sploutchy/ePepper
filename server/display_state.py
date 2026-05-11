@@ -22,6 +22,7 @@ _state: dict[str, Any] = {
     "total_pages": 1,
     "updated_at": 0,
     "title": "",
+    "lang": "en",           # recipe language, used by the ESP32 to localize the clock overlay
 }
 
 # Page images: {page_number: PIL.Image}
@@ -36,18 +37,18 @@ _device: dict[str, Any] = {
 }
 
 
-def set_image(img: Image.Image, content_type: str = "photo", title: str = "") -> None:
+def set_image(img: Image.Image, content_type: str = "photo", title: str = "", lang: str = "en") -> None:
     """Set a single-page image as the current display content."""
     _pages.clear()
     _pages[1] = img
-    _update_state(content_type=content_type, title=title, total_pages=1)
+    _update_state(content_type=content_type, title=title, total_pages=1, lang=lang)
 
 
-def set_recipe_pages(pages: dict[int, Image.Image], title: str = "") -> None:
+def set_recipe_pages(pages: dict[int, Image.Image], title: str = "", lang: str = "en") -> None:
     """Set multi-page recipe images as the current display content."""
     _pages.clear()
     _pages.update(pages)
-    _update_state(content_type="recipe", title=title, total_pages=len(pages))
+    _update_state(content_type="recipe", title=title, total_pages=len(pages), lang=lang)
 
 
 def set_page(page: int) -> bool:
@@ -102,14 +103,15 @@ def get_device_status() -> dict:
     return dict(_device)
 
 
-def _update_state(content_type: str, title: str, total_pages: int) -> None:
+def _update_state(content_type: str, title: str, total_pages: int, lang: str = "en") -> None:
     _state["type"] = content_type
     _state["title"] = title
     _state["page"] = 1
     _state["total_pages"] = total_pages
     _state["updated_at"] = int(time.time())
     _state["hash"] = _compute_hash(1)
-    log.info("Display updated: type=%s title=%s pages=%d", content_type, title, total_pages)
+    _state["lang"] = lang
+    log.info("Display updated: type=%s title=%s pages=%d lang=%s", content_type, title, total_pages, lang)
 
 
 def _compute_hash(page: int) -> str:
