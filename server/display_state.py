@@ -12,6 +12,8 @@ from typing import Any
 
 from PIL import Image
 
+from config import DISPLAY_WIDTH, DISPLAY_HEIGHT
+
 log = logging.getLogger(__name__)
 
 # Current display state
@@ -82,7 +84,13 @@ def get_image_bmp(page: int = 1) -> bytes | None:
     """Get a page as BMP bytes."""
     img = _pages.get(page)
     if img is None:
-        return None
+        # In the idle state, hand the ESP32 a blank white panel so it can
+        # actually paint the cleared screen instead of getting a 204 and
+        # leaving the previous recipe up.
+        if _state["type"] == "idle":
+            img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
+        else:
+            return None
     buf = io.BytesIO()
     img.save(buf, format="BMP")
     return buf.getvalue()
