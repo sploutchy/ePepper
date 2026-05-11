@@ -153,7 +153,13 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
         block_h = len(block["lines"]) * block["line_h"] + 6
         if block["type"] == "heading":
             block_h += 4
-        if used_h + block_h > available_h and current_page:
+        # Widow control: a heading must not end a page alone. Reserve room
+        # for the next block's first line so we page-break before the heading
+        # rather than orphaning it from its content.
+        required_h = block_h
+        if block["type"] == "heading" and idx + 1 < len(all_blocks):
+            required_h += all_blocks[idx + 1]["line_h"]
+        if used_h + required_h > available_h and current_page:
             instr_pages.append(current_page)
             current_page = [idx]
             used_h = block_h
