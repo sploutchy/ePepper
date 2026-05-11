@@ -173,13 +173,20 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
     total_pages = max(len(ingr_pages), len(instr_pages), 1)
     page = max(1, min(page, total_pages))
 
+    # If one column fits on a single page but the other needs multiple,
+    # repeat the short column on every page so the cook can see both
+    # ingredients and instructions without flipping back.
+    repeat_ingr = len(ingr_pages) == 1 and total_pages > 1
+    repeat_instr = len(instr_pages) == 1 and total_pages > 1
+
     # --- Draw left column: Ingredients for this page ---
     y_left = col_top
     draw.text((MARGIN, y_left), strings["ingredients"], font=font_heading, fill=0)
     y_left += heading_space
 
-    if page <= len(ingr_pages):
-        for grp_idx in ingr_pages[page - 1]:
+    if ingr_pages and (repeat_ingr or page <= len(ingr_pages)):
+        ingr_src = 0 if repeat_ingr else page - 1
+        for grp_idx in ingr_pages[ingr_src]:
             for wline in ingr_groups[grp_idx]:
                 if y_left + line_h > RECIPE_HEIGHT - MARGIN - footer_reserve:
                     break
@@ -195,8 +202,9 @@ def render_recipe(recipe: dict, page: int = 1) -> tuple[Image.Image, int]:
     draw.text((col_right_x, y_right), strings["instructions"], font=font_heading, fill=0)
     y_right += heading_space
 
-    if page <= len(instr_pages):
-        for block_idx in instr_pages[page - 1]:
+    if instr_pages and (repeat_instr or page <= len(instr_pages)):
+        instr_src = 0 if repeat_instr else page - 1
+        for block_idx in instr_pages[instr_src]:
             block = all_blocks[block_idx]
             if block["type"] == "heading":
                 y_right += 4
