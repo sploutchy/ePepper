@@ -30,8 +30,15 @@
 #define CLOCK_RECT_W   480  // wide enough for "HH:MM <localized date> X.YZV"
 #define CLOCK_RECT_H   28
 
+// Top-edge glyphs marking physical button positions on the reTerminal.
+// Drawn over the recipe image on every full refresh; not partial-refreshed.
+// Tune the centers if they don't line up with the physical buttons.
+#define BTN_GLYPH_Y          2     // px from top edge
+#define BTN_GLYPH_PREV_X     200   // center x for left button (Prev / KEY2)
+#define BTN_GLYPH_NEXT_X     400   // center x for middle button (Next / KEY1)
+#define BTN_GLYPH_REFRESH_X  600   // center x for right button (Refresh / KEY0)
+
 // ----- Timing -----
-#define POLL_INTERVAL_S         300    // check server every 5 minutes
 #define CLOCK_INTERVAL_S        60     // update clock every 1 minute
 #define NTP_SYNC_INTERVAL_S     3600   // sync NTP every hour
 #define WARM_WINDOW_MS          15000  // stay awake after a button press to skip cold-start next time

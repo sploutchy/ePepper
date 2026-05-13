@@ -29,9 +29,10 @@
 #include <Wire.h>
 #include <time.h>
 #include "TFT_eSPI.h"
+#include "EPaperFixed.h"
 #include "config.h"
 
-EPaper epaper;
+EPaperFixed epaper;
 
 // ---- Types ----
 enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
@@ -48,6 +49,7 @@ int requestPageChange(const char* direction);
 void displayImage(uint8_t* data, size_t len);
 void drawClockOverlay();
 void drawClockContent();
+void drawButtonGlyphs();
 void syncNTPIfStale();
 void reportDeviceStatus();
 void syncNTP();
@@ -224,32 +226,25 @@ void handlePageChange(const char* direction) {
 
 
 void handleTimerWake() {
-    bool needsServerPoll = (wakeCount % (POLL_INTERVAL_S / CLOCK_INTERVAL_S) == 0);
     int fullRefreshWakes = FULL_REFRESH_INTERVAL_S / CLOCK_INTERVAL_S;
     bool needsAntiGhostRefresh = hasContent && (wakeCount - lastFullRefreshWake) >= fullRefreshWakes;
 
-    if (needsServerPoll || needsAntiGhostRefresh) {
-        Serial.printf("[Timer] %s%s\n",
-                      needsServerPoll ? "server poll" : "",
-                      needsAntiGhostRefresh ? " + anti-ghost full refresh" : "");
+    if (needsAntiGhostRefresh) {
+        Serial.println("[Timer] anti-ghost full refresh");
         connectWiFi();
         if (WiFi.status() == WL_CONNECTED) {
             syncNTPIfStale();
-
-            bool changed = pollServer();
-            if (changed || needsAntiGhostRefresh) {
-                if (downloadImage(currentPage)) {
-                    displayImage(imageBuffer, imageSize);
-                    Serial.println("[Timer] Full refresh complete");
-                }
+            // We're online anyway — opportunistically resync state so the
+            // page indicator and lang stay coherent if the recipe changed
+            // between refresh-button presses.
+            pollServer();
+            if (downloadImage(currentPage)) {
+                displayImage(imageBuffer, imageSize);
+                Serial.println("[Timer] Full refresh complete");
             }
             reportDeviceStatus();
         }
-    }
-
-    // Tick the clock overlay via partial refresh — but skip if we just did a
-    // full refresh, which already painted the clock in the same pass.
-    if (!needsAntiGhostRefresh) {
+    } else {
         drawClockOverlay();
     }
 }
@@ -588,6 +583,49 @@ void drawClockOverlay() {
 }
 
 
+// 8x8 glyphs marking which physical button does what. Each row is one byte,
+// MSB-first (bit 7 = leftmost pixel). Drawn over the recipe image at the top
+// edge so the user can see at a glance which button is which.
+static const uint8_t GLYPH_PREV[8] = {
+    0b00001000,
+    0b00011000,
+    0b00111000,
+    0b01111000,
+    0b01111000,
+    0b00111000,
+    0b00011000,
+    0b00001000,
+};
+static const uint8_t GLYPH_NEXT[8] = {
+    0b00010000,
+    0b00011000,
+    0b00011100,
+    0b00011110,
+    0b00011110,
+    0b00011100,
+    0b00011000,
+    0b00010000,
+};
+static const uint8_t GLYPH_REFRESH[8] = {
+    0b00111100,
+    0b01000110,  // gap at top-right marks the arrowhead notch
+    0b10000010,
+    0b10000010,
+    0b10000010,
+    0b10000010,
+    0b01000100,
+    0b00111100,
+};
+
+
+void drawButtonGlyphs() {
+    const int w = 8, h = 8;
+    epaper.drawBitmap(BTN_GLYPH_PREV_X    - w / 2, BTN_GLYPH_Y, GLYPH_PREV,    w, h, TFT_BLACK);
+    epaper.drawBitmap(BTN_GLYPH_NEXT_X    - w / 2, BTN_GLYPH_Y, GLYPH_NEXT,    w, h, TFT_BLACK);
+    epaper.drawBitmap(BTN_GLYPH_REFRESH_X - w / 2, BTN_GLYPH_Y, GLYPH_REFRESH, w, h, TFT_BLACK);
+}
+
+
 void displayImage(uint8_t* data, size_t len) {
     if (len < 62) {
         Serial.printf("[Display] BMP too small: %d bytes\n", len);
@@ -628,6 +666,7 @@ void displayImage(uint8_t* data, size_t len) {
     epaper.fillScreen(TFT_WHITE);
     // PIL "1" mode → BMP: bit 1 = white, bit 0 = black
     epaper.drawBitmap(0, 0, pixels, w, h, TFT_WHITE, TFT_BLACK);
+    drawButtonGlyphs();
     drawClockContent();
     epaper.update();
     lastFullRefreshWake = wakeCount;
