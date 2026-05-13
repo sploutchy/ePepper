@@ -2,6 +2,9 @@
 
 import logging
 import time
+import uuid
+from collections import OrderedDict
+from typing import Tuple
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -14,11 +17,28 @@ from telegram.ext import (
 
 from config import TELEGRAM_BOT_TOKEN, ALLOWED_USERS
 import display_state
+import library
 from processing.images import process_photo
 from processing.recipes import process_recipe_url
 from rendering.layout import render_recipe
 
 log = logging.getLogger(__name__)
+
+
+# Pending unsaved recipes, keyed by a short token embedded in the Save
+# button's callback_data. The map only holds parsed recipes the user has
+# not yet rated; once a star is tapped (or 32 newer pushes have arrived)
+# the entry is removed.
+_PENDING_MAX = 32
+_pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
+
+
+def _stash_pending(url: str, recipe: dict) -> str:
+    token = uuid.uuid4().hex[:8]
+    _pending[token] = (url, recipe)
+    while len(_pending) > _PENDING_MAX:
+        _pending.popitem(last=False)
+    return token
 
 
 def create_bot() -> Application:
@@ -30,9 +50,11 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("recipe", cmd_recipe))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("status", cmd_status))
+    app.add_handler(CommandHandler("comment", cmd_comment))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
-    app.add_handler(CallbackQueryHandler(on_page_button, pattern=r"^page:"))
+    app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
+    app.add_handler(CallbackQueryHandler(on_rate_button, pattern=r"^rate:"))
 
     return app
 
@@ -54,9 +76,13 @@ async def cmd_start(update: Update, context) -> None:
         "• A *recipe URL* (just paste the link)\n"
         "• `/recipe <url>` to force recipe parsing\n\n"
         "Commands:\n"
+        "/comment <text> — add a note to a saved recipe (must save first)\n"
         "/clear — clear the display\n"
         "/status — device info\n"
-        "/help — this message",
+        "/help — this message\n\n"
+        "Tap *💾 Save* under a pushed recipe to keep it in your library "
+        "(rate 1–5 stars to confirm). Use the *device's physical buttons* "
+        "to cycle between recipe pages.",
         parse_mode="Markdown",
     )
 
@@ -124,6 +150,44 @@ async def cmd_status(update: Update, context) -> None:
     await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
 
 
+async def cmd_comment(update: Update, context) -> None:
+    """Add a comment to the currently-displayed *saved* recipe."""
+    if not _is_allowed(update.effective_user.id):
+        return
+
+    state = display_state.get()
+    recipe_id = state.get("recipe_id")
+
+    if state["type"] != "recipe" or recipe_id is None:
+        await update.message.reply_text(
+            "Save the recipe first (tap *💾 Save* under the push message), "
+            "then add notes with /comment.",
+            parse_mode="Markdown",
+        )
+        return
+
+    text = " ".join(context.args).strip() if context.args else ""
+    if not text:
+        await update.message.reply_text(
+            "Usage: `/comment <your note>`", parse_mode="Markdown"
+        )
+        return
+
+    library.add_comment(recipe_id, text)
+    log.info("Comment added to recipe %d (%d chars)", recipe_id, len(text))
+
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        await update.message.reply_text("⚠️ Couldn't reload the recipe.")
+        return
+
+    _push_recipe_to_display(row)
+    total = display_state.get()["total_pages"]
+    await update.message.reply_text(
+        f"📝 Note added — recipe now spans {total} page{'s' if total != 1 else ''}."
+    )
+
+
 async def on_photo(update: Update, context) -> None:
     """Handle photo messages — resize and send to display."""
     if not _is_allowed(update.effective_user.id):
@@ -163,56 +227,127 @@ async def on_text(update: Update, context) -> None:
 
 
 async def _fetch_and_display_recipe(url: str, msg) -> None:
-    """Fetch a recipe URL, render all pages, store in display state, and reply."""
+    """Fetch a recipe URL, render all pages, push to display, and reply."""
     recipe = await process_recipe_url(url)
     if recipe is None:
         log.warning("Failed to parse recipe from URL: %s", url)
         await msg.edit_text("❌ Couldn't parse a recipe from that URL.\nTry sending a screenshot instead.")
         return
 
-    img, total_pages = render_recipe(recipe, page=1)
+    # If this URL is already in the library, treat it as a re-display of a
+    # saved recipe (carry over comments + rating, no Save button).
+    existing = library.find_by_url(url)
+    if existing is not None:
+        _push_recipe_to_display(existing)
+        rating_badge = ("⭐" * existing["rating"]) if existing["rating"] else "saved"
+        total = display_state.get()["total_pages"]
+        reply = f"✅ *{existing['title']}* ({rating_badge})\nSent to display!"
+        if total > 1:
+            reply += f"\n📄 {total} pages"
+        await msg.edit_text(reply, parse_mode="Markdown")
+        return
 
-    pages = {1: img}
-    for p in range(2, total_pages + 1):
-        page_img, _ = render_recipe(recipe, page=p)
-        pages[p] = page_img
+    # Brand-new recipe: render without notes, offer a Save button. Don't
+    # touch the DB until the user rates.
+    pages = _render_all_pages(recipe, comments=[])
+    total_pages = len(pages)
+    display_state.set_recipe_pages(
+        pages,
+        title=recipe.get("title", ""),
+        lang=recipe.get("lang", "en"),
+        recipe_id=None,
+        url=url,
+    )
 
-    display_state.set_recipe_pages(pages, title=recipe.get("title", ""), lang=recipe.get("lang", "en"))
-
+    token = _stash_pending(url, recipe)
     reply = f"✅ *{recipe['title']}*\nSent to display!"
     if total_pages > 1:
         reply += f"\n📄 {total_pages} pages"
-        await msg.edit_text(reply, parse_mode="Markdown", reply_markup=_page_keyboard(1, total_pages))
-    else:
-        await msg.edit_text(reply, parse_mode="Markdown")
+    await msg.edit_text(
+        reply,
+        parse_mode="Markdown",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("💾 Save", callback_data=f"save:{token}")
+        ]]),
+    )
 
 
-async def on_page_button(update: Update, context) -> None:
-    """Handle page navigation buttons."""
+def _render_all_pages(recipe: dict, comments: list[str]) -> dict:
+    """Render every page of a recipe (with optional notes) into a {page: Image} dict."""
+    first_img, total_pages = render_recipe(recipe, page=1, comments=comments)
+    pages = {1: first_img}
+    for p in range(2, total_pages + 1):
+        page_img, _ = render_recipe(recipe, page=p, comments=comments)
+        pages[p] = page_img
+    return pages
+
+
+def _push_recipe_to_display(row: dict) -> None:
+    """Render the recipe in `row` with its current comments and push to the panel."""
+    comments = [c["body"] for c in library.get_comments(row["id"])]
+    pages = _render_all_pages(row["recipe"], comments)
+    display_state.set_recipe_pages(
+        pages,
+        title=row["title"],
+        lang=row["lang"],
+        recipe_id=row["id"],
+        url=row["url"],
+    )
+
+
+async def on_save_button(update: Update, context) -> None:
+    """User tapped 💾 Save — show 1-5 star rating buttons."""
     query = update.callback_query
+    _, token = query.data.split(":")
 
-    _, page_str = query.data.split(":")
-    if page_str == "noop":
-        await query.answer()
+    if token not in _pending:
+        await query.answer("Session expired — repush the URL to save.", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
         return
 
-    page = int(page_str)
-    if display_state.set_page(page):
-        state = display_state.get()
-        await query.answer(f"Page {page}/{state['total_pages']}")
-        await query.edit_message_reply_markup(
-            reply_markup=_page_keyboard(page, state["total_pages"])
-        )
-    else:
-        await query.answer("Invalid page")
+    await query.answer("Rate 1–5 stars to confirm")
+    await query.edit_message_reply_markup(
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton(f"{n}⭐", callback_data=f"rate:{token}:{n}")
+            for n in range(1, 6)
+        ]])
+    )
 
 
-def _page_keyboard(current: int, total: int) -> InlineKeyboardMarkup:
-    """Build page navigation inline keyboard."""
-    buttons = []
-    if current > 1:
-        buttons.append(InlineKeyboardButton("◀️ Prev", callback_data=f"page:{current - 1}"))
-    buttons.append(InlineKeyboardButton(f"📄 {current}/{total}", callback_data="page:noop"))
-    if current < total:
-        buttons.append(InlineKeyboardButton("Next ▶️", callback_data=f"page:{current + 1}"))
-    return InlineKeyboardMarkup([buttons])
+async def on_rate_button(update: Update, context) -> None:
+    """User tapped a star — persist recipe + rating, confirm in chat."""
+    query = update.callback_query
+    _, token, rating_str = query.data.split(":")
+    rating = int(rating_str)
+
+    pending = _pending.pop(token, None)
+    if pending is None:
+        await query.answer("Session expired — repush the URL to save.", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+
+    url, recipe = pending
+    recipe_id = library.upsert_recipe(url, recipe)
+    library.mark_saved(recipe_id, rating)
+
+    # If this recipe is still on the display, flip recipe_id in the active
+    # state so /comment knows where to write. Compare by URL — title alone
+    # can collide between recipes.
+    state = display_state.get()
+    if state["type"] == "recipe" and state["url"] == url:
+        display_state.attach_recipe_id(recipe_id)
+
+    stars = "⭐" * rating
+    await query.answer(f"{stars} Saved")
+    try:
+        await query.edit_message_reply_markup(reply_markup=None)
+    except Exception:
+        pass
+    if query.message is not None:
+        await query.message.reply_text(f"💾 Saved {stars}")

@@ -11,6 +11,7 @@ import uvicorn
 
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
+from library import init_db
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,6 +26,9 @@ log = logging.getLogger("epepper")
 async def main() -> None:
     # Ensure data dir exists
     os.makedirs("/app/data", exist_ok=True)
+
+    # Initialise recipe library DB
+    init_db()
 
     # Start Telegram bot
     bot = create_bot()

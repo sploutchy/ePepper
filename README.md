@@ -106,7 +106,24 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 1. Start a chat with your Telegram bot
 2. Send `/start` for help
 3. Paste a recipe URL — the bot parses it and renders it to the display
-4. Use the inline buttons in Telegram or the physical button on the device to cycle pages
+4. Cycle pages with the **physical buttons** on the device
+5. Tap **💾 Save** under a pushed recipe, then a 1–5 star rating, to keep it in your library
+6. `/comment <text>` adds a free-text note to a saved recipe; notes appear as an extra page
+
+## Recipe library
+
+Recipes are persisted to a small SQLite DB at `data/recipes.db` (stdlib
+`sqlite3`, no extra dependency) **only when you explicitly save them** —
+tap **💾 Save** under the push message, then pick a 1–5 star rating. A
+pushed-but-unsaved recipe is held in memory only and is lost on restart.
+
+Schema:
+
+- `recipes(id, url, title, parsed_json, lang, rating, saved_at, created_at)`
+- `comments(id, recipe_id, body, created_at)`
+
+Re-pushing a URL already in the library skips the Save prompt and brings
+the previous rating + comments back to the screen.
 
 ## API Endpoints
 
