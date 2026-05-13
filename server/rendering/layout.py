@@ -30,6 +30,7 @@ def render_recipe(
     recipe: dict,
     page: int = 1,
     comments: list[str] | None = None,
+    rating: int | None = None,
 ) -> tuple[Image.Image, int]:
     """Render a recipe dict to a 1-bit image for e-ink display.
 
@@ -38,6 +39,8 @@ def render_recipe(
         page: 1-based page number
         comments: optional list of comment strings. When non-empty, an extra
             "Notes" page is appended after the recipe pages.
+        rating: optional 1-5 star rating from the library; rendered next to
+            time / servings on the meta line.
 
     Returns:
         (image, total_pages)
@@ -73,6 +76,8 @@ def render_recipe(
             meta_parts.append(f"{servings_num} {strings['servings']}")
         else:
             meta_parts.append(servings_raw)
+    if rating and 1 <= rating <= 5:
+        meta_parts.append("★" * rating)  # ★ U+2605 — DejaVu Sans has this glyph
     if meta_parts:
         header_h += font_meta.size + 6
     header_h += 4 + 10  # space + divider line + space

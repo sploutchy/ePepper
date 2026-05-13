@@ -68,17 +68,6 @@ def set_recipe_pages(
     )
 
 
-def attach_recipe_id(recipe_id: int) -> None:
-    """Link the current display to a newly-saved library row.
-
-    Used when the user just saved a recipe that's still on the panel — we
-    don't want to re-push pages (nothing visible changes), only flip the
-    `recipe_id` so /comment knows which row to write to.
-    """
-    if _state["type"] == "recipe":
-        _state["recipe_id"] = recipe_id
-
-
 def set_page(page: int) -> bool:
     """Change the current page. Returns True if valid."""
     if page < 1 or page > _state["total_pages"]:

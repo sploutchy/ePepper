@@ -272,20 +272,20 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
     )
 
 
-def _render_all_pages(recipe: dict, comments: list[str]) -> dict:
-    """Render every page of a recipe (with optional notes) into a {page: Image} dict."""
-    first_img, total_pages = render_recipe(recipe, page=1, comments=comments)
+def _render_all_pages(recipe: dict, comments: list[str], rating: int | None = None) -> dict:
+    """Render every page of a recipe (with optional notes/rating) into a {page: Image} dict."""
+    first_img, total_pages = render_recipe(recipe, page=1, comments=comments, rating=rating)
     pages = {1: first_img}
     for p in range(2, total_pages + 1):
-        page_img, _ = render_recipe(recipe, page=p, comments=comments)
+        page_img, _ = render_recipe(recipe, page=p, comments=comments, rating=rating)
         pages[p] = page_img
     return pages
 
 
 def _push_recipe_to_display(row: dict) -> None:
-    """Render the recipe in `row` with its current comments and push to the panel."""
+    """Render the recipe in `row` with its current comments + rating and push to the panel."""
     comments = [c["body"] for c in library.get_comments(row["id"])]
-    pages = _render_all_pages(row["recipe"], comments)
+    pages = _render_all_pages(row["recipe"], comments, rating=row.get("rating"))
     display_state.set_recipe_pages(
         pages,
         title=row["title"],
@@ -336,12 +336,11 @@ async def on_rate_button(update: Update, context) -> None:
     recipe_id = library.upsert_recipe(url, recipe)
     library.mark_saved(recipe_id, rating)
 
-    # If this recipe is still on the display, flip recipe_id in the active
-    # state so /comment knows where to write. Compare by URL — title alone
-    # can collide between recipes.
+    # If this recipe is still on the display, re-render so the rating
+    # stars appear on the panel. Compare by URL — title alone can collide.
     state = display_state.get()
     if state["type"] == "recipe" and state["url"] == url:
-        display_state.attach_recipe_id(recipe_id)
+        _push_recipe_to_display(library.get_recipe(recipe_id))
 
     stars = "⭐" * rating
     await query.answer(f"{stars} Saved")
