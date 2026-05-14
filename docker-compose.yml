@@ -4,6 +4,9 @@ services:
     container_name: epepper
     restart: unless-stopped
     env_file: ./server/.env
+    environment:
+      # Anchors anniversary midnight + saved_at MM-DD comparisons to local time.
+      TZ: ${TZ:-Europe/Zurich}
     ports:
       - "8080:8080"
     volumes:

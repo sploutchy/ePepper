@@ -12,6 +12,7 @@ import uvicorn
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
+from scheduler import anniversary_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -37,6 +38,9 @@ async def main() -> None:
     await bot.updater.start_polling(drop_pending_updates=True)
     log.info("Telegram bot started")
 
+    # Background scheduler: midnight anniversary swap
+    anniversary_task = asyncio.create_task(anniversary_loop(), name="anniversary_loop")
+
     # Start FastAPI server
     config = uvicorn.Config(
         fastapi_app,
@@ -51,6 +55,11 @@ async def main() -> None:
         await server.serve()
     finally:
         log.info("Shutting down...")
+        anniversary_task.cancel()
+        try:
+            await anniversary_task
+        except (asyncio.CancelledError, Exception):
+            pass
         await bot.updater.stop()
         await bot.stop()
         await bot.shutdown()

@@ -8,6 +8,9 @@ from library.db import (
     mark_saved,
     add_comment,
     get_comments,
+    normalize_url,
+    search,
+    pick_anniversary_recipe,
 )
 
 __all__ = [
@@ -18,4 +21,7 @@ __all__ = [
     "mark_saved",
     "add_comment",
     "get_comments",
+    "normalize_url",
+    "search",
+    "pick_anniversary_recipe",
 ]

@@ -4,6 +4,7 @@ import logging
 import time
 import uuid
 from collections import OrderedDict
+from datetime import datetime
 from typing import Tuple
 
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
@@ -51,10 +52,13 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("comment", cmd_comment))
+    app.add_handler(CommandHandler("rate", cmd_rate))
+    app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
     app.add_handler(CallbackQueryHandler(on_rate_button, pattern=r"^rate:"))
+    app.add_handler(CallbackQueryHandler(on_push_button, pattern=r"^push:"))
 
     return app
 
@@ -77,6 +81,8 @@ async def cmd_start(update: Update, context) -> None:
         "• `/recipe <url>` to force recipe parsing\n\n"
         "Commands:\n"
         "/comment <text> — add a note to a saved recipe (must save first)\n"
+        "/rate <1-5> — change the rating of the displayed saved recipe\n"
+        "/search <query> — find a saved recipe by title, ingredient, or note\n"
         "/clear — clear the display\n"
         "/status — device info\n"
         "/help — this message\n\n"
@@ -181,11 +187,100 @@ async def cmd_comment(update: Update, context) -> None:
         await update.message.reply_text("⚠️ Couldn't reload the recipe.")
         return
 
-    _push_recipe_to_display(row)
+    push_recipe_to_display(row)
     total = display_state.get()["total_pages"]
     await update.message.reply_text(
         f"📝 Note added — recipe now spans {total} page{'s' if total != 1 else ''}."
     )
+
+
+async def cmd_rate(update: Update, context) -> None:
+    """Change the rating of the currently-displayed saved recipe."""
+    if not _is_allowed(update.effective_user.id):
+        return
+
+    state = display_state.get()
+    recipe_id = state.get("recipe_id")
+
+    if state["type"] != "recipe" or recipe_id is None:
+        await update.message.reply_text(
+            "Push a saved recipe to the display first, then use /rate to change its rating.",
+        )
+        return
+
+    arg = context.args[0] if context.args else ""
+    try:
+        rating = int(arg)
+    except ValueError:
+        rating = 0
+    if not 1 <= rating <= 5:
+        await update.message.reply_text("Usage: `/rate <1-5>`", parse_mode="Markdown")
+        return
+
+    library.mark_saved(recipe_id, rating)
+    log.info("Rating updated for recipe %d → %d", recipe_id, rating)
+
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        await update.message.reply_text("⚠️ Couldn't reload the recipe.")
+        return
+
+    push_recipe_to_display(row)
+    await update.message.reply_text(f"{'⭐' * rating} Rating updated.")
+
+
+async def cmd_search(update: Update, context) -> None:
+    """Full-text search the saved recipe library; tap a result to push it."""
+    if not _is_allowed(update.effective_user.id):
+        return
+
+    query = " ".join(context.args).strip() if context.args else ""
+    if not query:
+        await update.message.reply_text("Usage: `/search <query>`", parse_mode="Markdown")
+        return
+
+    results = library.search(query, limit=5)
+    if not results:
+        await update.message.reply_text(f"No saved recipes match '{query}'.")
+        return
+
+    buttons = []
+    for r in results:
+        stars = "★" * r["rating"] if r["rating"] else "·"
+        saved_date = (
+            datetime.fromtimestamp(r["saved_at"]).strftime("%Y-%m-%d")
+            if r["saved_at"] else "—"
+        )
+        label = f"{stars} {r['title']} · {saved_date}"
+        # Telegram inline button labels truncate around 64 bytes; keep ASCII-safe headroom.
+        if len(label) > 60:
+            label = label[:57] + "..."
+        buttons.append([InlineKeyboardButton(label, callback_data=f"push:{r['id']}")])
+
+    await update.message.reply_text(
+        f"Top matches for '{query}':",
+        reply_markup=InlineKeyboardMarkup(buttons),
+    )
+
+
+async def on_push_button(update: Update, context) -> None:
+    """User tapped a /search result — render and push that recipe."""
+    query = update.callback_query
+    try:
+        _, recipe_id_str = query.data.split(":")
+        recipe_id = int(recipe_id_str)
+    except (ValueError, IndexError):
+        await query.answer("Bad callback.", show_alert=True)
+        return
+
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        await query.answer("Recipe missing — was it deleted?", show_alert=True)
+        return
+
+    push_recipe_to_display(row)
+    stars = ("⭐" * row["rating"]) if row["rating"] else ""
+    await query.answer(f"Pushed: {row['title']} {stars}".strip())
 
 
 async def on_photo(update: Update, context) -> None:
@@ -238,7 +333,7 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
     # saved recipe (carry over comments + rating, no Save button).
     existing = library.find_by_url(url)
     if existing is not None:
-        _push_recipe_to_display(existing)
+        push_recipe_to_display(existing)
         rating_badge = ("⭐" * existing["rating"]) if existing["rating"] else "saved"
         total = display_state.get()["total_pages"]
         reply = f"✅ *{existing['title']}* ({rating_badge})\nSent to display!"
@@ -282,7 +377,7 @@ def _render_all_pages(recipe: dict, comments: list[str], rating: int | None = No
     return pages
 
 
-def _push_recipe_to_display(row: dict) -> None:
+def push_recipe_to_display(row: dict) -> None:
     """Render the recipe in `row` with its current comments + rating and push to the panel."""
     comments = [c["body"] for c in library.get_comments(row["id"])]
     pages = _render_all_pages(row["recipe"], comments, rating=row.get("rating"))
@@ -340,7 +435,7 @@ async def on_rate_button(update: Update, context) -> None:
     # stars appear on the panel. Compare by URL — title alone can collide.
     state = display_state.get()
     if state["type"] == "recipe" and state["url"] == url:
-        _push_recipe_to_display(library.get_recipe(recipe_id))
+        push_recipe_to_display(library.get_recipe(recipe_id))
 
     stars = "⭐" * rating
     await query.answer(f"{stars} Saved")
