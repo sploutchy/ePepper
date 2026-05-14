@@ -25,9 +25,13 @@
 // Clock/date overlay (drawn over the server-rendered footer strip, bottom-left)
 #define CLOCK_X        16   // x where text starts; mirrors server MARGIN
 #define CLOCK_Y        456  // top of 16-px text; bottom (y=472) matches page indicator bottom
-#define CLOCK_RECT_X   8
+// Partial refresh covers the full bottom strip: UC8179 bleeds voltage into rows
+// just outside the partial window, so we want the visible clock text to sit
+// well inside the rect (centered far from any boundary). Width=panel width,
+// height kept tight so we don't wipe recipe content above.
+#define CLOCK_RECT_X   0
 #define CLOCK_RECT_Y   452
-#define CLOCK_RECT_W   480  // wide enough for "HH:MM <localized date> X.YZV"
+#define CLOCK_RECT_W   800
 #define CLOCK_RECT_H   28
 
 // Top-edge glyphs marking physical button positions on the reTerminal.
@@ -38,7 +42,7 @@
 // three buttons cluster right-of-center, not evenly across the panel.
 #define BTN_GLYPH_PREV_X     450   // center x for left button (Prev / KEY2)
 #define BTN_GLYPH_NEXT_X     490   // center x for middle button (Next / KEY1)
-#define BTN_GLYPH_REFRESH_X  550   // center x for right button (Refresh / KEY0)
+#define BTN_GLYPH_REFRESH_X  545   // center x for right button (Refresh / KEY0)
 
 // ----- Timing -----
 #define CLOCK_INTERVAL_S        60     // update clock every 1 minute

@@ -565,31 +565,56 @@ void drawClockContent() {
     char dateStr[48];
     formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
 
-    // Append ambient temp + humidity from the SHT40 if the read succeeds; the
-    // degree symbol is dropped because Font 2 is ASCII 32-127 only (same
-    // reason formatDate strips diacritics).
-    float tC = 0, rh = 0;
-    char envStr[24] = "";
-    bool envOk = readSHT40(tC, rh);
-    if (envOk) {
-        snprintf(envStr, sizeof(envStr), "  %.1fC  %.0f%%", tC, rh);
-    }
-
-    char buf[96];
-    snprintf(buf, sizeof(buf), "%02d:%02d  %s%s",
-             timeinfo.tm_hour, timeinfo.tm_min, dateStr, envStr);
+    char timeBuf[80];
+    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d  %s",
+             timeinfo.tm_hour, timeinfo.tm_min, dateStr);
 
     epaper.setTextFont(2);
     epaper.setTextSize(1);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.drawString(buf, batX + bodyW + nubW + 8, CLOCK_Y);
+    int textX = batX + bodyW + nubW + 8;
+    epaper.drawString(timeBuf, textX, CLOCK_Y);
+    textX += epaper.textWidth(timeBuf);
+
+    // Append ambient temp + humidity from the SHT40 if the read succeeds.
+    // Font 2 is ASCII 32-127 only (same reason formatDate strips diacritics),
+    // so the ° glyph is drawn manually with drawPixel between the number and
+    // the C — see the 4x4 ring pattern below.
+    float tC = 0, rh = 0;
+    bool envOk = readSHT40(tC, rh);
+    if (envOk) {
+        char tempNum[16];
+        snprintf(tempNum, sizeof(tempNum), "  %.1f", tC);
+        epaper.drawString(tempNum, textX, CLOCK_Y);
+        textX += epaper.textWidth(tempNum);
+
+        // 4x4 open ring at superscript height:
+        //   .##.
+        //   #..#
+        //   #..#
+        //   .##.
+        const int degY = CLOCK_Y + 1;
+        epaper.drawPixel(textX + 1, degY,     TFT_BLACK);
+        epaper.drawPixel(textX + 2, degY,     TFT_BLACK);
+        epaper.drawPixel(textX,     degY + 1, TFT_BLACK);
+        epaper.drawPixel(textX + 3, degY + 1, TFT_BLACK);
+        epaper.drawPixel(textX,     degY + 2, TFT_BLACK);
+        epaper.drawPixel(textX + 3, degY + 2, TFT_BLACK);
+        epaper.drawPixel(textX + 1, degY + 3, TFT_BLACK);
+        epaper.drawPixel(textX + 2, degY + 3, TFT_BLACK);
+        textX += 5;  // 4px ring + 1px trailing gap
+
+        char tempSuf[16];
+        snprintf(tempSuf, sizeof(tempSuf), "C  %.0f%%", rh);
+        epaper.drawString(tempSuf, textX, CLOCK_Y);
+    }
 
     if (envOk) {
-        Serial.printf("[Display] Clock: %s [batt %.2fV %d%% env %.1fC %.0f%%]\n",
-                      buf, lastBatteryV, pct, tC, rh);
+        Serial.printf("[Display] Clock: %s  %.1fC %.0f%% [batt %.2fV %d%%]\n",
+                      timeBuf, tC, rh, lastBatteryV, pct);
     } else {
         Serial.printf("[Display] Clock: %s [batt %.2fV %d%% env ?]\n",
-                      buf, lastBatteryV, pct);
+                      timeBuf, lastBatteryV, pct);
     }
 }
 
@@ -600,43 +625,54 @@ void drawClockOverlay() {
 }
 
 
-// 8x8 glyphs marking which physical button does what. Each row is one byte,
-// MSB-first (bit 7 = leftmost pixel). Drawn over the recipe image at the top
-// edge so the user can see at a glance which button is which.
-static const uint8_t GLYPH_PREV[8] = {
-    0b00001000,
-    0b00011000,
-    0b00111000,
-    0b01111000,
-    0b01111000,
-    0b00111000,
-    0b00011000,
-    0b00001000,
+// 10x10 glyphs marking which physical button does what. Drawn over the recipe
+// image at the top edge so the user can see at a glance which button is which.
+// 10 wide → ceil(10/8) = 2 bytes per row, MSB-first within each byte. The
+// first byte covers cols 0-7 (bit 7 = col 0); the second byte's upper 2 bits
+// cover cols 8-9 (bit 7 = col 8, bit 6 = col 9).
+static const uint8_t GLYPH_PREV[20] = {
+    0b00001000, 0b00000000,  // ....#.....
+    0b00011000, 0b00000000,  // ...##.....
+    0b00111000, 0b00000000,  // ..###.....
+    0b01111000, 0b00000000,  // .####.....
+    0b11111000, 0b00000000,  // #####.....   apex at col 0 (left arrow)
+    0b11111000, 0b00000000,  // #####.....
+    0b01111000, 0b00000000,  // .####.....
+    0b00111000, 0b00000000,  // ..###.....
+    0b00011000, 0b00000000,  // ...##.....
+    0b00001000, 0b00000000,  // ....#.....
 };
-static const uint8_t GLYPH_NEXT[8] = {
-    0b00010000,
-    0b00011000,
-    0b00011100,
-    0b00011110,
-    0b00011110,
-    0b00011100,
-    0b00011000,
-    0b00010000,
+static const uint8_t GLYPH_NEXT[20] = {
+    0b00001000, 0b00000000,  // ....#.....
+    0b00001100, 0b00000000,  // ....##....
+    0b00001110, 0b00000000,  // ....###...
+    0b00001111, 0b00000000,  // ....####..
+    0b00001111, 0b10000000,  // ....#####.   apex at col 8 (right arrow)
+    0b00001111, 0b10000000,  // ....#####.
+    0b00001111, 0b00000000,  // ....####..
+    0b00001110, 0b00000000,  // ....###...
+    0b00001100, 0b00000000,  // ....##....
+    0b00001000, 0b00000000,  // ....#.....
 };
-static const uint8_t GLYPH_REFRESH[8] = {
-    0b00111100,
-    0b01000110,  // gap at top-right marks the arrowhead notch
-    0b10000010,
-    0b10000010,
-    0b10000010,
-    0b10000010,
-    0b01000100,
-    0b00111100,
+// Broken-circle refresh icon. Left side curves continuously; the right side
+// is fully open and the arrow IS the break, with the arrowhead tapering down
+// and to the right (clockwise-rotation indicator).
+static const uint8_t GLYPH_REFRESH[20] = {
+    0b00111100, 0b00000000,  // ..####....   top arc
+    0b01000010, 0b00000000,  // .#....#...   left + small right cap
+    0b10000111, 0b00000000,  // #....###..   left + arrowhead base
+    0b10000011, 0b00000000,  // #.....##..   left + arrowhead body
+    0b10000001, 0b00000000,  // #......#..   left + arrowhead tip ↘
+    0b10000000, 0b00000000,  // #.........   left only
+    0b10000000, 0b00000000,  // #.........
+    0b10000000, 0b00000000,  // #.........
+    0b01000000, 0b00000000,  // .#........   bottom-left curve
+    0b00111100, 0b00000000,  // ..####....   bottom arc
 };
 
 
 void drawButtonGlyphs() {
-    const int w = 8, h = 8;
+    const int w = 10, h = 10;
     epaper.drawBitmap(BTN_GLYPH_PREV_X    - w / 2, BTN_GLYPH_Y, GLYPH_PREV,    w, h, TFT_BLACK);
     epaper.drawBitmap(BTN_GLYPH_NEXT_X    - w / 2, BTN_GLYPH_Y, GLYPH_NEXT,    w, h, TFT_BLACK);
     epaper.drawBitmap(BTN_GLYPH_REFRESH_X - w / 2, BTN_GLYPH_Y, GLYPH_REFRESH, w, h, TFT_BLACK);
