@@ -12,6 +12,10 @@ ALLOWED_USERS: list[int] = [
 DISPLAY_WIDTH: int = 800
 DISPLAY_HEIGHT: int = 480
 RECIPE_HEIGHT: int = DISPLAY_HEIGHT  # full panel; ESP32 overlays clock in the footer strip
+# Bottom strip owned by firmware (CLOCK_RECT_H in esp32/include/config.h). Renderer
+# must keep this region blank — partial-refresh of the clock overlay wipes any
+# rendered content underneath it on every minute tick.
+FIRMWARE_FOOTER_RESERVE: int = 28
 
 # API
 API_HOST: str = os.environ.get("API_HOST", "0.0.0.0")

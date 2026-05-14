@@ -11,6 +11,7 @@ from config import (
     MARGIN,
     COLUMN_GAP,
     INGREDIENTS_WIDTH_RATIO,
+    FIRMWARE_FOOTER_RESERVE,
     FONT_REGULAR,
     FONT_BOLD,
 )
@@ -95,7 +96,9 @@ def render_recipe(
     line_h = font_body.size + 4
     heading_line_h = font_heading.size + 4
     heading_space = font_heading.size + 8  # space for column heading
-    footer_reserve = 20
+    # Reserve enough at the bottom for: the firmware-owned overlay strip, the
+    # page indicator drawn just above it, and a small gap.
+    footer_reserve = FIRMWARE_FOOTER_RESERVE + font_meta.size + 8
     available_h = RECIPE_HEIGHT - col_top - MARGIN - heading_space - footer_reserve
 
     # --- Pre-wrap ingredients into line groups ---
@@ -275,11 +278,12 @@ def render_recipe(
                     y_right += block["line_h"]
                 y_right += 6
 
-    # --- Footer: page indicator ---
+    # --- Footer: page indicator (above the firmware-owned strip) ---
     if total_pages > 1:
         page_text = f"{strings['page']} {page} / {total_pages}"
         bbox = draw.textbbox((0, 0), page_text, font=font_meta)
         tw = bbox[2] - bbox[0]
-        draw.text((DISPLAY_WIDTH - MARGIN - tw, RECIPE_HEIGHT - MARGIN - 2), page_text, font=font_meta, fill=0)
+        page_y = RECIPE_HEIGHT - FIRMWARE_FOOTER_RESERVE - font_meta.size - 2
+        draw.text((DISPLAY_WIDTH - MARGIN - tw, page_y), page_text, font=font_meta, fill=0)
 
     return img, total_pages

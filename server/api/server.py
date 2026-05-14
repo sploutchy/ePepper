@@ -122,6 +122,40 @@ async def page_prev(request: Request):
     return {"ok": True, "page": new_page, "total_pages": total}
 
 
+@app.post("/page/first")
+async def page_first(request: Request):
+    """Jump to page 1. Called by ESP32 on long-press of the prev button."""
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    state = display_state.get()
+    total = state["total_pages"]
+
+    if total <= 1:
+        return {"ok": False, "reason": "single_page", "page": state["page"], "total_pages": total}
+
+    display_state.set_page(1)
+    log.info("Page first: %d → 1 (of %d)", state["page"], total)
+    return {"ok": True, "page": 1, "total_pages": total}
+
+
+@app.post("/page/last")
+async def page_last(request: Request):
+    """Jump to the last page. Called by ESP32 on long-press of the next button."""
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    state = display_state.get()
+    total = state["total_pages"]
+
+    if total <= 1:
+        return {"ok": False, "reason": "single_page", "page": state["page"], "total_pages": total}
+
+    display_state.set_page(total)
+    log.info("Page last: %d → %d (of %d)", state["page"], total, total)
+    return {"ok": True, "page": total, "total_pages": total}
+
+
 @app.post("/device/status")
 async def device_status(
     request: Request,
