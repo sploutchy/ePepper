@@ -49,6 +49,10 @@
 #define NTP_SYNC_INTERVAL_S     3600   // sync NTP every hour
 #define WARM_WINDOW_MS          15000  // stay awake after a button press to skip cold-start next time
 #define FULL_REFRESH_INTERVAL_S 1800   // force full panel refresh every 30 min so partial-refresh artifacts don't accumulate
+// Held this long → long-press: refresh = force full redraw, next/prev = jump
+// to last/first. Measured AFTER boot, so cold-start adds ~200 ms of overhead;
+// total wall time to qualify is roughly LONG_PRESS_MS + boot.
+#define LONG_PRESS_MS           500
 
 // ----- Pins (reTerminal E1001) -----
 #define EPD_CLK   7

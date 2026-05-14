@@ -38,10 +38,11 @@ EPaperFixed epaper;
 enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
 
 // ---- Forward declarations ----
-void handleRefresh();
+void handleRefresh(bool force = false);
 void handlePageChange(const char* direction);
 void handleTimerWake();
 void warmWindow();
+bool waitForLongPress(int btnPin, int thresholdMs);
 void connectWiFi();
 bool pollServer();
 bool downloadImage(int page);
@@ -105,15 +106,33 @@ void setup() {
 
     WakeAction action = detectWakeAction();
 
+    // For button wakes, sample the GPIO to distinguish a tap from a long-press
+    // before dispatching. The ext1 wake only tells us which pin fired, not how
+    // long it's been held; the button is typically still down when we reach
+    // here, so we time the remainder of the hold against LONG_PRESS_MS.
+    bool isLong = false;
+    int btnPin = -1;
+    if (action == WAKE_REFRESH) btnPin = BTN_REFRESH;
+    else if (action == WAKE_NEXT) btnPin = BTN_NEXT;
+    else if (action == WAKE_PREV) btnPin = BTN_PREV;
+    if (btnPin >= 0) {
+        isLong = waitForLongPress(btnPin, LONG_PRESS_MS);
+        if (isLong) {
+            // Drain the rest of the hold so the warm window doesn't immediately
+            // re-fire on the same physical press.
+            while (digitalRead(btnPin) == LOW) delay(10);
+        }
+    }
+
     switch (action) {
         case WAKE_REFRESH:
-            handleRefresh();
+            handleRefresh(isLong);
             break;
         case WAKE_NEXT:
-            handlePageChange("next");
+            handlePageChange(isLong ? "last" : "next");
             break;
         case WAKE_PREV:
-            handlePageChange("prev");
+            handlePageChange(isLong ? "first" : "prev");
             break;
         case WAKE_TIMER:
             handleTimerWake();
@@ -162,8 +181,8 @@ WakeAction detectWakeAction() {
 
 // ---- Button handlers ----
 
-void handleRefresh() {
-    Serial.println("[Action] Refresh — polling server");
+void handleRefresh(bool force) {
+    Serial.printf("[Action] Refresh — polling server%s\n", force ? " (forced)" : "");
     digitalWrite(LED_PIN, LOW);  // LED on
     buzzerBeep(1, 50);
 
@@ -177,10 +196,11 @@ void handleRefresh() {
     syncNTPIfStale();
 
     bool changed = pollServer();
-    if (changed) {
+    if (changed || force) {
         if (downloadImage(currentPage)) {
             displayImage(imageBuffer, imageSize);
-            Serial.println("[Action] New content displayed");
+            Serial.println(force ? "[Action] Forced full redraw"
+                                 : "[Action] New content displayed");
         }
     } else {
         Serial.println("[Action] No changes");
@@ -673,8 +693,14 @@ static const uint8_t GLYPH_REFRESH[20] = {
 
 void drawButtonGlyphs() {
     const int w = 10, h = 10;
-    epaper.drawBitmap(BTN_GLYPH_PREV_X    - w / 2, BTN_GLYPH_Y, GLYPH_PREV,    w, h, TFT_BLACK);
-    epaper.drawBitmap(BTN_GLYPH_NEXT_X    - w / 2, BTN_GLYPH_Y, GLYPH_NEXT,    w, h, TFT_BLACK);
+    // PREV/NEXT are only drawn when the button would do something. Refresh is
+    // always available (reload + clear ghosting), so its glyph is unconditional.
+    if (currentPage > 1) {
+        epaper.drawBitmap(BTN_GLYPH_PREV_X - w / 2, BTN_GLYPH_Y, GLYPH_PREV, w, h, TFT_BLACK);
+    }
+    if (currentPage < totalPages) {
+        epaper.drawBitmap(BTN_GLYPH_NEXT_X - w / 2, BTN_GLYPH_Y, GLYPH_NEXT, w, h, TFT_BLACK);
+    }
     epaper.drawBitmap(BTN_GLYPH_REFRESH_X - w / 2, BTN_GLYPH_Y, GLYPH_REFRESH, w, h, TFT_BLACK);
 }
 
@@ -706,7 +732,7 @@ bool readSHT40(float& tempC, float& rh) {
     }
     delay(10);  // datasheet: 8.2 ms max for high-precision
 
-    size_t got = Wire.requestFrom(SHT4X_ADDR, (uint8_t)6);
+    size_t got = Wire.requestFrom((uint8_t)SHT4X_ADDR, (uint8_t)6);
     if (got != 6) {
         Serial.printf("[SHT40] short read: %u/6 bytes\n", (unsigned)got);
         return false;
@@ -794,9 +820,11 @@ void warmWindow() {
         delay(BTN_DEBOUNCE_MS);
         if (digitalRead(hit) != LOW) continue;  // bounced
 
-        if (hit == BTN_REFRESH)   handleRefresh();
-        else if (hit == BTN_NEXT) handlePageChange("next");
-        else                      handlePageChange("prev");
+        bool isLong = waitForLongPress(hit, LONG_PRESS_MS);
+
+        if (hit == BTN_REFRESH)        handleRefresh(isLong);
+        else if (hit == BTN_NEXT)      handlePageChange(isLong ? "last"  : "next");
+        else                           handlePageChange(isLong ? "first" : "prev");
 
         // Wait for release so we don't immediately re-trigger
         while (digitalRead(hit) == LOW) delay(10);
@@ -804,6 +832,20 @@ void warmWindow() {
         deadline = millis() + WARM_WINDOW_MS;
     }
     Serial.println("[Warm] Window closed");
+}
+
+
+// Returns true if the button is still held LOW after thresholdMs, false if
+// released earlier. Short beep cue on long-press recognition so the user
+// knows the gesture registered before the screen catches up.
+bool waitForLongPress(int btnPin, int thresholdMs) {
+    unsigned long start = millis();
+    while ((long)(millis() - start) < thresholdMs) {
+        if (digitalRead(btnPin) != LOW) return false;
+        delay(20);
+    }
+    buzzerBeep(2, 30);
+    return true;
 }
 
 
@@ -815,6 +857,12 @@ void goToSleep(uint64_t seconds) {
     if (WiFi.status() == WL_CONNECTED) {
         WiFi.disconnect(true);
     }
+
+    // Put the EPD controller into deep-sleep before the SoC sleeps. The
+    // partial-refresh path already sleeps after each call (EPaperFixed.cpp),
+    // but the full-refresh path (update()) doesn't, so on full-refresh wakes
+    // we'd otherwise leave the panel drawing current until the next boot.
+    epaper.sleep();
 
     // Wake on any of the 3 buttons (ext1, active-low → wake on LOW)
     uint64_t buttonMask = (1ULL << BTN_REFRESH) | (1ULL << BTN_NEXT) | (1ULL << BTN_PREV);
