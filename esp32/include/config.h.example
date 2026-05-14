@@ -34,9 +34,11 @@
 // Drawn over the recipe image on every full refresh; not partial-refreshed.
 // Tune the centers if they don't line up with the physical buttons.
 #define BTN_GLYPH_Y          2     // px from top edge
-#define BTN_GLYPH_PREV_X     200   // center x for left button (Prev / KEY2)
-#define BTN_GLYPH_NEXT_X     400   // center x for middle button (Next / KEY1)
-#define BTN_GLYPH_REFRESH_X  600   // center x for right button (Refresh / KEY0)
+// Centers tuned against the reTerminal E1001 physical button strip — the
+// three buttons cluster right-of-center, not evenly across the panel.
+#define BTN_GLYPH_PREV_X     440   // center x for left button (Prev / KEY2)
+#define BTN_GLYPH_NEXT_X     460   // center x for middle button (Next / KEY1)
+#define BTN_GLYPH_REFRESH_X  540   // center x for right button (Refresh / KEY0)
 
 // ----- Timing -----
 #define CLOCK_INTERVAL_S        60     // update clock every 1 minute
@@ -64,6 +66,8 @@
 // I2C for SHT4x temp/humidity sensor
 #define I2C_SDA   19
 #define I2C_SCL   20
+#define SHT4X_ADDR     0x44   // SHT40-AD1B default 7-bit address
+#define SHT4X_CMD_MEAS 0xFD   // measure T+RH, high precision (~8.2 ms)
 
 // Buzzer (piezo)
 #define BUZZER_PIN 45

@@ -50,6 +50,7 @@ void displayImage(uint8_t* data, size_t len);
 void drawClockOverlay();
 void drawClockContent();
 void drawButtonGlyphs();
+bool readSHT40(float& tempC, float& rh);
 void syncNTPIfStale();
 void reportDeviceStatus();
 void syncNTP();
@@ -564,16 +565,32 @@ void drawClockContent() {
     char dateStr[48];
     formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
 
-    char buf[80];
-    snprintf(buf, sizeof(buf), "%02d:%02d  %s",
-             timeinfo.tm_hour, timeinfo.tm_min, dateStr);
+    // Append ambient temp + humidity from the SHT40 if the read succeeds; the
+    // degree symbol is dropped because Font 2 is ASCII 32-127 only (same
+    // reason formatDate strips diacritics).
+    float tC = 0, rh = 0;
+    char envStr[24] = "";
+    bool envOk = readSHT40(tC, rh);
+    if (envOk) {
+        snprintf(envStr, sizeof(envStr), "  %.1fC  %.0f%%", tC, rh);
+    }
+
+    char buf[96];
+    snprintf(buf, sizeof(buf), "%02d:%02d  %s%s",
+             timeinfo.tm_hour, timeinfo.tm_min, dateStr, envStr);
 
     epaper.setTextFont(2);
     epaper.setTextSize(1);
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.drawString(buf, batX + bodyW + nubW + 8, CLOCK_Y);
 
-    Serial.printf("[Display] Clock: %s [batt %.2fV %d%%]\n", buf, lastBatteryV, pct);
+    if (envOk) {
+        Serial.printf("[Display] Clock: %s [batt %.2fV %d%% env %.1fC %.0f%%]\n",
+                      buf, lastBatteryV, pct, tC, rh);
+    } else {
+        Serial.printf("[Display] Clock: %s [batt %.2fV %d%% env ?]\n",
+                      buf, lastBatteryV, pct);
+    }
 }
 
 
@@ -623,6 +640,56 @@ void drawButtonGlyphs() {
     epaper.drawBitmap(BTN_GLYPH_PREV_X    - w / 2, BTN_GLYPH_Y, GLYPH_PREV,    w, h, TFT_BLACK);
     epaper.drawBitmap(BTN_GLYPH_NEXT_X    - w / 2, BTN_GLYPH_Y, GLYPH_NEXT,    w, h, TFT_BLACK);
     epaper.drawBitmap(BTN_GLYPH_REFRESH_X - w / 2, BTN_GLYPH_Y, GLYPH_REFRESH, w, h, TFT_BLACK);
+}
+
+
+// ---- SHT40 ambient sensor ----
+// Dependency-free reader for the Sensirion SHT40 on the configured I²C bus.
+// CRC poly x^8+x^5+x^4+1 (0x31), init 0xFF — per the SHT4x datasheet §4.
+static uint8_t sht4xCRC(const uint8_t* data, size_t len) {
+    uint8_t crc = 0xFF;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (int b = 0; b < 8; b++) {
+            crc = (crc & 0x80) ? (uint8_t)((crc << 1) ^ 0x31) : (uint8_t)(crc << 1);
+        }
+    }
+    return crc;
+}
+
+bool readSHT40(float& tempC, float& rh) {
+    // Idempotent — Wire.begin called repeatedly is a no-op on ESP32 Arduino.
+    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.setClock(100000);
+
+    Wire.beginTransmission(SHT4X_ADDR);
+    Wire.write(SHT4X_CMD_MEAS);
+    if (Wire.endTransmission() != 0) {
+        Serial.println("[SHT40] NAK on command — sensor not responding");
+        return false;
+    }
+    delay(10);  // datasheet: 8.2 ms max for high-precision
+
+    size_t got = Wire.requestFrom(SHT4X_ADDR, (uint8_t)6);
+    if (got != 6) {
+        Serial.printf("[SHT40] short read: %u/6 bytes\n", (unsigned)got);
+        return false;
+    }
+    uint8_t b[6];
+    for (int i = 0; i < 6; i++) b[i] = Wire.read();
+
+    if (sht4xCRC(b, 2) != b[2] || sht4xCRC(b + 3, 2) != b[5]) {
+        Serial.println("[SHT40] CRC mismatch");
+        return false;
+    }
+
+    uint16_t tRaw  = ((uint16_t)b[0] << 8) | b[1];
+    uint16_t rhRaw = ((uint16_t)b[3] << 8) | b[4];
+    tempC = -45.0f + 175.0f * tRaw / 65535.0f;
+    rh    = -6.0f  + 125.0f * rhRaw / 65535.0f;
+    if (rh < 0.0f)   rh = 0.0f;
+    if (rh > 100.0f) rh = 100.0f;
+    return true;
 }
 
 
