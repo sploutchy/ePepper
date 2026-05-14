@@ -36,9 +36,9 @@
 #define BTN_GLYPH_Y          2     // px from top edge
 // Centers tuned against the reTerminal E1001 physical button strip — the
 // three buttons cluster right-of-center, not evenly across the panel.
-#define BTN_GLYPH_PREV_X     440   // center x for left button (Prev / KEY2)
-#define BTN_GLYPH_NEXT_X     460   // center x for middle button (Next / KEY1)
-#define BTN_GLYPH_REFRESH_X  540   // center x for right button (Refresh / KEY0)
+#define BTN_GLYPH_PREV_X     450   // center x for left button (Prev / KEY2)
+#define BTN_GLYPH_NEXT_X     490   // center x for middle button (Next / KEY1)
+#define BTN_GLYPH_REFRESH_X  550   // center x for right button (Refresh / KEY0)
 
 // ----- Timing -----
 #define CLOCK_INTERVAL_S        60     // update clock every 1 minute
