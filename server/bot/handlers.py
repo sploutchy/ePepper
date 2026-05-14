@@ -128,12 +128,9 @@ async def cmd_status(update: Update, context) -> None:
     state = display_state.get()
     device = display_state.get_device_status()
 
-    # Battery percentage estimate (Li-Ion: 3.0V empty, 4.2V full)
-    batt_pct = ""
-    if device["battery_mv"] > 0:
-        pct = max(0, min(100, int((device["battery_mv"] - 3000) / 12)))
-        batt_pct = f"🔋 {pct}% ({device['battery_mv']}mV)"
-
+    # Battery/WiFi/env were dropped from the readout because the firmware no
+    # longer pings the server on a schedule (it only reports on button-press
+    # WiFi sessions), so those values would lag arbitrarily.
     lines = [
         "📊 *ePepper Status*",
         "",
@@ -143,10 +140,6 @@ async def cmd_status(update: Update, context) -> None:
         lines.append(f"Recipe: {state['title']}")
     if state["total_pages"] > 1:
         lines.append(f"Page: {state['page']}/{state['total_pages']}")
-    if batt_pct:
-        lines.append(batt_pct)
-    if device["rssi"]:
-        lines.append(f"📶 WiFi: {device['rssi']} dBm")
     if device["last_seen"]:
         ago = int(time.time() - device["last_seen"])
         lines.append(f"Last seen: {ago}s ago")
