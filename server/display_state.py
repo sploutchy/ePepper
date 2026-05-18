@@ -1,7 +1,8 @@
 """Shared display state — tracks current image, recipe, and device status.
 
-Pure in-memory state. Content is lost on container restart — the ESP32 will
-pick up whatever gets sent next via Telegram. No database needed for MVP.
+Pure in-memory state. The active recipe (and any in-flight unsaved push)
+is lost on container restart; saved recipes persist in the SQLite library
+and can be re-pushed via /search or the midnight anniversary scheduler.
 """
 
 import hashlib
@@ -32,19 +33,21 @@ _state: dict[str, Any] = {
 # Page images: {page_number: PIL.Image}
 _pages: dict[int, Image.Image] = {}
 
-# Cached render inputs so we can re-render when the battery reading updates.
-# Only populated for recipe content; photos render once and never reflow.
+# Cached render inputs so push_recipe_to_display callers don't have to
+# resupply comments / rating on small mutations (cmd_comment, cmd_rate
+# both re-fetch the row and re-set_recipe). Only populated for recipe
+# content; photos render once and never reflow.
 _recipe_inputs: dict[str, Any] = {
     "recipe": None,
     "comments": [],
     "rating": None,
 }
 
-# Device status (reported by ESP32 on each button-press wake)
+# Device status (reported by ESP32 on every wake — button press or
+# daily timer). Whichever fires more recently overwrites the others.
 _device: dict[str, Any] = {
     "battery_mv": 0,
     "rssi": 0,
-    "uptime_s": 0,
     "temperature_c": None,
     "humidity_pct": None,
     "last_seen": 0,
@@ -66,7 +69,7 @@ def set_recipe(
     recipe_id: int | None = None,
     url: str | None = None,
 ) -> None:
-    """Render and install a recipe. Re-renders later if the battery reading changes."""
+    """Render and install a recipe as the active display content."""
     _recipe_inputs["recipe"] = recipe
     _recipe_inputs["comments"] = list(comments)
     _recipe_inputs["rating"] = rating
@@ -165,7 +168,6 @@ _low_battery_alerted = False
 def update_device_status(
     battery_mv: int,
     rssi: int,
-    uptime_s: int,
     temperature_c: float | None = None,
     humidity_pct: float | None = None,
 ) -> dict:
@@ -175,17 +177,17 @@ def update_device_status(
     reads it on wake. They default to None when omitted so older firmware
     that doesn't yet report them keeps working.
 
-    Returns a dict that may include `low_battery_alert_mv`: the battery
-    reading that just crossed below the threshold. The caller is expected
-    to deliver this alert (e.g. via Telegram). Hysteresis ensures we don't
-    fire again until the battery has been charged back above the threshold.
+    Returns `{"low_battery_alert_mv": int | None}`. When non-None, the
+    battery just crossed below the threshold and the caller is expected
+    to deliver this alert (e.g. via Telegram). Hysteresis prevents the
+    alert from firing again until the battery climbs above
+    LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV.
     """
     global _low_battery_alerted
 
     _device.update({
         "battery_mv": battery_mv,
         "rssi": rssi,
-        "uptime_s": uptime_s,
         "temperature_c": temperature_c,
         "humidity_pct": humidity_pct,
         "last_seen": int(time.time()),

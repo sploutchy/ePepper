@@ -37,7 +37,8 @@ async def root():
 
 @app.get("/version")
 async def version(request: Request):
-    """Returns current image hash + metadata. ESP32 polls this to check for changes."""
+    """Returns current image hash + metadata. ESP32 hits this on every wake
+    (button press or daily timer) to decide whether to refetch /image."""
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
@@ -157,19 +158,26 @@ async def page_last(request: Request):
     return {"ok": True, "page": total, "total_pages": total}
 
 
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Done-callback that logs any unhandled exception from a fire-and-forget task."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        log.exception("Background task %r raised:", task.get_name(), exc_info=exc)
+
+
 @app.post("/device/status")
 async def device_status(
     request: Request,
     battery_mv: int = Query(0),
     rssi: int = Query(0),
-    uptime_s: int = Query(0),
     temperature_c: float | None = Query(None),
     humidity_pct: float | None = Query(None),
 ):
-    """ESP32 reports its status here on each button-press wake.
-
-    `temperature_c` / `humidity_pct` are optional so pre-SHT40 firmware
-    builds still post a valid request.
+    """ESP32 wake-cycle report — fires on a button press and on the daily
+    timer wake. `temperature_c` / `humidity_pct` are optional so a
+    pre-SHT40 firmware build still posts a valid request.
     """
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
@@ -177,7 +185,6 @@ async def device_status(
     result = display_state.update_device_status(
         battery_mv=battery_mv,
         rssi=rssi,
-        uptime_s=uptime_s,
         temperature_c=temperature_c,
         humidity_pct=humidity_pct,
     )
@@ -188,7 +195,10 @@ async def device_status(
         # POST on Telegram delivery, and a Telegram send timeout shouldn't
         # 5xx the device. Imported here to keep the api module free of bot deps.
         from bot.handlers import notify_low_battery
-        asyncio.create_task(notify_low_battery(alert_mv))
+        task = asyncio.create_task(
+            notify_low_battery(alert_mv), name="notify_low_battery"
+        )
+        task.add_done_callback(_log_task_exception)
 
     return {"ok": True}
 

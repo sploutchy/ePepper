@@ -11,6 +11,11 @@
  * so the controller's OLD register matches what's now displayed on the panel.
  * On the next partial refresh, the differential LUT then starts from the
  * correct baseline.
+ *
+ * NOTE: post-refactor the firmware never calls updataPartial() — every pixel
+ * is now rendered server-side. This class is kept dormant on purpose, in
+ * case future content (e.g. on-device clock) needs a working partial path
+ * again.
  */
 
 #ifndef EPEPPER_EPAPER_FIXED_H

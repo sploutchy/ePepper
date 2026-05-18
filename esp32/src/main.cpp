@@ -391,12 +391,9 @@ void reportDeviceStatus() {
     float tempC = 0, rh = 0;
     bool envOk = readSHT40(tempC, rh);
 
-    // wakeCount is "wakes since cold boot" — uptime_s is a historical name
-    // kept for the server query param; the server doesn't interpret it.
     String url = String(SERVER_URL) + "/device/status"
                  + "?battery_mv=" + String(batteryMv)
-                 + "&rssi=" + String(WiFi.RSSI())
-                 + "&uptime_s=" + String(wakeCount);
+                 + "&rssi=" + String(WiFi.RSSI());
     if (envOk) {
         url += "&temperature_c=" + String(tempC, 1);
         url += "&humidity_pct=" + String(rh, 0);
