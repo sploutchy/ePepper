@@ -1,5 +1,7 @@
 """Telegram bot handlers for ePepper."""
 
+import hashlib
+import json
 import logging
 import time
 import uuid
@@ -20,8 +22,13 @@ from config import TELEGRAM_BOT_TOKEN, ALLOWED_USERS
 import display_state
 import library
 from processing.images import process_photo
+from processing.jsonld import parse_recipe_jsonld
 from processing.recipes import process_recipe_url
 from rendering.layout import render_recipe
+
+# Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
+# a few KB; anything larger is almost certainly not a recipe.
+_JSON_MAX_BYTES = 256 * 1024
 
 log = logging.getLogger(__name__)
 
@@ -55,6 +62,10 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("rate", cmd_rate))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
+    app.add_handler(MessageHandler(
+        filters.Document.FileExtension("json") | filters.Document.MimeType("application/json"),
+        on_document,
+    ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
     app.add_handler(CallbackQueryHandler(on_rate_button, pattern=r"^rate:"))
@@ -78,6 +89,8 @@ async def cmd_start(update: Update, context) -> None:
         "Send me:\n"
         "• A *photo* of a recipe\n"
         "• A *recipe URL* (just paste the link)\n"
+        "• A *.json file* with a schema.org Recipe (for OCR / unsupported sites — "
+        "have an LLM produce the JSON-LD and upload it)\n"
         "• `/recipe <url>` to force recipe parsing\n\n"
         "Commands:\n"
         "/comment <text> — add a note to a saved recipe (must save first)\n"
@@ -321,9 +334,16 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
         log.warning("Failed to parse recipe from URL: %s", url)
         await msg.edit_text("❌ Couldn't parse a recipe from that URL.\nTry sending a screenshot instead.")
         return
+    await _present_recipe(url, recipe, msg)
 
-    # If this URL is already in the library, treat it as a re-display of a
-    # saved recipe (carry over comments + rating, no Save button).
+
+async def _present_recipe(url: str, recipe: dict, msg) -> None:
+    """Push a parsed recipe to the display.
+
+    If `url` matches an already-saved row, restore its rating + comments
+    and skip the Save prompt. Otherwise stash in the pending map and offer
+    a 💾 Save button — the DB row is only created when the user rates.
+    """
     existing = library.find_by_url(url)
     if existing is not None:
         push_recipe_to_display(existing)
@@ -335,8 +355,6 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
         await msg.edit_text(reply, parse_mode="Markdown")
         return
 
-    # Brand-new recipe: render without notes, offer a Save button. Don't
-    # touch the DB until the user rates.
     pages = _render_all_pages(recipe, comments=[])
     total_pages = len(pages)
     display_state.set_recipe_pages(
@@ -358,6 +376,70 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
             InlineKeyboardButton("💾 Save", callback_data=f"save:{token}")
         ]]),
     )
+
+
+def _synthetic_jsonld_url(recipe: dict) -> str:
+    """Stable surrogate URL for JSON-LD recipes without their own canonical URL.
+
+    Hashing title + ingredients + instructions means re-uploading the same
+    LLM output collides on the library's UNIQUE(url) and dedupes cleanly.
+    """
+    payload = json.dumps(
+        {
+            "title": recipe.get("title", ""),
+            "ingredients": recipe.get("ingredients", []),
+            "instructions": recipe.get("instructions", []),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    return f"jsonld:{digest}"
+
+
+async def on_document(update: Update, context) -> None:
+    """Handle .json uploads — schema.org Recipe JSON-LD ingest."""
+    if not _is_allowed(update.effective_user.id):
+        return
+
+    doc = update.message.document
+    log.info(
+        "Document received from user %s: name=%s mime=%s size=%s",
+        update.effective_user.id, doc.file_name, doc.mime_type, doc.file_size,
+    )
+
+    msg = await update.message.reply_text("🧾 Reading JSON...")
+
+    if doc.file_size and doc.file_size > _JSON_MAX_BYTES:
+        await msg.edit_text(
+            f"❌ JSON file too large ({doc.file_size} bytes; limit "
+            f"{_JSON_MAX_BYTES}).",
+        )
+        return
+
+    file = await doc.get_file()
+    raw = await file.download_as_bytearray()
+    try:
+        data = json.loads(bytes(raw).decode("utf-8"))
+    except (ValueError, UnicodeDecodeError) as e:
+        log.warning("Failed to parse uploaded JSON: %s", e)
+        await msg.edit_text("❌ Couldn't parse the file as JSON.")
+        return
+
+    parsed = parse_recipe_jsonld(data)
+    if parsed is None:
+        await msg.edit_text(
+            "❌ No schema.org Recipe found.\n"
+            "Expecting an object with `@type: \"Recipe\"`, plus at least "
+            "`name` and one of `recipeIngredient` / `recipeInstructions`.",
+            parse_mode="Markdown",
+        )
+        return
+
+    recipe, source_url = parsed
+    url = source_url or _synthetic_jsonld_url(recipe)
+    log.info("JSON-LD recipe ingested: title=%r url=%s", recipe.get("title"), url)
+    await _present_recipe(url, recipe, msg)
 
 
 def _render_all_pages(recipe: dict, comments: list[str], rating: int | None = None) -> dict:
