@@ -128,7 +128,7 @@ async def cmd_start(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
     await update.message.reply_text(
-        "🌶️ *ePepper* — your kitchen recipe display\n\n"
+        "🫑 *ePepper* — your kitchen recipe display\n\n"
         "Send me:\n"
         "• A *photo* of a recipe\n"
         "• A *recipe URL* (just paste the link)\n"
