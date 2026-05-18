@@ -11,10 +11,109 @@ from config import (
     MARGIN,
     COLUMN_GAP,
     INGREDIENTS_WIDTH_RATIO,
-    FIRMWARE_FOOTER_RESERVE,
     FONT_REGULAR,
     FONT_BOLD,
 )
+
+# 10x10 glyphs marking which physical button does what. Drawn at the very
+# top of the panel (Y=2) over the title's top margin. X centers mirror the
+# firmware constants in esp32/include/config.h (BTN_GLYPH_*_X) so they sit
+# directly above the physical reTerminal keys.
+_BTN_GLYPH_Y = 2
+_BTN_PREV_X = 450
+_BTN_NEXT_X = 490
+_BTN_REFRESH_X = 545
+_GLYPH_W = 10
+_GLYPH_H = 10
+
+_GLYPH_PREV = (
+    "....#.....",
+    "...##.....",
+    "..###.....",
+    ".####.....",
+    "#####.....",
+    "#####.....",
+    ".####.....",
+    "..###.....",
+    "...##.....",
+    "....#.....",
+)
+_GLYPH_NEXT = (
+    "....#.....",
+    "....##....",
+    "....###...",
+    "....####..",
+    "....#####.",
+    "....#####.",
+    "....####..",
+    "....###...",
+    "....##....",
+    "....#.....",
+)
+# Broken-circle refresh icon, same shape as the firmware version: continuous
+# left arc, broken right side, downward-tapering arrowhead at the top-right.
+_GLYPH_REFRESH = (
+    "..####....",
+    ".#....#...",
+    "#....###..",
+    "#.....##..",
+    "#......#..",
+    "#.........",
+    "#.........",
+    "#.........",
+    ".#........",
+    "..####....",
+)
+
+# Battery glyph dimensions. The "as-of-last-button-press" reading lives in
+# display_state.battery_mv; the renderer paints the level at recipe-render
+# time, so on-screen battery refreshes only when a new recipe is loaded.
+_BATT_W = 24
+_BATT_H = 10
+_BATT_NUB_W = 3
+_BATT_NUB_H = 4
+_BATT_FULL_MV = 4200      # ~fully charged 1S Li-Po
+_BATT_EMPTY_MV = 3300     # cutoff above hard-shutdown to avoid showing "empty" too early
+
+
+def _draw_glyph(draw, x: int, y: int, glyph: tuple[str, ...]) -> None:
+    """Paint a '#'-encoded bitmap at (x, y)."""
+    for row, line in enumerate(glyph):
+        for col, ch in enumerate(line):
+            if ch == "#":
+                draw.point((x + col, y + row), fill=0)
+
+
+def _draw_button_glyphs(draw, page: int, total_pages: int) -> None:
+    """PREV / NEXT only when a page exists in that direction; REFRESH always."""
+    if page > 1:
+        _draw_glyph(draw, _BTN_PREV_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_PREV)
+    if page < total_pages:
+        _draw_glyph(draw, _BTN_NEXT_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_NEXT)
+    _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
+
+
+def _draw_battery(draw, x: int, y: int, mv: int | None) -> None:
+    """Bottom-left battery indicator. Hidden when no reading has arrived yet."""
+    if not mv:
+        return
+    pct = max(0.0, min(1.0, (mv - _BATT_EMPTY_MV) / (_BATT_FULL_MV - _BATT_EMPTY_MV)))
+    draw.rectangle([x, y, x + _BATT_W - 1, y + _BATT_H - 1], outline=0, width=1)
+    nub_x = x + _BATT_W
+    nub_y = y + (_BATT_H - _BATT_NUB_H) // 2
+    draw.rectangle(
+        [nub_x, nub_y, nub_x + _BATT_NUB_W - 1, nub_y + _BATT_NUB_H - 1],
+        fill=0,
+    )
+    inner_pad = 2
+    inner_w = _BATT_W - 2 * inner_pad
+    fill_w = int(inner_w * pct)
+    if fill_w > 0:
+        draw.rectangle(
+            [x + inner_pad, y + inner_pad,
+             x + inner_pad + fill_w - 1, y + _BATT_H - inner_pad - 1],
+            fill=0,
+        )
 
 # Localized column headings and page label
 _L10N = {
@@ -32,6 +131,7 @@ def render_recipe(
     page: int = 1,
     comments: list[str] | None = None,
     rating: int | None = None,
+    battery_mv: int | None = None,
 ) -> tuple[Image.Image, int]:
     """Render a recipe dict to a 1-bit image for e-ink display.
 
@@ -42,6 +142,10 @@ def render_recipe(
             "Notes" page is appended after the recipe pages.
         rating: optional 1-5 star rating from the library; rendered next to
             time / servings on the meta line.
+        battery_mv: optional last-known battery voltage from display_state;
+            renders a battery icon at bottom-left. Image is regenerated on
+            every recipe push, so the icon reflects the most recent reading
+            received at that moment.
 
     Returns:
         (image, total_pages)
@@ -96,9 +200,9 @@ def render_recipe(
     line_h = font_body.size + 4
     heading_line_h = font_heading.size + 4
     heading_space = font_heading.size + 8  # space for column heading
-    # Reserve enough at the bottom for: the firmware-owned overlay strip, the
-    # page indicator drawn just above it, and a small gap.
-    footer_reserve = FIRMWARE_FOOTER_RESERVE + font_meta.size + 8
+    # Reserve a slim bottom row for the battery glyph + page indicator. No
+    # firmware overlay any more, so the renderer owns the whole panel.
+    footer_reserve = font_meta.size + 8
     available_h = RECIPE_HEIGHT - col_top - MARGIN - heading_space - footer_reserve
 
     # --- Pre-wrap ingredients into line groups ---
@@ -278,12 +382,21 @@ def render_recipe(
                     y_right += block["line_h"]
                 y_right += 6
 
-    # --- Footer: page indicator (above the firmware-owned strip) ---
+    # --- Footer: battery (left) + page indicator (right) ---
+    footer_y = RECIPE_HEIGHT - font_meta.size - 2
+    _draw_battery(
+        draw,
+        MARGIN,
+        RECIPE_HEIGHT - _BATT_H - 2,
+        battery_mv,
+    )
     if total_pages > 1:
         page_text = f"{strings['page']} {page} / {total_pages}"
         bbox = draw.textbbox((0, 0), page_text, font=font_meta)
         tw = bbox[2] - bbox[0]
-        page_y = RECIPE_HEIGHT - FIRMWARE_FOOTER_RESERVE - font_meta.size - 2
-        draw.text((DISPLAY_WIDTH - MARGIN - tw, page_y), page_text, font=font_meta, fill=0)
+        draw.text((DISPLAY_WIDTH - MARGIN - tw, footer_y), page_text, font=font_meta, fill=0)
+
+    # --- Top: button glyphs above the physical reTerminal keys ---
+    _draw_button_glyphs(draw, page, total_pages)
 
     return img, total_pages

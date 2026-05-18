@@ -162,8 +162,14 @@ async def device_status(
     battery_mv: int = Query(0),
     rssi: int = Query(0),
     uptime_s: int = Query(0),
+    temperature_c: float | None = Query(None),
+    humidity_pct: float | None = Query(None),
 ):
-    """ESP32 reports its status here."""
+    """ESP32 reports its status here on each button-press wake.
+
+    `temperature_c` / `humidity_pct` are optional so pre-SHT40 firmware
+    builds still post a valid request.
+    """
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
@@ -171,6 +177,8 @@ async def device_status(
         battery_mv=battery_mv,
         rssi=rssi,
         uptime_s=uptime_s,
+        temperature_c=temperature_c,
+        humidity_pct=humidity_pct,
     )
     return {"ok": True}
 

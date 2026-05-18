@@ -22,37 +22,20 @@
 #define DISPLAY_WIDTH     800
 #define DISPLAY_HEIGHT    480
 
-// Clock/date overlay (drawn over the server-rendered footer strip, bottom-left)
-#define CLOCK_X        16   // x where text starts; mirrors server MARGIN
-#define CLOCK_Y        456  // top of 16-px text; bottom (y=472) matches page indicator bottom
-// Partial refresh covers the full bottom strip: UC8179 bleeds voltage into rows
-// just outside the partial window, so we want the visible clock text to sit
-// well inside the rect (centered far from any boundary). Width=panel width,
-// height kept tight so we don't wipe recipe content above.
-#define CLOCK_RECT_X   0
-#define CLOCK_RECT_Y   452
-#define CLOCK_RECT_W   800
-#define CLOCK_RECT_H   28
-
-// Top-edge glyphs marking physical button positions on the reTerminal.
-// Drawn over the recipe image on every full refresh; not partial-refreshed.
-// Tune the centers if they don't line up with the physical buttons.
-#define BTN_GLYPH_Y          2     // px from top edge
-// Centers tuned against the reTerminal E1001 physical button strip — the
-// three buttons cluster right-of-center, not evenly across the panel.
-#define BTN_GLYPH_PREV_X     450   // center x for left button (Prev / KEY2)
-#define BTN_GLYPH_NEXT_X     490   // center x for middle button (Next / KEY1)
-#define BTN_GLYPH_REFRESH_X  545   // center x for right button (Refresh / KEY0)
+// All on-screen overlays (battery glyph, button indicators, page indicator,
+// recipe content) are rendered by the server — no firmware-drawn UI any
+// more. The firmware just blits the BMP it receives.
 
 // ----- Timing -----
-#define CLOCK_INTERVAL_S        60     // update clock every 1 minute
-#define NTP_SYNC_INTERVAL_S     3600   // sync NTP every hour
-#define WARM_WINDOW_MS          15000  // stay awake after a button press to skip cold-start next time
-#define FULL_REFRESH_INTERVAL_S 1800   // force full panel refresh every 30 min so partial-refresh artifacts don't accumulate
+// Daily wake to pull whatever ambient content the server scheduled (e.g.
+// an anniversary recipe at midnight). Server is the source of truth for
+// when to swap; the device just pulls on the daily ping.
+#define DAILY_REFRESH_INTERVAL_S  86400   // 24 h
+#define WARM_WINDOW_MS            15000   // stay awake after a button press to skip cold-start next time
 // Held this long → long-press: refresh = force full redraw, next/prev = jump
 // to last/first. Measured AFTER boot, so cold-start adds ~200 ms of overhead;
 // total wall time to qualify is roughly LONG_PRESS_MS + boot.
-#define LONG_PRESS_MS           500
+#define LONG_PRESS_MS             500
 
 // ----- Pins (reTerminal E1001) -----
 #define EPD_CLK   7

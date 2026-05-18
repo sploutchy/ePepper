@@ -24,7 +24,7 @@ _state: dict[str, Any] = {
     "total_pages": 1,
     "updated_at": 0,
     "title": "",
-    "lang": "en",           # recipe language, used by the ESP32 to localize the clock overlay
+    "lang": "en",
     "recipe_id": None,      # library row id when the active recipe is saved; None for unsaved or non-recipe
     "url": None,            # source URL of the active recipe (used to identify it across save flows)
 }
@@ -32,11 +32,21 @@ _state: dict[str, Any] = {
 # Page images: {page_number: PIL.Image}
 _pages: dict[int, Image.Image] = {}
 
-# Device status (reported by ESP32)
+# Cached render inputs so we can re-render when the battery reading updates.
+# Only populated for recipe content; photos render once and never reflow.
+_recipe_inputs: dict[str, Any] = {
+    "recipe": None,
+    "comments": [],
+    "rating": None,
+}
+
+# Device status (reported by ESP32 on each button-press wake)
 _device: dict[str, Any] = {
     "battery_mv": 0,
     "rssi": 0,
     "uptime_s": 0,
+    "temperature_c": None,
+    "humidity_pct": None,
     "last_seen": 0,
 }
 
@@ -44,28 +54,58 @@ _device: dict[str, Any] = {
 def set_image(img: Image.Image, content_type: str = "photo", title: str = "", lang: str = "en") -> None:
     """Set a single-page image as the current display content."""
     _pages.clear()
+    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None})
     _pages[1] = img
     _update_state(content_type=content_type, title=title, total_pages=1, lang=lang, recipe_id=None, url=None)
 
 
-def set_recipe_pages(
-    pages: dict[int, Image.Image],
-    title: str = "",
-    lang: str = "en",
+def set_recipe(
+    recipe: dict,
+    comments: list[str],
+    rating: int | None = None,
     recipe_id: int | None = None,
     url: str | None = None,
 ) -> None:
-    """Set multi-page recipe images as the current display content."""
-    _pages.clear()
-    _pages.update(pages)
+    """Render and install a recipe. Re-renders later if the battery reading changes."""
+    _recipe_inputs["recipe"] = recipe
+    _recipe_inputs["comments"] = list(comments)
+    _recipe_inputs["rating"] = rating
+
+    total = _render_pages_from_inputs()
     _update_state(
         content_type="recipe",
-        title=title,
-        total_pages=len(pages),
-        lang=lang,
+        title=recipe.get("title", ""),
+        total_pages=total,
+        lang=recipe.get("lang", "en"),
         recipe_id=recipe_id,
         url=url,
     )
+
+
+def _render_pages_from_inputs() -> int:
+    """Render every page from the cached recipe inputs into `_pages`. Returns total pages."""
+    # Imported lazily so display_state stays import-cheap (and avoids any chance
+    # of a cycle if rendering grows server-side imports).
+    from rendering.layout import render_recipe
+
+    recipe = _recipe_inputs["recipe"]
+    if recipe is None:
+        return 0
+    comments = _recipe_inputs["comments"]
+    rating = _recipe_inputs["rating"]
+    battery_mv = _device["battery_mv"] or None
+
+    first_img, total = render_recipe(
+        recipe, page=1, comments=comments, rating=rating, battery_mv=battery_mv,
+    )
+    _pages.clear()
+    _pages[1] = first_img
+    for p in range(2, total + 1):
+        page_img, _ = render_recipe(
+            recipe, page=p, comments=comments, rating=rating, battery_mv=battery_mv,
+        )
+        _pages[p] = page_img
+    return total
 
 
 def set_page(page: int) -> bool:
@@ -80,6 +120,7 @@ def set_page(page: int) -> bool:
 def clear() -> None:
     """Clear the display (idle state)."""
     _pages.clear()
+    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None})
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],
         "type": "idle",
@@ -113,14 +154,36 @@ def get_image_bmp(page: int = 1) -> bytes | None:
     return buf.getvalue()
 
 
-def update_device_status(battery_mv: int, rssi: int, uptime_s: int) -> None:
-    """Update device status from ESP32 report."""
+def update_device_status(
+    battery_mv: int,
+    rssi: int,
+    uptime_s: int,
+    temperature_c: float | None = None,
+    humidity_pct: float | None = None,
+) -> None:
+    """Update device status from an ESP32 wake-cycle report.
+
+    `temperature_c` / `humidity_pct` are sent from the SHT40 when the device
+    reads it on wake. They default to None when omitted so older firmware
+    that doesn't yet report them keeps working.
+
+    If a recipe is currently loaded, re-render pages so the on-screen battery
+    glyph reflects this reading. Battery_mv often rounds to the same pixel
+    fill so the bytes (and hash) will frequently stay identical — in that
+    case the ESP32 sees no hash change and skips a redundant /image fetch.
+    """
     _device.update({
         "battery_mv": battery_mv,
         "rssi": rssi,
         "uptime_s": uptime_s,
+        "temperature_c": temperature_c,
+        "humidity_pct": humidity_pct,
         "last_seen": int(time.time()),
     })
+
+    if _state["type"] == "recipe" and _recipe_inputs["recipe"] is not None:
+        _render_pages_from_inputs()
+        _state["hash"] = _compute_hash(_state["page"])
 
 
 def get_device_status() -> dict:

@@ -24,7 +24,6 @@ import library
 from processing.images import process_photo
 from processing.jsonld import parse_recipe_jsonld
 from processing.recipes import process_recipe_url
-from rendering.layout import render_recipe
 
 # Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
 # a few KB; anything larger is almost certainly not a recipe.
@@ -141,9 +140,8 @@ async def cmd_status(update: Update, context) -> None:
     state = display_state.get()
     device = display_state.get_device_status()
 
-    # Battery/WiFi/env were dropped from the readout because the firmware no
-    # longer pings the server on a schedule (it only reports on button-press
-    # WiFi sessions), so those values would lag arbitrarily.
+    # All device-reported fields are "as of last button-press wake" — the
+    # firmware does not poll on a schedule, so freshness == last interaction.
     lines = [
         "📊 *ePepper Status*",
         "",
@@ -153,9 +151,16 @@ async def cmd_status(update: Update, context) -> None:
         lines.append(f"Recipe: {state['title']}")
     if state["total_pages"] > 1:
         lines.append(f"Page: {state['page']}/{state['total_pages']}")
+
     if device["last_seen"]:
         ago = int(time.time() - device["last_seen"])
         lines.append(f"Last seen: {ago}s ago")
+        if device["battery_mv"]:
+            lines.append(f"Battery: {device['battery_mv'] / 1000:.2f} V")
+        if device.get("temperature_c") is not None:
+            lines.append(f"Temp: {device['temperature_c']:.1f} °C")
+        if device.get("humidity_pct") is not None:
+            lines.append(f"Humidity: {device['humidity_pct']:.0f} %")
     else:
         lines.append("Last seen: never")
 
@@ -355,15 +360,8 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
         await msg.edit_text(reply, parse_mode="Markdown")
         return
 
-    pages = _render_all_pages(recipe, comments=[])
-    total_pages = len(pages)
-    display_state.set_recipe_pages(
-        pages,
-        title=recipe.get("title", ""),
-        lang=recipe.get("lang", "en"),
-        recipe_id=None,
-        url=url,
-    )
+    display_state.set_recipe(recipe, comments=[], recipe_id=None, url=url)
+    total_pages = display_state.get()["total_pages"]
 
     token = _stash_pending(url, recipe)
     reply = f"✅ *{recipe['title']}*\nSent to display!"
@@ -442,24 +440,13 @@ async def on_document(update: Update, context) -> None:
     await _present_recipe(url, recipe, msg)
 
 
-def _render_all_pages(recipe: dict, comments: list[str], rating: int | None = None) -> dict:
-    """Render every page of a recipe (with optional notes/rating) into a {page: Image} dict."""
-    first_img, total_pages = render_recipe(recipe, page=1, comments=comments, rating=rating)
-    pages = {1: first_img}
-    for p in range(2, total_pages + 1):
-        page_img, _ = render_recipe(recipe, page=p, comments=comments, rating=rating)
-        pages[p] = page_img
-    return pages
-
-
 def push_recipe_to_display(row: dict) -> None:
     """Render the recipe in `row` with its current comments + rating and push to the panel."""
     comments = [c["body"] for c in library.get_comments(row["id"])]
-    pages = _render_all_pages(row["recipe"], comments, rating=row.get("rating"))
-    display_state.set_recipe_pages(
-        pages,
-        title=row["title"],
-        lang=row["lang"],
+    display_state.set_recipe(
+        row["recipe"],
+        comments=comments,
+        rating=row.get("rating"),
         recipe_id=row["id"],
         url=row["url"],
     )

@@ -2,24 +2,28 @@
  * ePepper firmware — XIAO ESP32-S3 + reTerminal E1001
  *
  * Buttons (active-low, hw 10K pull-up + 100nF debounce):
- *   KEY0 (GPIO3)  — Refresh: force poll server for new content
- *   KEY1 (GPIO4)  — Next page
- *   KEY2 (GPIO5)  — Previous page
+ *   KEY0 (GPIO3)  — Refresh: poll server, redraw if changed (long-press: force)
+ *   KEY1 (GPIO4)  — Next page (long-press: last page)
+ *   KEY2 (GPIO5)  — Previous page (long-press: first page)
  *
  * Wake sources:
- *   - Timer: CLOCK_INTERVAL_S for clock overlay, POLL_INTERVAL_S for server poll
- *   - Any button press via ext1 bitmask (GPIO 3, 4, 5)
+ *   - Timer: DAILY_REFRESH_INTERVAL_S — pull whatever ambient content the
+ *     server has scheduled (e.g. an anniversary recipe).
+ *   - Any of the 3 buttons via ext1 (active-low)
  *
- * Loop:
- *   1. Wake from deep sleep
- *   2. Read buttons to determine intent (refresh / next / prev)
- *   3. If button:
- *      a. Refresh → connect WiFi, poll server, fetch image if changed
- *      b. Next/Prev → connect WiFi, call /page/next or /page/prev, fetch image
- *   4. If timer:
- *      a. Every CLOCK_INTERVAL_S → update clock overlay (partial refresh, no WiFi)
- *      b. Every POLL_INTERVAL_S → connect WiFi, poll server for new recipe
- *   5. Deep sleep
+ * Per wake:
+ *   1. Decide intent (refresh / next / prev / timer)
+ *   2. WiFi up
+ *   3. Read battery + SHT40, POST /device/status — server uses the fresh
+ *      battery to bake the on-screen glyph into the next render
+ *   4. Refresh → /version hash check, /image if changed (or always if forced)
+ *      Page nav → /page/<dir>, /image
+ *      Timer → same as refresh, not forced
+ *   5. Display BMP (always full refresh — server owns every pixel)
+ *   6. Deep sleep
+ *
+ * Time is set from the HTTP Date header in every server response, so we
+ * never call out to NTP. Logs stay roughly correct as a side effect.
  */
 
 #include <Arduino.h>
@@ -27,17 +31,16 @@
 #include <HTTPClient.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
+#include <sys/time.h>
 #include <time.h>
 #include "TFT_eSPI.h"
-#include "EPaperFixed.h"
+#include "EPaperFixed.h"  // Kept dormant: subclass adds partial-refresh override we no longer call.
 #include "config.h"
 
 EPaperFixed epaper;
 
-// ---- Types ----
 enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
 
-// ---- Forward declarations ----
 void handleRefresh(bool force = false);
 void handlePageChange(const char* direction);
 void handleTimerWake();
@@ -47,29 +50,21 @@ void connectWiFi();
 bool pollServer();
 bool downloadImage(int page);
 int requestPageChange(const char* direction);
-void displayImage(uint8_t* data, size_t len);
-void drawClockOverlay();
-void drawClockContent();
-void drawButtonGlyphs();
-bool readSHT40(float& tempC, float& rh);
-void syncNTPIfStale();
 void reportDeviceStatus();
-void syncNTP();
-void buzzerBeep(int count, int duration_ms);
+void displayImage(uint8_t* data, size_t len);
+bool readSHT40(float& tempC, float& rh);
 float readBatteryVoltage();
+void buzzerBeep(int count, int duration_ms);
 void goToSleep(uint64_t seconds);
 WakeAction detectWakeAction();
+void collectDateHeader(HTTPClient& http);
+void applyDateHeader(HTTPClient& http);
 
 // ---- RTC-persistent state (survives deep sleep) ----
 RTC_DATA_ATTR char lastHash[16] = "";
 RTC_DATA_ATTR int currentPage = 1;
 RTC_DATA_ATTR int totalPages = 1;
 RTC_DATA_ATTR int wakeCount = 0;
-RTC_DATA_ATTR time_t lastNTPSync = 0;
-RTC_DATA_ATTR bool hasContent = false;
-RTC_DATA_ATTR int lastFullRefreshWake = 0;  // wakeCount of the last full-panel refresh; used to throttle anti-ghost full refreshes
-RTC_DATA_ATTR char currentLang[3] = "en";   // recipe language (ISO 639-1), localizes the date overlay
-RTC_DATA_ATTR float lastBatteryV = 3.7f;    // most recent battery voltage, refreshed during reportDeviceStatus
 
 // ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
@@ -83,22 +78,19 @@ void setup() {
     wakeCount++;
     Serial.printf("\n[ePepper] Wake #%d\n", wakeCount);
 
-    // Init outputs
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);  // LED off (active-low)
     pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);  // Buzzer off (active-high)
+    digitalWrite(BUZZER_PIN, LOW);
 
-    // Init buttons (hw pull-ups on board, just set as input)
     pinMode(BTN_REFRESH, INPUT);
     pinMode(BTN_NEXT, INPUT);
     pinMode(BTN_PREV, INPUT);
 
-    // Allocate image buffer in PSRAM
     imageBuffer = (uint8_t*)ps_malloc(DISPLAY_WIDTH * DISPLAY_HEIGHT / 8 + 1024);
     if (!imageBuffer) {
         Serial.println("[ePepper] ERROR: Failed to allocate PSRAM buffer");
-        goToSleep(CLOCK_INTERVAL_S);
+        goToSleep(DAILY_REFRESH_INTERVAL_S);
         return;
     }
 
@@ -106,10 +98,9 @@ void setup() {
 
     WakeAction action = detectWakeAction();
 
-    // For button wakes, sample the GPIO to distinguish a tap from a long-press
-    // before dispatching. The ext1 wake only tells us which pin fired, not how
-    // long it's been held; the button is typically still down when we reach
-    // here, so we time the remainder of the hold against LONG_PRESS_MS.
+    // For button wakes, sample the GPIO to distinguish a tap from a long
+    // press before dispatching. ext1 only tells us which pin fired, not
+    // how long it's been held; the button is typically still down here.
     bool isLong = false;
     int btnPin = -1;
     if (action == WAKE_REFRESH) btnPin = BTN_REFRESH;
@@ -118,8 +109,8 @@ void setup() {
     if (btnPin >= 0) {
         isLong = waitForLongPress(btnPin, LONG_PRESS_MS);
         if (isLong) {
-            // Drain the rest of the hold so the warm window doesn't immediately
-            // re-fire on the same physical press.
+            // Drain the rest of the hold so the warm window doesn't
+            // immediately re-fire on the same physical press.
             while (digitalRead(btnPin) == LOW) delay(10);
         }
     }
@@ -139,19 +130,17 @@ void setup() {
             break;
     }
 
-    // After a button press, hold awake (and WiFi connected) for a warm window
-    // so quick follow-up presses skip the cold-start + WiFi reconnect penalty.
+    // After a button press, hold awake (WiFi connected) for a warm window
+    // so quick follow-up presses skip the cold-start + WiFi reconnect.
     if (action != WAKE_TIMER) {
         warmWindow();
     }
 
-    goToSleep(CLOCK_INTERVAL_S);
+    goToSleep(DAILY_REFRESH_INTERVAL_S);
 }
 
 
-void loop() {
-    // Never reached — we use deep sleep
-}
+void loop() {}
 
 
 // ---- Wake detection ----
@@ -163,37 +152,32 @@ WakeAction detectWakeAction() {
         return WAKE_TIMER;
     }
 
-    // ext1: check which GPIO triggered the wake
     uint64_t mask = esp_sleep_get_ext1_wakeup_status();
-    if (mask & (1ULL << BTN_NEXT)) {
-        Serial.println("[Wake] Button: Next");
-        return WAKE_NEXT;
-    }
-    if (mask & (1ULL << BTN_PREV)) {
-        Serial.println("[Wake] Button: Prev");
-        return WAKE_PREV;
-    }
-    // Default to refresh (KEY0 or unknown)
+    if (mask & (1ULL << BTN_NEXT)) { Serial.println("[Wake] Button: Next"); return WAKE_NEXT; }
+    if (mask & (1ULL << BTN_PREV)) { Serial.println("[Wake] Button: Prev"); return WAKE_PREV; }
     Serial.println("[Wake] Button: Refresh");
     return WAKE_REFRESH;
 }
 
 
-// ---- Button handlers ----
+// ---- Action handlers ----
+// reportDeviceStatus runs BEFORE the image fetch so the server has fresh
+// sensor values (battery + SHT40) to bake into the rendered glyphs for
+// the very response we're about to download.
 
 void handleRefresh(bool force) {
     Serial.printf("[Action] Refresh — polling server%s\n", force ? " (forced)" : "");
-    digitalWrite(LED_PIN, LOW);  // LED on
+    digitalWrite(LED_PIN, LOW);
     buzzerBeep(1, 50);
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
-        buzzerBeep(3, 100);  // Error beep
+        buzzerBeep(3, 100);
         digitalWrite(LED_PIN, HIGH);
         return;
     }
 
-    syncNTPIfStale();
+    reportDeviceStatus();
 
     bool changed = pollServer();
     if (changed || force) {
@@ -206,7 +190,6 @@ void handleRefresh(bool force) {
         Serial.println("[Action] No changes");
     }
 
-    reportDeviceStatus();
     digitalWrite(LED_PIN, HIGH);
 }
 
@@ -217,7 +200,7 @@ void handlePageChange(const char* direction) {
 
     if (totalPages <= 1) {
         Serial.println("[Action] Single page, nothing to do");
-        buzzerBeep(2, 50);  // Two short beeps = can't navigate
+        buzzerBeep(2, 50);
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -229,7 +212,7 @@ void handlePageChange(const char* direction) {
         return;
     }
 
-    syncNTPIfStale();
+    reportDeviceStatus();
 
     int newPage = requestPageChange(direction);
     if (newPage > 0 && newPage != currentPage) {
@@ -241,33 +224,15 @@ void handlePageChange(const char* direction) {
         }
     }
 
-    reportDeviceStatus();
     digitalWrite(LED_PIN, HIGH);
 }
 
 
+// Daily ambient pull — server's anniversary scheduler may have rotated
+// content in at midnight. Same wire shape as refresh, just unforced.
 void handleTimerWake() {
-    int fullRefreshWakes = FULL_REFRESH_INTERVAL_S / CLOCK_INTERVAL_S;
-    bool needsAntiGhostRefresh = hasContent && (wakeCount - lastFullRefreshWake) >= fullRefreshWakes;
-
-    if (needsAntiGhostRefresh) {
-        Serial.println("[Timer] anti-ghost full refresh");
-        connectWiFi();
-        if (WiFi.status() == WL_CONNECTED) {
-            syncNTPIfStale();
-            // We're online anyway — opportunistically resync state so the
-            // page indicator and lang stay coherent if the recipe changed
-            // between refresh-button presses.
-            pollServer();
-            if (downloadImage(currentPage)) {
-                displayImage(imageBuffer, imageSize);
-                Serial.println("[Timer] Full refresh complete");
-            }
-            reportDeviceStatus();
-        }
-    } else {
-        drawClockOverlay();
-    }
+    Serial.println("[Timer] Daily wake — checking for ambient content");
+    handleRefresh(false);
 }
 
 
@@ -303,6 +268,7 @@ bool pollServer() {
     String url = String(SERVER_URL) + "/version";
     http.begin(url);
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    collectDateHeader(http);
 
     int code = http.GET();
     if (code != 200) {
@@ -310,6 +276,8 @@ bool pollServer() {
         http.end();
         return false;
     }
+
+    applyDateHeader(http);
 
     String body = http.getString();
     http.end();
@@ -325,13 +293,8 @@ bool pollServer() {
     totalPages = doc["total_pages"] | 1;
     currentPage = doc["page"] | 1;
 
-    const char* lang = doc["lang"] | "en";
-    strncpy(currentLang, lang, sizeof(currentLang) - 1);
-    currentLang[sizeof(currentLang) - 1] = '\0';
-
     if (hash && strcmp(hash, lastHash) != 0) {
         strncpy(lastHash, hash, sizeof(lastHash) - 1);
-        hasContent = true;
         Serial.printf("[API] New content: hash=%s pages=%d\n", hash, totalPages);
         return true;
     }
@@ -346,6 +309,7 @@ bool downloadImage(int page) {
     String url = String(SERVER_URL) + "/image?page=" + String(page);
     http.begin(url);
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    collectDateHeader(http);
 
     int code = http.GET();
     if (code != 200) {
@@ -353,6 +317,7 @@ bool downloadImage(int page) {
         http.end();
         return false;
     }
+    applyDateHeader(http);
 
     imageSize = http.getSize();
     size_t maxSize = DISPLAY_WIDTH * DISPLAY_HEIGHT / 8 + 1024;
@@ -386,6 +351,7 @@ int requestPageChange(const char* direction) {
     String url = String(SERVER_URL) + "/page/" + direction;
     http.begin(url);
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    collectDateHeader(http);
 
     int code = http.POST("");
     if (code != 200) {
@@ -393,6 +359,7 @@ int requestPageChange(const char* direction) {
         http.end();
         return -1;
     }
+    applyDateHeader(http);
 
     String body = http.getString();
     http.end();
@@ -418,42 +385,101 @@ int requestPageChange(const char* direction) {
 
 
 void reportDeviceStatus() {
-    HTTPClient http;
-
-    // Enable battery ADC, read, disable
     float battV = readBatteryVoltage();
-    lastBatteryV = battV;
     int batteryMv = (int)(battV * 1000);
 
+    float tempC = 0, rh = 0;
+    bool envOk = readSHT40(tempC, rh);
+
+    // wakeCount is "wakes since cold boot" — uptime_s is a historical name
+    // kept for the server query param; the server doesn't interpret it.
     String url = String(SERVER_URL) + "/device/status"
                  + "?battery_mv=" + String(batteryMv)
                  + "&rssi=" + String(WiFi.RSSI())
-                 + "&uptime_s=" + String(wakeCount * CLOCK_INTERVAL_S);
+                 + "&uptime_s=" + String(wakeCount);
+    if (envOk) {
+        url += "&temperature_c=" + String(tempC, 1);
+        url += "&humidity_pct=" + String(rh, 0);
+    }
+
+    HTTPClient http;
     http.begin(url);
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    collectDateHeader(http);
 
     int code = http.POST("");
-    Serial.printf("[API] Device status: battery=%dmV rssi=%d → %d\n",
-                  batteryMv, WiFi.RSSI(), code);
+    applyDateHeader(http);
+
+    if (envOk) {
+        Serial.printf("[API] Status: %dmV  %.1fC  %.0f%%  rssi=%d → %d\n",
+                      batteryMv, tempC, rh, WiFi.RSSI(), code);
+    } else {
+        Serial.printf("[API] Status: %dmV  rssi=%d → %d  (no SHT40)\n",
+                      batteryMv, WiFi.RSSI(), code);
+    }
     http.end();
+}
+
+
+// ---- Time sync via HTTP Date header ----
+// Replaces NTP: every server response carries a Date header per RFC 7231,
+// so we get a roughly-correct clock as a side effect of any wake.
+
+void collectDateHeader(HTTPClient& http) {
+    static const char* keys[] = {"Date"};
+    http.collectHeaders(keys, 1);
+}
+
+
+void applyDateHeader(HTTPClient& http) {
+    String dateStr = http.header("Date");
+    if (dateStr.length() < 25) return;
+
+    // RFC 7231: "Sun, 17 May 2026 12:34:56 GMT" — fixed layout, ASCII month abbr.
+    static const char MONTHS[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
+    int day = 0, year = 0, hour = 0, minute = 0, second = 0;
+    char monStr[4] = {0};
+    if (sscanf(dateStr.c_str(), "%*3s, %d %3s %d %d:%d:%d",
+               &day, monStr, &year, &hour, &minute, &second) != 6) {
+        Serial.printf("[Time] Bad Date header: %s\n", dateStr.c_str());
+        return;
+    }
+    const char* m = strstr(MONTHS, monStr);
+    if (!m) return;
+
+    struct tm t = {};
+    t.tm_mday = day;
+    t.tm_mon = (m - MONTHS) / 3;
+    t.tm_year = year - 1900;
+    t.tm_hour = hour;
+    t.tm_min = minute;
+    t.tm_sec = second;
+    t.tm_isdst = 0;
+
+    // The Date header is GMT. mktime() treats the struct as local time, so
+    // we briefly force TZ=UTC to get the right epoch independent of the
+    // device's notional local zone.
+    setenv("TZ", "UTC", 1); tzset();
+    time_t epoch = mktime(&t);
+    unsetenv("TZ"); tzset();
+    if (epoch <= 0) return;
+
+    struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
+    settimeofday(&tv, nullptr);
 }
 
 
 // ---- Battery ----
 
 float readBatteryVoltage() {
-    // Enable battery voltage divider
     pinMode(BATTERY_ENABLE_PIN, OUTPUT);
     digitalWrite(BATTERY_ENABLE_PIN, HIGH);
-    delay(10);  // Let ADC settle
+    delay(10);  // ADC settle
 
     int raw = analogRead(BATTERY_ADC_PIN);
-
-    // Disable to save power
     digitalWrite(BATTERY_ENABLE_PIN, LOW);
 
-    // ESP32-S3 ADC: 12-bit (0-4095), 0-3.3V range
-    // Battery voltage divider ratio depends on board design (typically 2:1)
+    // ESP32-S3 ADC: 12-bit (0-4095), 0-3.3 V range, ~2:1 divider on this board.
     float voltage = (raw / 4095.0f) * 3.3f * 2.0f;
     Serial.printf("[Battery] ADC raw=%d → %.2fV\n", raw, voltage);
     return voltage;
@@ -467,247 +493,15 @@ void buzzerBeep(int count, int duration_ms) {
         digitalWrite(BUZZER_PIN, HIGH);
         delay(duration_ms);
         digitalWrite(BUZZER_PIN, LOW);
-        if (i < count - 1) delay(duration_ms);  // Gap between beeps
+        if (i < count - 1) delay(duration_ms);
     }
-}
-
-
-// ---- NTP ----
-
-void syncNTPIfStale() {
-    time_t now;
-    time(&now);
-    if (lastNTPSync != 0 && now - lastNTPSync < NTP_SYNC_INTERVAL_S) return;
-    syncNTP();
-    lastNTPSync = now;
-}
-
-
-void syncNTP() {
-    Serial.println("[NTP] Syncing...");
-    // Europe/Zurich: CET (UTC+1) / CEST (UTC+2), DST last Sun of Mar→Oct
-    configTzTime("CET-1CEST,M3.5.0,M10.5.0/3", "pool.ntp.org", "time.nist.gov");
-
-    struct tm timeinfo;
-    if (getLocalTime(&timeinfo, 5000)) {
-        Serial.printf("[NTP] %04d-%02d-%02d %02d:%02d:%02d\n",
-                      timeinfo.tm_year + 1900, timeinfo.tm_mon + 1, timeinfo.tm_mday,
-                      timeinfo.tm_hour, timeinfo.tm_min, timeinfo.tm_sec);
-    } else {
-        Serial.println("[NTP] Failed");
-    }
-}
-
-
-// ---- Display ----
-
-// Localized weekday/month names. ASCII-only (Font 2 is ASCII 32-127); diacritics
-// are dropped from Italian/Spanish, German uses the unaccented forms it doesn't
-// need diacritics for anyway. Indexed by tm_wday (0=Sun) and tm_mon (0=Jan).
-static const char* WEEKDAYS_EN[] = {"Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"};
-static const char* WEEKDAYS_DE[] = {"Sonntag","Montag","Dienstag","Mittwoch","Donnerstag","Freitag","Samstag"};
-static const char* WEEKDAYS_FR[] = {"dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"};
-static const char* WEEKDAYS_IT[] = {"domenica","lunedi","martedi","mercoledi","giovedi","venerdi","sabato"};
-static const char* WEEKDAYS_ES[] = {"domingo","lunes","martes","miercoles","jueves","viernes","sabado"};
-static const char* WEEKDAYS_NL[] = {"zondag","maandag","dinsdag","woensdag","donderdag","vrijdag","zaterdag"};
-
-static const char* MONTHS_EN[] = {"January","February","March","April","May","June","July","August","September","October","November","December"};
-static const char* MONTHS_DE[] = {"Januar","Februar","Maerz","April","Mai","Juni","Juli","August","September","Oktober","November","Dezember"};
-static const char* MONTHS_FR[] = {"janvier","fevrier","mars","avril","mai","juin","juillet","aout","septembre","octobre","novembre","decembre"};
-static const char* MONTHS_IT[] = {"gennaio","febbraio","marzo","aprile","maggio","giugno","luglio","agosto","settembre","ottobre","novembre","dicembre"};
-static const char* MONTHS_ES[] = {"enero","febrero","marzo","abril","mayo","junio","julio","agosto","septiembre","octubre","noviembre","diciembre"};
-static const char* MONTHS_NL[] = {"januari","februari","maart","april","mei","juni","juli","augustus","september","oktober","november","december"};
-
-
-static const char* enOrdinal(int day) {
-    if (day >= 11 && day <= 13) return "th";
-    switch (day % 10) {
-        case 1: return "st";
-        case 2: return "nd";
-        case 3: return "rd";
-        default: return "th";
-    }
-}
-
-
-static void formatDate(char* out, size_t outLen, const struct tm& t, const char* lang) {
-    int wd = t.tm_wday, mo = t.tm_mon, md = t.tm_mday;
-    if (strcmp(lang, "de") == 0) {
-        snprintf(out, outLen, "%s, %d. %s", WEEKDAYS_DE[wd], md, MONTHS_DE[mo]);
-    } else if (strcmp(lang, "fr") == 0) {
-        snprintf(out, outLen, "%s %d %s", WEEKDAYS_FR[wd], md, MONTHS_FR[mo]);
-    } else if (strcmp(lang, "it") == 0) {
-        snprintf(out, outLen, "%s %d %s", WEEKDAYS_IT[wd], md, MONTHS_IT[mo]);
-    } else if (strcmp(lang, "es") == 0) {
-        snprintf(out, outLen, "%s %d de %s", WEEKDAYS_ES[wd], md, MONTHS_ES[mo]);
-    } else if (strcmp(lang, "nl") == 0) {
-        snprintf(out, outLen, "%s %d %s", WEEKDAYS_NL[wd], md, MONTHS_NL[mo]);
-    } else {
-        snprintf(out, outLen, "%s %s %d%s", WEEKDAYS_EN[wd], MONTHS_EN[mo], md, enOrdinal(md));
-    }
-}
-
-
-static int batteryPercent(float v) {
-    // Li-Po linear approximation: 4.20 V = 100 %, 3.00 V = 0 %.
-    if (v >= 4.20f) return 100;
-    if (v <= 3.00f) return 0;
-    return (int)((v - 3.00f) / 1.20f * 100.0f);
-}
-
-
-void drawClockContent() {
-    epaper.fillRect(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H, TFT_WHITE);
-
-    struct tm timeinfo;
-    if (!getLocalTime(&timeinfo, 100)) {
-        Serial.println("[Display] Clock: no time yet");
-        return;
-    }
-
-    // Battery glyph (leftmost): 24x10 body with a 3x4 nub on the right.
-    const int bodyW = 24, bodyH = 10;
-    const int nubW  = 3,  nubH  = 4;
-    int batX = CLOCK_X;
-    int batY = CLOCK_Y + (16 - bodyH) / 2;  // vertically centered in the 16-px text line
-
-    epaper.drawRect(batX, batY, bodyW, bodyH, TFT_BLACK);
-    epaper.fillRect(batX + bodyW, batY + (bodyH - nubH) / 2, nubW, nubH, TFT_BLACK);
-
-    int pct = batteryPercent(lastBatteryV);
-    int innerMax = bodyW - 4;
-    int fillW = (innerMax * pct) / 100;
-    if (fillW > 0) {
-        epaper.fillRect(batX + 2, batY + 2, fillW, bodyH - 4, TFT_BLACK);
-    }
-
-    // Time + localized date, drawn just to the right of the battery.
-    char dateStr[48];
-    formatDate(dateStr, sizeof(dateStr), timeinfo, currentLang);
-
-    char timeBuf[80];
-    snprintf(timeBuf, sizeof(timeBuf), "%02d:%02d  %s",
-             timeinfo.tm_hour, timeinfo.tm_min, dateStr);
-
-    epaper.setTextFont(2);
-    epaper.setTextSize(1);
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    int textX = batX + bodyW + nubW + 8;
-    epaper.drawString(timeBuf, textX, CLOCK_Y);
-    textX += epaper.textWidth(timeBuf);
-
-    // Append ambient temp + humidity from the SHT40 if the read succeeds.
-    // Font 2 is ASCII 32-127 only (same reason formatDate strips diacritics),
-    // so the ° glyph is drawn manually with drawPixel between the number and
-    // the C — see the 4x4 ring pattern below.
-    float tC = 0, rh = 0;
-    bool envOk = readSHT40(tC, rh);
-    if (envOk) {
-        char tempNum[16];
-        snprintf(tempNum, sizeof(tempNum), "  %.1f", tC);
-        epaper.drawString(tempNum, textX, CLOCK_Y);
-        textX += epaper.textWidth(tempNum);
-
-        // 4x4 open ring at superscript height:
-        //   .##.
-        //   #..#
-        //   #..#
-        //   .##.
-        const int degY = CLOCK_Y + 1;
-        epaper.drawPixel(textX + 1, degY,     TFT_BLACK);
-        epaper.drawPixel(textX + 2, degY,     TFT_BLACK);
-        epaper.drawPixel(textX,     degY + 1, TFT_BLACK);
-        epaper.drawPixel(textX + 3, degY + 1, TFT_BLACK);
-        epaper.drawPixel(textX,     degY + 2, TFT_BLACK);
-        epaper.drawPixel(textX + 3, degY + 2, TFT_BLACK);
-        epaper.drawPixel(textX + 1, degY + 3, TFT_BLACK);
-        epaper.drawPixel(textX + 2, degY + 3, TFT_BLACK);
-        textX += 5;  // 4px ring + 1px trailing gap
-
-        char tempSuf[16];
-        snprintf(tempSuf, sizeof(tempSuf), "C  %.0f%%", rh);
-        epaper.drawString(tempSuf, textX, CLOCK_Y);
-    }
-
-    if (envOk) {
-        Serial.printf("[Display] Clock: %s  %.1fC %.0f%% [batt %.2fV %d%%]\n",
-                      timeBuf, tC, rh, lastBatteryV, pct);
-    } else {
-        Serial.printf("[Display] Clock: %s [batt %.2fV %d%% env ?]\n",
-                      timeBuf, lastBatteryV, pct);
-    }
-}
-
-
-void drawClockOverlay() {
-    drawClockContent();
-    epaper.updataPartial(CLOCK_RECT_X, CLOCK_RECT_Y, CLOCK_RECT_W, CLOCK_RECT_H);
-}
-
-
-// 10x10 glyphs marking which physical button does what. Drawn over the recipe
-// image at the top edge so the user can see at a glance which button is which.
-// 10 wide → ceil(10/8) = 2 bytes per row, MSB-first within each byte. The
-// first byte covers cols 0-7 (bit 7 = col 0); the second byte's upper 2 bits
-// cover cols 8-9 (bit 7 = col 8, bit 6 = col 9).
-static const uint8_t GLYPH_PREV[20] = {
-    0b00001000, 0b00000000,  // ....#.....
-    0b00011000, 0b00000000,  // ...##.....
-    0b00111000, 0b00000000,  // ..###.....
-    0b01111000, 0b00000000,  // .####.....
-    0b11111000, 0b00000000,  // #####.....   apex at col 0 (left arrow)
-    0b11111000, 0b00000000,  // #####.....
-    0b01111000, 0b00000000,  // .####.....
-    0b00111000, 0b00000000,  // ..###.....
-    0b00011000, 0b00000000,  // ...##.....
-    0b00001000, 0b00000000,  // ....#.....
-};
-static const uint8_t GLYPH_NEXT[20] = {
-    0b00001000, 0b00000000,  // ....#.....
-    0b00001100, 0b00000000,  // ....##....
-    0b00001110, 0b00000000,  // ....###...
-    0b00001111, 0b00000000,  // ....####..
-    0b00001111, 0b10000000,  // ....#####.   apex at col 8 (right arrow)
-    0b00001111, 0b10000000,  // ....#####.
-    0b00001111, 0b00000000,  // ....####..
-    0b00001110, 0b00000000,  // ....###...
-    0b00001100, 0b00000000,  // ....##....
-    0b00001000, 0b00000000,  // ....#.....
-};
-// Broken-circle refresh icon. Left side curves continuously; the right side
-// is fully open and the arrow IS the break, with the arrowhead tapering down
-// and to the right (clockwise-rotation indicator).
-static const uint8_t GLYPH_REFRESH[20] = {
-    0b00111100, 0b00000000,  // ..####....   top arc
-    0b01000010, 0b00000000,  // .#....#...   left + small right cap
-    0b10000111, 0b00000000,  // #....###..   left + arrowhead base
-    0b10000011, 0b00000000,  // #.....##..   left + arrowhead body
-    0b10000001, 0b00000000,  // #......#..   left + arrowhead tip ↘
-    0b10000000, 0b00000000,  // #.........   left only
-    0b10000000, 0b00000000,  // #.........
-    0b10000000, 0b00000000,  // #.........
-    0b01000000, 0b00000000,  // .#........   bottom-left curve
-    0b00111100, 0b00000000,  // ..####....   bottom arc
-};
-
-
-void drawButtonGlyphs() {
-    const int w = 10, h = 10;
-    // PREV/NEXT are only drawn when the button would do something. Refresh is
-    // always available (reload + clear ghosting), so its glyph is unconditional.
-    if (currentPage > 1) {
-        epaper.drawBitmap(BTN_GLYPH_PREV_X - w / 2, BTN_GLYPH_Y, GLYPH_PREV, w, h, TFT_BLACK);
-    }
-    if (currentPage < totalPages) {
-        epaper.drawBitmap(BTN_GLYPH_NEXT_X - w / 2, BTN_GLYPH_Y, GLYPH_NEXT, w, h, TFT_BLACK);
-    }
-    epaper.drawBitmap(BTN_GLYPH_REFRESH_X - w / 2, BTN_GLYPH_Y, GLYPH_REFRESH, w, h, TFT_BLACK);
 }
 
 
 // ---- SHT40 ambient sensor ----
-// Dependency-free reader for the Sensirion SHT40 on the configured I²C bus.
-// CRC poly x^8+x^5+x^4+1 (0x31), init 0xFF — per the SHT4x datasheet §4.
+// Dependency-free I²C reader. CRC poly x^8+x^5+x^4+1 (0x31), init 0xFF —
+// per the SHT4x datasheet §4.
+
 static uint8_t sht4xCRC(const uint8_t* data, size_t len) {
     uint8_t crc = 0xFF;
     for (size_t i = 0; i < len; i++) {
@@ -719,9 +513,9 @@ static uint8_t sht4xCRC(const uint8_t* data, size_t len) {
     return crc;
 }
 
+
 bool readSHT40(float& tempC, float& rh) {
-    // Idempotent — Wire.begin called repeatedly is a no-op on ESP32 Arduino.
-    Wire.begin(I2C_SDA, I2C_SCL);
+    Wire.begin(I2C_SDA, I2C_SCL);   // idempotent — no-op on ESP32 Arduino
     Wire.setClock(100000);
 
     Wire.beginTransmission(SHT4X_ADDR);
@@ -755,6 +549,10 @@ bool readSHT40(float& tempC, float& rh) {
 }
 
 
+// ---- Display ----
+// The server owns every pixel — battery glyph, button glyphs, page
+// indicator, recipe content. Firmware just blits the BMP.
+
 void displayImage(uint8_t* data, size_t len) {
     if (len < 62) {
         Serial.printf("[Display] BMP too small: %d bytes\n", len);
@@ -780,7 +578,7 @@ void displayImage(uint8_t* data, size_t len) {
 
     uint8_t* pixels = data + pixelOffset;
 
-    // BMP is bottom-up by default — swap rows in place so drawBitmap renders right-side-up
+    // BMP is bottom-up by default — flip rows so drawBitmap renders right-side-up
     if (!topDown && rowBytes <= 128) {
         uint8_t tmp[128];
         for (int y = 0; y < h / 2; y++) {
@@ -795,10 +593,7 @@ void displayImage(uint8_t* data, size_t len) {
     epaper.fillScreen(TFT_WHITE);
     // PIL "1" mode → BMP: bit 1 = white, bit 0 = black
     epaper.drawBitmap(0, 0, pixels, w, h, TFT_WHITE, TFT_BLACK);
-    drawButtonGlyphs();
-    drawClockContent();
     epaper.update();
-    lastFullRefreshWake = wakeCount;
 
     Serial.printf("[Display] Pushed %dx%d image to panel\n", w, h);
 }
@@ -826,7 +621,6 @@ void warmWindow() {
         else if (hit == BTN_NEXT)      handlePageChange(isLong ? "last"  : "next");
         else                           handlePageChange(isLong ? "first" : "prev");
 
-        // Wait for release so we don't immediately re-trigger
         while (digitalRead(hit) == LOW) delay(10);
 
         deadline = millis() + WARM_WINDOW_MS;
@@ -835,9 +629,9 @@ void warmWindow() {
 }
 
 
-// Returns true if the button is still held LOW after thresholdMs, false if
-// released earlier. Short beep cue on long-press recognition so the user
-// knows the gesture registered before the screen catches up.
+// Returns true if the button is still held LOW after thresholdMs, false
+// if released earlier. Short beep cue on long-press recognition so the
+// user knows the gesture registered before the screen catches up.
 bool waitForLongPress(int btnPin, int thresholdMs) {
     unsigned long start = millis();
     while ((long)(millis() - start) < thresholdMs) {
@@ -858,20 +652,14 @@ void goToSleep(uint64_t seconds) {
         WiFi.disconnect(true);
     }
 
-    // Put the EPD controller into deep-sleep before the SoC sleeps. The
-    // partial-refresh path already sleeps after each call (EPaperFixed.cpp),
-    // but the full-refresh path (update()) doesn't, so on full-refresh wakes
-    // we'd otherwise leave the panel drawing current until the next boot.
+    // Put the EPD controller into deep sleep before the SoC sleeps; the
+    // panel would otherwise hold its drive current until the next boot.
     epaper.sleep();
 
-    // Wake on any of the 3 buttons (ext1, active-low → wake on LOW)
     uint64_t buttonMask = (1ULL << BTN_REFRESH) | (1ULL << BTN_NEXT) | (1ULL << BTN_PREV);
     esp_sleep_enable_ext1_wakeup(buttonMask, ESP_EXT1_WAKEUP_ANY_LOW);
-
-    // Wake on timer
     esp_sleep_enable_timer_wakeup(seconds * 1000000ULL);
 
-    // Free PSRAM before sleep
     if (imageBuffer) {
         free(imageBuffer);
         imageBuffer = nullptr;
