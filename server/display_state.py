@@ -93,16 +93,15 @@ def _render_pages_from_inputs() -> int:
         return 0
     comments = _recipe_inputs["comments"]
     rating = _recipe_inputs["rating"]
-    battery_mv = _device["battery_mv"] or None
 
     first_img, total = render_recipe(
-        recipe, page=1, comments=comments, rating=rating, battery_mv=battery_mv,
+        recipe, page=1, comments=comments, rating=rating,
     )
     _pages.clear()
     _pages[1] = first_img
     for p in range(2, total + 1):
         page_img, _ = render_recipe(
-            recipe, page=p, comments=comments, rating=rating, battery_mv=battery_mv,
+            recipe, page=p, comments=comments, rating=rating,
         )
         _pages[p] = page_img
     return total
@@ -154,24 +153,35 @@ def get_image_bmp(page: int = 1) -> bytes | None:
     return buf.getvalue()
 
 
+# Low-battery alert thresholds. Cross BELOW LOW_BATTERY_MV → fire an alert
+# once; only re-arm after the reading climbs back above LOW_BATTERY_MV +
+# HYSTERESIS to avoid repeated alerts on a noisy reading near the boundary.
+LOW_BATTERY_MV = 3500
+LOW_BATTERY_HYSTERESIS_MV = 100
+
+_low_battery_alerted = False
+
+
 def update_device_status(
     battery_mv: int,
     rssi: int,
     uptime_s: int,
     temperature_c: float | None = None,
     humidity_pct: float | None = None,
-) -> None:
+) -> dict:
     """Update device status from an ESP32 wake-cycle report.
 
     `temperature_c` / `humidity_pct` are sent from the SHT40 when the device
     reads it on wake. They default to None when omitted so older firmware
     that doesn't yet report them keeps working.
 
-    If a recipe is currently loaded, re-render pages so the on-screen battery
-    glyph reflects this reading. Battery_mv often rounds to the same pixel
-    fill so the bytes (and hash) will frequently stay identical — in that
-    case the ESP32 sees no hash change and skips a redundant /image fetch.
+    Returns a dict that may include `low_battery_alert_mv`: the battery
+    reading that just crossed below the threshold. The caller is expected
+    to deliver this alert (e.g. via Telegram). Hysteresis ensures we don't
+    fire again until the battery has been charged back above the threshold.
     """
+    global _low_battery_alerted
+
     _device.update({
         "battery_mv": battery_mv,
         "rssi": rssi,
@@ -181,9 +191,15 @@ def update_device_status(
         "last_seen": int(time.time()),
     })
 
-    if _state["type"] == "recipe" and _recipe_inputs["recipe"] is not None:
-        _render_pages_from_inputs()
-        _state["hash"] = _compute_hash(_state["page"])
+    alert_mv: int | None = None
+    if battery_mv > 0:
+        if battery_mv < LOW_BATTERY_MV and not _low_battery_alerted:
+            _low_battery_alerted = True
+            alert_mv = battery_mv
+        elif battery_mv > LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV:
+            _low_battery_alerted = False
+
+    return {"low_battery_alert_mv": alert_mv}
 
 
 def get_device_status() -> dict:

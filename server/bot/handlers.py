@@ -40,6 +40,36 @@ _PENDING_MAX = 32
 _pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
 
 
+# Set by create_bot() so out-of-band code paths (e.g. low-battery alerts
+# from the /device/status endpoint) can push messages without needing the
+# Application instance threaded through.
+_bot_app: Application | None = None
+
+
+async def notify_low_battery(battery_mv: int) -> None:
+    """Push a one-shot low-battery warning to every allowed user.
+
+    Called by the FastAPI /device/status handler the first time a wake-cycle
+    report comes in below the threshold (display_state owns the hysteresis).
+    Silent when no users are configured — we don't have anywhere to send.
+    """
+    if _bot_app is None:
+        log.warning("notify_low_battery: bot not yet initialised")
+        return
+    if not ALLOWED_USERS:
+        log.warning("notify_low_battery: no ALLOWED_USERS configured, skipping alert")
+        return
+    text = (
+        f"⚠️ ePepper battery is low: {battery_mv / 1000:.2f} V — charge soon."
+    )
+    for uid in ALLOWED_USERS:
+        try:
+            await _bot_app.bot.send_message(chat_id=uid, text=text)
+            log.info("Low-battery alert sent to user %s (%dmV)", uid, battery_mv)
+        except Exception:
+            log.exception("Failed to send low-battery alert to user %s", uid)
+
+
 def _stash_pending(url: str, recipe: dict) -> str:
     token = uuid.uuid4().hex[:8]
     _pending[token] = (url, recipe)
@@ -50,7 +80,9 @@ def _stash_pending(url: str, recipe: dict) -> str:
 
 def create_bot() -> Application:
     """Create and configure the Telegram bot application."""
+    global _bot_app
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    _bot_app = app
 
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("help", cmd_help))

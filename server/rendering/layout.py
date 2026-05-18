@@ -66,17 +66,6 @@ _GLYPH_REFRESH = (
     "..###.....",
 )
 
-# Battery glyph dimensions. The "as-of-last-button-press" reading lives in
-# display_state.battery_mv; the renderer paints the level at recipe-render
-# time, so on-screen battery refreshes only when a new recipe is loaded.
-_BATT_W = 24
-_BATT_H = 10
-_BATT_NUB_W = 3
-_BATT_NUB_H = 4
-_BATT_FULL_MV = 4200      # ~fully charged 1S Li-Po
-_BATT_EMPTY_MV = 3300     # cutoff above hard-shutdown to avoid showing "empty" too early
-
-
 def _draw_glyph(draw, x: int, y: int, glyph: tuple[str, ...]) -> None:
     """Paint a '#'-encoded bitmap at (x, y)."""
     for row, line in enumerate(glyph):
@@ -94,28 +83,6 @@ def _draw_button_glyphs(draw, page: int, total_pages: int) -> None:
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
 
 
-def _draw_battery(draw, x: int, y: int, mv: int | None) -> None:
-    """Bottom-left battery indicator. Hidden when no reading has arrived yet."""
-    if not mv:
-        return
-    pct = max(0.0, min(1.0, (mv - _BATT_EMPTY_MV) / (_BATT_FULL_MV - _BATT_EMPTY_MV)))
-    draw.rectangle([x, y, x + _BATT_W - 1, y + _BATT_H - 1], outline=0, width=1)
-    nub_x = x + _BATT_W
-    nub_y = y + (_BATT_H - _BATT_NUB_H) // 2
-    draw.rectangle(
-        [nub_x, nub_y, nub_x + _BATT_NUB_W - 1, nub_y + _BATT_NUB_H - 1],
-        fill=0,
-    )
-    inner_pad = 2
-    inner_w = _BATT_W - 2 * inner_pad
-    fill_w = int(inner_w * pct)
-    if fill_w > 0:
-        draw.rectangle(
-            [x + inner_pad, y + inner_pad,
-             x + inner_pad + fill_w - 1, y + _BATT_H - inner_pad - 1],
-            fill=0,
-        )
-
 # Localized column headings and page label
 _L10N = {
     "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen", "notes": "Notizen"},
@@ -132,7 +99,6 @@ def render_recipe(
     page: int = 1,
     comments: list[str] | None = None,
     rating: int | None = None,
-    battery_mv: int | None = None,
 ) -> tuple[Image.Image, int]:
     """Render a recipe dict to a 1-bit image for e-ink display.
 
@@ -143,10 +109,6 @@ def render_recipe(
             "Notes" page is appended after the recipe pages.
         rating: optional 1-5 star rating from the library; rendered next to
             time / servings on the meta line.
-        battery_mv: optional last-known battery voltage from display_state;
-            renders a battery icon at bottom-left. Image is regenerated on
-            every recipe push, so the icon reflects the most recent reading
-            received at that moment.
 
     Returns:
         (image, total_pages)
@@ -184,8 +146,9 @@ def render_recipe(
             meta_parts.append(servings_raw)
     if rating and 1 <= rating <= 5:
         meta_parts.append("★" * rating)  # ★ U+2605 — DejaVu Sans has this glyph
-    if meta_parts:
-        header_h += font_meta.size + 6
+    # Always reserve the meta line — it carries the page indicator on the right
+    # even when meta_parts is empty, and the extra ~20 px is negligible.
+    header_h += font_meta.size + 6
     header_h += 4 + 10  # space + divider line + space
 
     # --- Two-column layout ---
@@ -201,9 +164,9 @@ def render_recipe(
     line_h = font_body.size + 4
     heading_line_h = font_heading.size + 4
     heading_space = font_heading.size + 8  # space for column heading
-    # Reserve a slim bottom row for the battery glyph + page indicator. No
-    # firmware overlay any more, so the renderer owns the whole panel.
-    footer_reserve = font_meta.size + 8
+    # No footer: the page indicator now sits on the meta line and there is no
+    # battery glyph on screen any more.
+    footer_reserve = 0
     available_h = RECIPE_HEIGHT - col_top - MARGIN - heading_space - footer_reserve
 
     # --- Pre-wrap ingredients into line groups ---
@@ -307,11 +270,21 @@ def render_recipe(
 
     is_notes_page = page > base_pages
 
+    page_text = (
+        f"{strings['page']} {page} / {total_pages}" if total_pages > 1 else ""
+    )
+
     if is_notes_page:
         # --- Notes page ---
         notes_idx = page - base_pages - 1
         y = MARGIN
         draw.text((MARGIN, y), strings["notes"], font=font_title, fill=0)
+        # Page indicator on the title row, right-aligned and baseline-matched.
+        if page_text:
+            bbox = draw.textbbox((0, 0), page_text, font=font_meta)
+            tw = bbox[2] - bbox[0]
+            page_y = y + (font_title.size - font_meta.size) - 2
+            draw.text((DISPLAY_WIDTH - MARGIN - tw, page_y), page_text, font=font_meta, fill=0)
         y += font_title.size + 4 + 4
         draw.line([(MARGIN, y), (DISPLAY_WIDTH - MARGIN, y)], fill=0, width=1)
         y += 10
@@ -320,22 +293,26 @@ def render_recipe(
             if i > 0:
                 y += line_h  # blank line between comments
             for wline in para_lines:
-                if y + line_h > RECIPE_HEIGHT - MARGIN - footer_reserve:
+                if y + line_h > RECIPE_HEIGHT - MARGIN:
                     break
                 draw.text((MARGIN, y), wline, font=font_body, fill=0)
                 y += line_h
     else:
-        # --- Recipe page: draw title, meta, divider, then two columns ---
+        # --- Recipe page: draw title, meta+page, divider, then two columns ---
         y = MARGIN
         for line in title_lines:
             draw.text((MARGIN, y), line, font=font_title, fill=0)
             y += font_title.size + 4
         y += 4
 
-        if meta_parts:
-            meta_text = "  ·  ".join(meta_parts)
+        meta_text = "  ·  ".join(meta_parts)
+        if meta_text:
             draw.text((MARGIN, y), meta_text, font=font_meta, fill=0)
-            y += font_meta.size + 6
+        if page_text:
+            bbox = draw.textbbox((0, 0), page_text, font=font_meta)
+            tw = bbox[2] - bbox[0]
+            draw.text((DISPLAY_WIDTH - MARGIN - tw, y), page_text, font=font_meta, fill=0)
+        y += font_meta.size + 6
 
         y += 4
         draw.line([(MARGIN, y), (DISPLAY_WIDTH - MARGIN, y)], fill=0, width=1)
@@ -356,7 +333,7 @@ def render_recipe(
             ingr_src = 0 if repeat_ingr else page - 1
             for grp_idx in ingr_pages[ingr_src]:
                 for wline in ingr_groups[grp_idx]:
-                    if y_left + line_h > RECIPE_HEIGHT - MARGIN - footer_reserve:
+                    if y_left + line_h > RECIPE_HEIGHT - MARGIN:
                         break
                     draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
                     y_left += line_h
@@ -377,25 +354,11 @@ def render_recipe(
                 if block["type"] == "heading":
                     y_right += 4
                 for wline in block["lines"]:
-                    if y_right + block["line_h"] > RECIPE_HEIGHT - MARGIN - footer_reserve:
+                    if y_right + block["line_h"] > RECIPE_HEIGHT - MARGIN:
                         break
                     draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
                     y_right += block["line_h"]
                 y_right += 6
-
-    # --- Footer: battery (left) + page indicator (right) ---
-    footer_y = RECIPE_HEIGHT - font_meta.size - 2
-    _draw_battery(
-        draw,
-        MARGIN,
-        RECIPE_HEIGHT - _BATT_H - 2,
-        battery_mv,
-    )
-    if total_pages > 1:
-        page_text = f"{strings['page']} {page} / {total_pages}"
-        bbox = draw.textbbox((0, 0), page_text, font=font_meta)
-        tw = bbox[2] - bbox[0]
-        draw.text((DISPLAY_WIDTH - MARGIN - tw, footer_y), page_text, font=font_meta, fill=0)
 
     # --- Top: button glyphs above the physical reTerminal keys ---
     _draw_button_glyphs(draw, page, total_pages)

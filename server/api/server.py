@@ -1,5 +1,6 @@
 """FastAPI server — serves images to the ESP32 display."""
 
+import asyncio
 import logging
 import os
 import secrets
@@ -173,13 +174,22 @@ async def device_status(
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    display_state.update_device_status(
+    result = display_state.update_device_status(
         battery_mv=battery_mv,
         rssi=rssi,
         uptime_s=uptime_s,
         temperature_c=temperature_c,
         humidity_pct=humidity_pct,
     )
+
+    alert_mv = result.get("low_battery_alert_mv")
+    if alert_mv is not None:
+        # Dispatch off the request path — we don't want to block the device's
+        # POST on Telegram delivery, and a Telegram send timeout shouldn't
+        # 5xx the device. Imported here to keep the api module free of bot deps.
+        from bot.handlers import notify_low_battery
+        asyncio.create_task(notify_low_battery(alert_mv))
+
     return {"ok": True}
 
 
