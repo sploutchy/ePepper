@@ -104,8 +104,17 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
     app.add_handler(CallbackQueryHandler(on_rate_button, pattern=r"^rate:"))
     app.add_handler(CallbackQueryHandler(on_push_button, pattern=r"^push:"))
+    # Catch-all for unknown /commands — must register after every named
+    # CommandHandler so known commands match first.
+    app.add_handler(MessageHandler(filters.COMMAND, on_unknown_command))
 
     return app
+
+
+async def on_unknown_command(update: Update, context) -> None:
+    if not _is_allowed(update.effective_user.id):
+        return
+    await update.message.reply_text("Unknown command — try /help.")
 
 
 def _is_allowed(user_id: int) -> bool:
@@ -137,7 +146,10 @@ async def cmd_start(update: Update, context) -> None:
         "/help — this message\n\n"
         "Tap *💾 Save* under a pushed recipe to keep it in your library "
         "(rate 1–5 stars to confirm). Use the *device's physical buttons* "
-        "to cycle between recipe pages.",
+        "to cycle between recipe pages.\n\n"
+        "💡 Tip: if a site isn't supported, use /prompt\\_url or "
+        "/prompt\\_screenshot to get an LLM prompt that produces a JSON-LD "
+        "file you can upload here.",
         parse_mode="Markdown",
     )
 
@@ -286,15 +298,16 @@ async def cmd_status(update: Update, context) -> None:
     state = display_state.get()
     device = display_state.get_device_status()
 
-    # All device-reported fields are "as of last button-press wake" — the
-    # firmware does not poll on a schedule, so freshness == last interaction.
+    # Device-reported fields are "as of last wake" (button press or the
+    # daily timer, whichever fired more recently). The last_seen line
+    # makes the freshness explicit.
     lines = [
-        "📊 *ePepper Status*",
+        "📊 <b>ePepper Status</b>",
         "",
-        f"Display: {state['type']}",
+        f"Display: {html.escape(state['type'])}",
     ]
     if state["title"]:
-        lines.append(f"Recipe: {state['title']}")
+        lines.append(f"Recipe: {html.escape(state['title'])}")
     if state["total_pages"] > 1:
         lines.append(f"Page: {state['page']}/{state['total_pages']}")
 
@@ -310,7 +323,7 @@ async def cmd_status(update: Update, context) -> None:
     else:
         lines.append("Last seen: never")
 
-    await update.message.reply_text("\n".join(lines), parse_mode="Markdown")
+    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
 
 
 async def cmd_comment(update: Update, context) -> None:
@@ -448,13 +461,19 @@ async def on_photo(update: Update, context) -> None:
     log.info("Photo received from user %s", update.effective_user.id)
     msg = await update.message.reply_text("📸 Processing image...")
 
-    # Get the highest resolution photo
-    photo = update.message.photo[-1]
-    file = await photo.get_file()
-    image_bytes = await file.download_as_bytearray()
+    try:
+        photo = update.message.photo[-1]
+        file = await photo.get_file()
+        image_bytes = await file.download_as_bytearray()
 
-    img = process_photo(bytes(image_bytes))
-    display_state.set_image(img, content_type="photo")
+        img = process_photo(bytes(image_bytes))
+        display_state.set_image(img, content_type="photo")
+    except Exception:
+        # process_photo can raise on HEIC / corrupt JPEG / other Pillow
+        # weirdness; without this the "Processing image..." sticks forever.
+        log.exception("Photo processing failed")
+        await msg.edit_text("❌ Couldn't process the photo.")
+        return
 
     await msg.edit_text("✅ Photo sent to display!")
 

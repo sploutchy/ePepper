@@ -13,6 +13,7 @@ import asyncio
 import logging
 from datetime import datetime, timedelta
 
+import display_state
 import library
 from bot.handlers import push_recipe_to_display
 
@@ -29,6 +30,17 @@ def _push_anniversary_for(today: datetime) -> None:
     row = library.pick_anniversary_recipe(today.strftime("%m-%d"), today.year)
     if row is None:
         log.info("No anniversary recipe for %s; leaving display unchanged", today.date().isoformat())
+        return
+    # Skip the push if this recipe is already the active display content —
+    # otherwise the device wakes and does a full panel refresh for no
+    # visible change (e.g. user pushed today's anniversary manually
+    # earlier in the day).
+    state = display_state.get()
+    if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
+        log.info(
+            "Anniversary recipe id=%d already on display; skipping push",
+            row["id"],
+        )
         return
     push_recipe_to_display(row)
     log.info(
