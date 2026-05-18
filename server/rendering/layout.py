@@ -50,19 +50,20 @@ _GLYPH_NEXT = (
     "....##....",
     "....#.....",
 )
-# Broken-circle refresh icon, same shape as the firmware version: continuous
-# left arc, broken right side, downward-tapering arrowhead at the top-right.
+# Refresh icon: 180°-rotationally-symmetric two-arrow loop. Each filled
+# cell at (r, c) has its mirror at (9-r, 9-c), so the icon reads the same
+# upside-down — two chasing chevron tails curling around the centre.
 _GLYPH_REFRESH = (
-    "..####....",
-    ".#....#...",
-    "#....###..",
-    "#.....##..",
-    "#......#..",
-    "#.........",
-    "#.........",
-    "#.........",
-    ".#........",
-    "..####....",
+    ".....###..",
+    "####....#.",
+    ".###.....#",
+    ".###.....#",
+    "#..#.....#",
+    "#.....#..#",
+    "#.....###.",
+    "#.....###.",
+    ".#....####",
+    "..###.....",
 )
 
 # Battery glyph dimensions. The "as-of-last-button-press" reading lives in
