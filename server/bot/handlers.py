@@ -1,6 +1,7 @@
 """Telegram bot handlers for ePepper."""
 
 import hashlib
+import html
 import json
 import logging
 import time
@@ -92,6 +93,8 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("comment", cmd_comment))
     app.add_handler(CommandHandler("rate", cmd_rate))
     app.add_handler(CommandHandler("search", cmd_search))
+    app.add_handler(CommandHandler("prompt_screenshot", cmd_prompt_screenshot))
+    app.add_handler(CommandHandler("prompt_url", cmd_prompt_url))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(
         filters.Document.FileExtension("json") | filters.Document.MimeType("application/json"),
@@ -127,6 +130,8 @@ async def cmd_start(update: Update, context) -> None:
         "/comment <text> — add a note to a saved recipe (must save first)\n"
         "/rate <1-5> — change the rating of the displayed saved recipe\n"
         "/search <query> — find a saved recipe by title, ingredient, or note\n"
+        "/prompt\\_screenshot — copy-paste LLM prompt for photo OCR → JSON-LD\n"
+        "/prompt\\_url <url> — copy-paste LLM prompt for URL → JSON-LD\n"
         "/clear — clear the display\n"
         "/status — device info\n"
         "/help — this message\n\n"
@@ -141,6 +146,115 @@ async def cmd_help(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
     await cmd_start(update, context)
+
+
+# Shared body of the LLM prompts. Tracks parse_recipe_jsonld's expected fields
+# (server/processing/jsonld.py) — keep in sync when that mapping changes.
+_PROMPT_JSON_TEMPLATE = """{
+  "@context": "https://schema.org/",
+  "@type": "Recipe",
+  "name": "<recipe title>",
+  "inLanguage": "<en|de|fr|it|es|nl|pt>",
+  "totalTime": "PT45M",
+  "recipeYield": "<servings, e.g. 4 servings>",
+  "recipeIngredient": [
+    "<ingredient 1, with quantity and unit>",
+    "<ingredient 2>"
+  ],
+  "recipeInstructions": [
+    { "@type": "HowToStep", "text": "<step 1>" },
+    { "@type": "HowToStep", "text": "<step 2>" }
+  ]
+}"""
+
+_PROMPT_RULES = """Rules:
+- Don't invent or extrapolate any field — omit it if unclear.
+- inLanguage: pick one of en/de/fr/it/es/nl/pt matching the recipe text.
+- totalTime: ISO 8601 (PT45M, PT1H30M). Omit if the recipe doesn't say.
+- recipeYield: numeric where possible ("4 servings", "12 cookies").
+- Preserve ingredient quantities and order exactly as written.
+- If the recipe has section headings (e.g. "Sauce", "Dough"), wrap their
+  steps in HowToSection:
+    { "@type": "HowToSection", "name": "Sauce",
+      "itemListElement": [ { "@type": "HowToStep", "text": "..." } ] }
+- Output ONE single JSON object inside ONE code block — no surrounding prose,
+  no markdown commentary."""
+
+
+def _build_screenshot_prompt() -> str:
+    return (
+        "I'm attaching a photo of a recipe. Convert it to schema.org Recipe "
+        "JSON-LD with this exact shape:\n\n"
+        f"{_PROMPT_JSON_TEMPLATE}\n\n"
+        f"{_PROMPT_RULES}"
+    )
+
+
+def _build_url_prompt(url: str | None) -> str:
+    if url:
+        intro = (
+            f"Fetch this URL and convert the recipe to schema.org Recipe "
+            f"JSON-LD:\n  {url}\n\n"
+            "Output exactly this shape (include the source URL so the "
+            "ePepper library can dedupe):\n\n"
+        )
+        template = _PROMPT_JSON_TEMPLATE.replace(
+            '"@type": "Recipe",',
+            f'"@type": "Recipe",\n  "url": "{url}",',
+        )
+    else:
+        intro = (
+            "Fetch the recipe webpage at the URL I'm about to share and "
+            "convert it to schema.org Recipe JSON-LD with this exact shape "
+            "(include the source URL in the JSON so the ePepper library "
+            "can dedupe):\n\n"
+        )
+        template = _PROMPT_JSON_TEMPLATE.replace(
+            '"@type": "Recipe",',
+            '"@type": "Recipe",\n  "url": "<source URL>",',
+        )
+    return f"{intro}{template}\n\n{_PROMPT_RULES}"
+
+
+_PROMPT_OUTRO = (
+    "Then save the assistant's JSON output as <code>recipe.json</code> and "
+    "send it to me — I'll parse it and push it to the display."
+)
+
+
+async def cmd_prompt_screenshot(update: Update, context) -> None:
+    """Emit an LLM-ready prompt for OCR-ing a recipe photo into JSON-LD."""
+    if not _is_allowed(update.effective_user.id):
+        return
+    prompt = _build_screenshot_prompt()
+    await update.message.reply_text(
+        "Tap-and-hold to copy this prompt, then paste it into your LLM "
+        "(Claude, ChatGPT, etc.) together with a screenshot of the recipe:\n\n"
+        f"<pre>{html.escape(prompt)}</pre>\n\n"
+        f"{_PROMPT_OUTRO}",
+        parse_mode="HTML",
+    )
+
+
+async def cmd_prompt_url(update: Update, context) -> None:
+    """Emit an LLM-ready prompt for fetching a URL and converting it to JSON-LD."""
+    if not _is_allowed(update.effective_user.id):
+        return
+    url = context.args[0].strip() if context.args else None
+    prompt = _build_url_prompt(url)
+    intro_extra = (
+        ""
+        if url
+        else "Pass it to an LLM that can browse (Claude with web tools, "
+        "ChatGPT with browsing, Perplexity, …) — or use it as a template "
+        "and paste the URL inline.\n\n"
+    )
+    await update.message.reply_text(
+        f"{intro_extra}Tap-and-hold to copy:\n\n"
+        f"<pre>{html.escape(prompt)}</pre>\n\n"
+        f"{_PROMPT_OUTRO}",
+        parse_mode="HTML",
+    )
 
 
 async def cmd_recipe(update: Update, context) -> None:
