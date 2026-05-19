@@ -73,6 +73,31 @@ async def notify_low_battery(battery_mv: int) -> None:
             log.exception("Failed to send low-battery alert to user %s", uid)
 
 
+async def notify_stale_heartbeat(hours_since: int) -> None:
+    """Push a one-shot warning when the device hasn't checked in for ≥25 h.
+
+    Called by the scheduler's heartbeat_loop the first time the staleness
+    threshold is crossed (display_state owns the alerted flag). Re-armed
+    automatically on the next successful /device/status POST.
+    """
+    if _bot_app is None:
+        log.warning("notify_stale_heartbeat: bot not yet initialised")
+        return
+    if not ALLOWED_USERS:
+        log.warning("notify_stale_heartbeat: no ALLOWED_USERS configured, skipping alert")
+        return
+    text = (
+        f"⚠️ ePepper hasn't checked in for {hours_since}h — "
+        f"battery may be flat or Wi-Fi down."
+    )
+    for uid in ALLOWED_USERS:
+        try:
+            await _bot_app.bot.send_message(chat_id=uid, text=text)
+            log.info("Stale-heartbeat alert sent to user %s (%dh)", uid, hours_since)
+        except Exception:
+            log.exception("Failed to send stale-heartbeat alert to user %s", uid)
+
+
 def _stash_pending(url: str, recipe: dict) -> str:
     token = uuid.uuid4().hex[:8]
     _pending[token] = (url, recipe)
@@ -375,7 +400,14 @@ async def cmd_status(update: Update, context) -> None:
     # Device section — header carries freshness so the rows can be tight.
     # Fields are "as of last wake" (button press or daily timer).
     if device["last_seen"]:
-        device_lines = [f"<b>📡 Device</b> — {_humanize_ago(device['last_seen'])}"]
+        stale_suffix = (
+            " ⚠️ overdue"
+            if int(time.time()) - device["last_seen"] > display_state.STALE_HEARTBEAT_S
+            else ""
+        )
+        device_lines = [
+            f"<b>📡 Device</b> — {_humanize_ago(device['last_seen'])}{stale_suffix}"
+        ]
         if device["battery_mv"]:
             pct = _battery_pct(device["battery_mv"])
             icon = "🔋" if pct >= 30 else "🪫"

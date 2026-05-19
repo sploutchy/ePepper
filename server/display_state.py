@@ -164,6 +164,15 @@ LOW_BATTERY_HYSTERESIS_MV = 100
 
 _low_battery_alerted = False
 
+# Heartbeat staleness. Firmware reports on button press + a daily timer wake;
+# 25 h gives the daily timer a buffer for clock drift / a slow Wi-Fi reconnect.
+# Alert once when crossed; re-arm only when the next POST arrives (handled in
+# update_device_status). The check itself runs proactively from scheduler.py
+# because the absence of POSTs is exactly what we're detecting.
+STALE_HEARTBEAT_S = 25 * 3600
+
+_stale_heartbeat_alerted = False
+
 
 def update_device_status(
     battery_mv: int,
@@ -183,7 +192,7 @@ def update_device_status(
     alert from firing again until the battery climbs above
     LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV.
     """
-    global _low_battery_alerted
+    global _low_battery_alerted, _stale_heartbeat_alerted
 
     _device.update({
         "battery_mv": battery_mv,
@@ -192,6 +201,9 @@ def update_device_status(
         "humidity_pct": humidity_pct,
         "last_seen": int(time.time()),
     })
+
+    # Fresh POST means the device is back — re-arm the staleness alert.
+    _stale_heartbeat_alerted = False
 
     alert_mv: int | None = None
     if battery_mv > 0:
@@ -202,6 +214,24 @@ def update_device_status(
             _low_battery_alerted = False
 
     return {"low_battery_alert_mv": alert_mv}
+
+
+def check_heartbeat_stale() -> int | None:
+    """Return hours-since-last-seen if the heartbeat just went stale, else None.
+
+    Returns None when the device has never reported (last_seen == 0), the
+    threshold hasn't been crossed, or we already alerted for this episode.
+    The flag is cleared the next time update_device_status() runs.
+    """
+    global _stale_heartbeat_alerted
+    last_seen = _device.get("last_seen", 0)
+    if last_seen <= 0:
+        return None
+    delta_s = int(time.time()) - last_seen
+    if delta_s > STALE_HEARTBEAT_S and not _stale_heartbeat_alerted:
+        _stale_heartbeat_alerted = True
+        return delta_s // 3600
+    return None
 
 
 def get_device_status() -> dict:

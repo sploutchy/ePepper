@@ -65,3 +65,29 @@ async def anniversary_loop() -> None:
             _push_anniversary_for(datetime.now())
         except Exception:
             log.exception("Anniversary push failed; will retry tomorrow")
+
+
+_HEARTBEAT_CHECK_INTERVAL_S = 3600  # hourly is fine — alert fires once per stale episode
+
+
+async def heartbeat_loop() -> None:
+    """Wake hourly to check whether the device's heartbeat went stale.
+
+    Proactive (not reactive) because the absence of POSTs is the signal —
+    can't piggyback on update_device_status the way the battery alert does.
+    """
+    while True:
+        try:
+            await asyncio.sleep(_HEARTBEAT_CHECK_INTERVAL_S)
+        except asyncio.CancelledError:
+            log.info("Heartbeat scheduler cancelled")
+            raise
+        try:
+            hours_since = display_state.check_heartbeat_stale()
+            if hours_since is not None:
+                # Lazy import mirrors api/server.py's notify_low_battery wiring
+                # and avoids a circular import at module load time.
+                from bot.handlers import notify_stale_heartbeat
+                await notify_stale_heartbeat(hours_since)
+        except Exception:
+            log.exception("Heartbeat check failed; will retry next hour")
