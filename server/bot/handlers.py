@@ -126,40 +126,52 @@ def _is_allowed(user_id: int) -> bool:
     return user_id in ALLOWED_USERS
 
 
+_START_TEXT = (
+    "🫑 <b>ePepper — your kitchen recipe display</b>\n\n"
+    "<b>Send me:</b>\n"
+    "• A photo of a recipe\n"
+    "• A recipe URL (just paste the link)\n"
+    "• A .json file with a schema.org Recipe (for OCR / unsupported sites)\n\n"
+    "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your library "
+    "(rate 1–5 stars to confirm). Use the device's <b>physical buttons</b> "
+    "to cycle between recipe pages.\n\n"
+    "💡 <b>Tip:</b> for unsupported sites, /prompt_url or /prompt_screenshot "
+    "give you an LLM prompt that produces a JSON-LD file you can upload here.\n\n"
+    "Type /help for the full command list."
+)
+
+
 async def cmd_start(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
-    await update.message.reply_text(
-        "🫑 *ePepper* — your kitchen recipe display\n\n"
-        "Send me:\n"
-        "• A *photo* of a recipe\n"
-        "• A *recipe URL* (just paste the link)\n"
-        "• A *.json file* with a schema.org Recipe (for OCR / unsupported sites — "
-        "have an LLM produce the JSON-LD and upload it)\n"
-        "• `/recipe <url>` to force recipe parsing\n\n"
-        "Commands:\n"
-        "/comment <text> — add a note to a saved recipe (must save first)\n"
-        "/rate <1-5> — change the rating of the displayed saved recipe\n"
-        "/search <query> — find a saved recipe by title, ingredient, or note\n"
-        "/prompt\\_screenshot — copy-paste LLM prompt for photo OCR → JSON-LD\n"
-        "/prompt\\_url <url> — copy-paste LLM prompt for URL → JSON-LD\n"
-        "/clear — clear the display\n"
-        "/status — device info\n"
-        "/help — this message\n\n"
-        "Tap *💾 Save* under a pushed recipe to keep it in your library "
-        "(rate 1–5 stars to confirm). Use the *device's physical buttons* "
-        "to cycle between recipe pages.\n\n"
-        "💡 Tip: if a site isn't supported, use /prompt\\_url or "
-        "/prompt\\_screenshot to get an LLM prompt that produces a JSON-LD "
-        "file you can upload here.",
-        parse_mode="Markdown",
-    )
+    await update.message.reply_text(_START_TEXT, parse_mode="HTML")
+
+
+_HELP_TEXT = (
+    "🫑 <b>ePepper — commands</b>\n\n"
+    "<b>➕ Add a recipe</b>\n"
+    "Send a photo, a URL, or a .json (schema.org Recipe).\n"
+    "/recipe &lt;url&gt; — force-parse a specific URL\n"
+    "/prompt_screenshot — LLM prompt to OCR a photo → JSON-LD\n"
+    "/prompt_url &lt;url&gt; — LLM prompt to fetch a URL → JSON-LD\n\n"
+    "<b>📚 Library</b>\n"
+    "Tap 💾 Save under a pushed recipe (rate 1–5 to confirm).\n"
+    "/search &lt;query&gt; — find a saved recipe\n"
+    "/rate &lt;1-5&gt; — update rating of the displayed recipe\n"
+    "/comment &lt;text&gt; — add a note to the displayed recipe\n\n"
+    "<b>📺 Display</b>\n"
+    "The device's physical buttons cycle pages.\n"
+    "/clear — clear the display\n\n"
+    "<b>ℹ️ Info</b>\n"
+    "/status — device status\n"
+    "/help — this message"
+)
 
 
 async def cmd_help(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
-    await cmd_start(update, context)
+    await update.message.reply_text(_HELP_TEXT, parse_mode="HTML")
 
 
 # Shared body of the LLM prompts. Tracks parse_recipe_jsonld's expected fields
@@ -192,7 +204,9 @@ _PROMPT_RULES = """Rules:
     { "@type": "HowToSection", "name": "Sauce",
       "itemListElement": [ { "@type": "HowToStep", "text": "..." } ] }
 - Output ONE single JSON object inside ONE code block — no surrounding prose,
-  no markdown commentary."""
+  no markdown commentary.
+- Also offer the JSON as a downloadable file named `recipe.json` so it can be
+  attached directly without copy-pasting."""
 
 
 def _build_screenshot_prompt() -> str:
@@ -231,8 +245,9 @@ def _build_url_prompt(url: str | None) -> str:
 
 
 _PROMPT_OUTRO = (
-    "Then save the assistant's JSON output as <code>recipe.json</code> and "
-    "send it to me — I'll parse it and push it to the display."
+    "Then send me the <code>recipe.json</code> file — either the one the "
+    "assistant offers as a download, or save the code block to a file "
+    "yourself. I'll parse it and push it to the display."
 )
 
 
@@ -470,22 +485,27 @@ async def cmd_search(update: Update, context) -> None:
         await update.message.reply_text(f"No saved recipes match '{query}'.")
         return
 
+    # Render results as a readable numbered list above the keyboard, then
+    # let the user pick by number — avoids cramming title + stars + date
+    # into the 64-byte inline button label.
+    lines = [f"🔍 <b>Matches for \"{html.escape(query)}\"</b>", ""]
     buttons = []
-    for r in results:
-        stars = "★" * r["rating"] if r["rating"] else "·"
+    for i, r in enumerate(results, start=1):
+        stars = ("⭐" * r["rating"]) if r["rating"] else ""
+        title = html.escape(r["title"])
         saved_date = (
             datetime.fromtimestamp(r["saved_at"]).strftime("%Y-%m-%d")
             if r["saved_at"] else "—"
         )
-        label = f"{stars} {r['title']} · {saved_date}"
-        # Telegram inline button labels truncate around 64 bytes; keep ASCII-safe headroom.
-        if len(label) > 60:
-            label = label[:57] + "..."
-        buttons.append([InlineKeyboardButton(label, callback_data=f"push:{r['id']}")])
+        lines.append(f"<b>{i}.</b> {title} {stars}".rstrip())
+        lines.append(f"<i>   saved {saved_date}</i>")
+        lines.append("")
+        buttons.append(InlineKeyboardButton(str(i), callback_data=f"push:{r['id']}"))
 
     await update.message.reply_text(
-        f"Top matches for '{query}':",
-        reply_markup=InlineKeyboardMarkup(buttons),
+        "\n".join(lines).rstrip(),
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([buttons]),
     )
 
 
@@ -528,7 +548,11 @@ async def on_photo(update: Update, context) -> None:
         # process_photo can raise on HEIC / corrupt JPEG / other Pillow
         # weirdness; without this the "Processing image..." sticks forever.
         log.exception("Photo processing failed")
-        await msg.edit_text("❌ Couldn't process the photo.")
+        await msg.edit_text(
+            "❌ Couldn't process the photo.\n"
+            "Try /prompt_screenshot — paste the prompt into an LLM with the "
+            "photo, then send me the recipe.json it produces."
+        )
         return
 
     await msg.edit_text("✅ Photo sent to display!")
@@ -558,7 +582,12 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
     recipe = await process_recipe_url(url)
     if recipe is None:
         log.warning("Failed to parse recipe from URL: %s", url)
-        await msg.edit_text("❌ Couldn't parse a recipe from that URL.\nTry sending a screenshot instead.")
+        await msg.edit_text(
+            "❌ Couldn't parse a recipe from that URL.\n"
+            "Try /prompt_url with the URL — paste the prompt into an LLM, "
+            "then send me the recipe.json it returns. Or send a screenshot "
+            "and use /prompt_screenshot."
+        )
         return
     await _present_recipe(url, recipe, msg)
 
@@ -642,7 +671,11 @@ async def on_document(update: Update, context) -> None:
         data = json.loads(bytes(raw).decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as e:
         log.warning("Failed to parse uploaded JSON: %s", e)
-        await msg.edit_text("❌ Couldn't parse the file as JSON.")
+        await msg.edit_text(
+            "❌ Couldn't parse the file as JSON.\n"
+            "If the LLM output isn't valid JSON, re-run /prompt_url or "
+            "/prompt_screenshot and try again."
+        )
         return
 
     parsed = parse_recipe_jsonld(data)
