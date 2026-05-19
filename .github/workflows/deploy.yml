@@ -28,7 +28,6 @@ jobs:
           host: epepper.fyx.ch
           username: debian
           key: ${{ secrets.VPS_SSH_KEY }}
-          script_stop: true  # bail on the first failing command
           script: |
             set -euo pipefail
             cd /home/debian/epepper
