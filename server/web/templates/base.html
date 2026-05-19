@@ -31,15 +31,38 @@
         <img src="/app/static/pepper.svg" alt="" class="pepper">
         ePepper
       </a>
+      {# Inline SVGs (24×24, 2 px stroke, currentColor) so the icons render
+         identically regardless of installed system fonts and pick up the
+         active theme's text color automatically. #}
       <nav class="topnav">
-        <a href="/app/add" class="navlink">＋ Add</a>
-        <a href="/app/status" class="navlink">Status</a>
+        <a href="/app/add" class="iconbtn" title="Add a recipe" aria-label="Add a recipe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </a>
+        <a href="/app/status" class="iconbtn" title="Status" aria-label="Status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="3" y="4" width="18" height="13" rx="2"/>
+            <path d="M8 21h8M12 17v4"/>
+          </svg>
+        </a>
         <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
-          <span class="theme-icon-light">☀</span>
-          <span class="theme-icon-dark">☾</span>
+          <svg class="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="4"/>
+            <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>
+          </svg>
+          <svg class="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+          </svg>
         </button>
         <form action="/app/logout" method="post" class="logout-form">
-          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">⏻</button>
+          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+              <path d="M16 17l5-5-5-5"/>
+              <path d="M21 12H9"/>
+            </svg>
+          </button>
         </form>
       </nav>
     </header>

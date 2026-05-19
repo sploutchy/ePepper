@@ -378,55 +378,55 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-size: 0.9em;
 }
 
-/* Top-bar nav — single right-aligned group so the header reads as
-   "brand … actions" instead of three competing zones. */
+/* Top-bar nav — single right-aligned group of equal-sized icon buttons. */
 .topnav {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 2px;
   margin-left: auto;
 }
-.navlink {
-  color: var(--muted);
-  font-weight: 500;
-  padding: 6px 10px;
-  border-radius: 8px;
-}
-.navlink:hover {
-  color: var(--fg);
-  background: var(--border);
-  text-decoration: none;
-}
 .iconbtn {
+  /* Equal 36×36 hit area for every header control so they read as one
+     row of action buttons rather than mixed widgets. SVG children
+     inherit currentColor so they pick up the theme. */
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  padding: 0;
   background: transparent;
   color: var(--muted);
   border: 0;
   border-radius: 8px;
-  padding: 6px 8px;
-  font: inherit;
-  font-size: 1.1em;
-  line-height: 1;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
 }
-.iconbtn:hover {
+.iconbtn:hover,
+.iconbtn:focus-visible {
   color: var(--fg);
   background: var(--border);
+  text-decoration: none;
   filter: none;
+  outline: none;
+}
+.iconbtn:active { transform: translateY(1px); }
+.iconbtn svg {
+  width: 20px;
+  height: 20px;
+  display: block;
 }
 
-/* Theme toggle — shows the icon for the *active* mode (☀ in light, ☾ in
-   dark). Mirrors the dark-mode entry points so OS-dark users without a
-   manual override still see the moon. */
-.theme-toggle {
-  /* picks up .iconbtn base; just needs the icon-swap rules below */
-}
+/* Theme toggle SVG swap — shows the icon for the *active* mode (☀ in
+   light, ☾ in dark). Mirrors the dark-mode entry points so OS-dark users
+   without a manual override still see the moon. */
 .theme-toggle .theme-icon-dark { display: none; }
-.theme-toggle .theme-icon-light { display: inline; }
+.theme-toggle .theme-icon-light { display: block; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: inline; }
+  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: block; }
   :root:not([data-theme="light"]) .theme-toggle .theme-icon-light { display: none; }
 }
-:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: inline; }
+:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: block; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
 
 /* Page titles (add / status) — match h1 weight to detail page */
