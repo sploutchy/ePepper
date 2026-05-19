@@ -7,6 +7,8 @@ Recipe object inside it and maps it onto the same shape that
 `process_recipe_url` produces.
 """
 
+import hashlib
+import json
 import logging
 import re
 from typing import Any
@@ -14,6 +16,25 @@ from typing import Any
 from processing.recipes import _detect_language
 
 log = logging.getLogger(__name__)
+
+
+def synthetic_url(recipe: dict) -> str:
+    """Stable surrogate URL for JSON-LD recipes without their own canonical URL.
+
+    Hashing title + ingredients + instructions means re-uploading the same
+    LLM output collides on the library's UNIQUE(url) and dedupes cleanly.
+    """
+    payload = json.dumps(
+        {
+            "title": recipe.get("title", ""),
+            "ingredients": recipe.get("ingredients", []),
+            "instructions": recipe.get("instructions", []),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+    )
+    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
+    return f"jsonld:{digest}"
 
 
 def parse_recipe_jsonld(data: Any) -> tuple[dict, str] | None:

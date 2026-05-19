@@ -5,22 +5,35 @@ stores the same API_KEY the device uses; httpOnly + Secure + SameSite=Lax).
 Routes live under /app/ to keep the existing device-facing endpoints clean.
 """
 
+import json
 import logging
 import os
 import secrets
+import time
 from datetime import datetime
 from pathlib import Path
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Form, HTTPException, Request
+from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import backup
+import display_state
 import library
 from display_push import push_recipe_to_display
+from processing.images import process_photo
+from processing.jsonld import parse_recipe_jsonld, synthetic_url
+from processing.recipes import process_recipe_url
+from status_helpers import battery_pct, humanize_ago, rssi_quality
 
 log = logging.getLogger(__name__)
+
+# Hard cap on uploaded files. Schema.org Recipe payloads are typically a few
+# KB; photos uploaded for the panel max out around 1–2 MB after browser-side
+# JPEG re-encode. 8 MB leaves headroom while still rejecting accidental drops.
+_JSON_MAX_BYTES = 256 * 1024
+_PHOTO_MAX_BYTES = 8 * 1024 * 1024
 
 API_KEY = os.environ.get("API_KEY", "")
 COOKIE_NAME = "epepper_auth"
@@ -200,6 +213,208 @@ async def search_partial(request: Request, q: str = "", offset: int = 0):
     ctx = _list_context(request, q, offset)
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
+
+
+# --- Add recipe -------------------------------------------------------------
+
+
+def _hx_redirect(url: str) -> Response:
+    """200 OK with HX-Redirect — HTMX swaps the whole window to `url`.
+
+    Used instead of a 303 because HTMX swallows redirects by default; the
+    HX-Redirect header is the documented escape hatch.
+    """
+    resp = Response(status_code=200)
+    resp.headers["HX-Redirect"] = url
+    return resp
+
+
+def _add_error(request: Request, message: str) -> HTMLResponse:
+    """Render a small error fragment back into the add page's #add-result."""
+    return templates.TemplateResponse(
+        request, "_add_error.html",
+        {"request": request, "message": message},
+        status_code=400,
+    )
+
+
+@router.get("/add", response_class=HTMLResponse)
+async def add_page(request: Request):
+    _require_auth(request)
+    return templates.TemplateResponse(request, "add.html", _context_globals(request))
+
+
+@router.post("/add/url", response_class=HTMLResponse)
+async def add_url(request: Request, url: str = Form(...)):
+    """URL paste — mirrors the bot's on_text URL flow.
+
+    Dedupes via find_by_url so a re-pasted URL just re-pushes the cached
+    parse instead of re-fetching the site. New URLs are upserted before the
+    detail-page redirect so the rating widget has a real recipe_id to bind
+    to; the row sits with saved_at=NULL and is invisible in the library
+    list until the user picks a rating.
+    """
+    _require_auth(request)
+    url = url.strip()
+    if not (url.startswith("http://") or url.startswith("https://")):
+        return _add_error(request, "Please paste a full http(s):// URL.")
+
+    existing = library.find_by_url(url)
+    if existing is not None:
+        push_recipe_to_display(existing)
+        log.info("Web add (existing URL): id=%d url=%s", existing["id"], url)
+        return _hx_redirect(f"/app/recipes/{existing['id']}")
+
+    recipe = await process_recipe_url(url)
+    if recipe is None:
+        return _add_error(
+            request,
+            "Couldn't parse a recipe from that URL. If the site isn't "
+            "supported, run /prompt_url in the bot, hand the prompt to an "
+            "LLM, and upload the resulting JSON-LD file below.",
+        )
+    recipe_id = library.upsert_recipe(url, recipe)
+    push_recipe_to_display(library.get_recipe(recipe_id))
+    log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
+    return _hx_redirect(f"/app/recipes/{recipe_id}")
+
+
+@router.post("/add/photo", response_class=HTMLResponse)
+async def add_photo(request: Request, photo: UploadFile = File(...)):
+    """Photo upload — mirrors the bot's on_photo flow.
+
+    Photos are ephemeral display content: process_photo resizes + dithers,
+    set_image replaces the panel, and we redirect to /app/status so the
+    user can verify the result against the live preview.
+    """
+    _require_auth(request)
+    if not (photo.content_type or "").startswith("image/"):
+        return _add_error(request, "Please pick an image file.")
+    raw = await photo.read()
+    if len(raw) > _PHOTO_MAX_BYTES:
+        return _add_error(
+            request,
+            f"Image too large ({len(raw) // 1024} KB; limit "
+            f"{_PHOTO_MAX_BYTES // 1024} KB).",
+        )
+    try:
+        img = process_photo(raw)
+    except Exception:
+        log.exception("Web photo processing failed")
+        return _add_error(
+            request,
+            "Couldn't process that image. Try a JPEG or PNG under "
+            f"{_PHOTO_MAX_BYTES // (1024 * 1024)} MB.",
+        )
+    display_state.set_image(img, content_type="photo")
+    log.info("Web add (photo): %d bytes", len(raw))
+    return _hx_redirect("/app/status?pushed=photo")
+
+
+@router.post("/add/jsonld", response_class=HTMLResponse)
+async def add_jsonld(request: Request, file: UploadFile = File(...)):
+    """JSON-LD upload — mirrors the bot's on_document flow.
+
+    Same dedup-by-URL behavior as add_url: a re-upload of the same recipe
+    collides on synthetic_url() (for files without their own `url`) or on
+    the source URL otherwise.
+    """
+    _require_auth(request)
+    raw = await file.read()
+    if len(raw) > _JSON_MAX_BYTES:
+        return _add_error(
+            request,
+            f"JSON file too large ({len(raw) // 1024} KB; limit "
+            f"{_JSON_MAX_BYTES // 1024} KB).",
+        )
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (ValueError, UnicodeDecodeError):
+        return _add_error(request, "Couldn't parse the file as JSON.")
+    parsed = parse_recipe_jsonld(data)
+    if parsed is None:
+        return _add_error(
+            request,
+            "No schema.org Recipe found. The JSON must have @type \"Recipe\" "
+            "with at least a name and one of recipeIngredient or "
+            "recipeInstructions.",
+        )
+    recipe, source_url = parsed
+    url = source_url or synthetic_url(recipe)
+    existing = library.find_by_url(url)
+    if existing is not None:
+        push_recipe_to_display(existing)
+        log.info("Web add (existing JSON-LD): id=%d", existing["id"])
+        return _hx_redirect(f"/app/recipes/{existing['id']}")
+    recipe_id = library.upsert_recipe(url, recipe)
+    push_recipe_to_display(library.get_recipe(recipe_id))
+    log.info("Web add (JSON-LD): id=%d title=%r", recipe_id, recipe.get("title"))
+    return _hx_redirect(f"/app/recipes/{recipe_id}")
+
+
+# --- Status page -----------------------------------------------------------
+
+
+def _status_ctx(request: Request) -> dict:
+    """Build the data dict the status templates render against.
+
+    Both the full page and the HTMX auto-refresh partial pull from here so
+    they can't drift apart.
+    """
+    display = display_state.get()
+    device = display_state.get_device_status()
+    pct = battery_pct(device["battery_mv"]) if device.get("battery_mv") else None
+    overdue_s = (
+        int(time.time()) - device["last_seen"]
+        if device.get("last_seen") else 0
+    )
+    is_overdue = (
+        bool(device.get("last_seen"))
+        and overdue_s > display_state.STALE_HEARTBEAT_S
+    )
+    is_low_battery = (
+        device.get("battery_mv", 0) > 0
+        and device["battery_mv"] < display_state.LOW_BATTERY_MV
+    )
+    return {
+        "request": request,
+        "display": display,
+        "device": device,
+        "battery_pct": pct,
+        "is_low_battery": is_low_battery,
+        "is_overdue": is_overdue,
+        "humanize_ago": humanize_ago,
+        "rssi_quality": rssi_quality,
+        "fmt_updated": (
+            datetime.fromtimestamp(display["updated_at"]).strftime("%Y-%m-%d %H:%M")
+            if display.get("updated_at") else "—"
+        ),
+    }
+
+
+@router.get("/status", response_class=HTMLResponse)
+async def status_page(request: Request):
+    _require_auth(request)
+    ctx = _context_globals(request)
+    ctx.update(_status_ctx(request))
+    return templates.TemplateResponse(request, "status.html", ctx)
+
+
+@router.get("/_status", response_class=HTMLResponse)
+async def status_partial(request: Request):
+    """HTMX partial — re-rendered every 30s by the status page to keep the
+    live device readings + panel preview fresh without a full reload."""
+    _require_auth(request)
+    return templates.TemplateResponse(request, "_status_body.html", _status_ctx(request))
+
+
+@router.post("/display/clear", response_class=HTMLResponse)
+async def web_display_clear(request: Request):
+    """Clear the panel from the status page — same effect as the bot's /clear."""
+    _require_auth(request)
+    display_state.clear()
+    log.info("Web cleared display")
+    return _hx_redirect("/app/status?cleared=1")
 
 
 # --- Recipe detail ---------------------------------------------------------
