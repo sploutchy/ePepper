@@ -1,4 +1,9 @@
 :root {
+  /* Tells the UA that both light and dark are supported so form controls,
+     scrollbars, and the default canvas background follow the active theme
+     instead of staying white. The override below picks the active one. */
+  color-scheme: light dark;
+
   --bg:           #faf8f4;
   --fg:           #2a2620;
   --muted:        #807a70;
@@ -29,6 +34,11 @@
 
   --preview-bg:   #ffffff;
 }
+
+/* Lock the UA color-scheme to the active theme when the user has overridden
+   it, so dark mode's form controls don't render light (and vice versa). */
+:root[data-theme="dark"] { color-scheme: dark; }
+:root[data-theme="light"] { color-scheme: light; }
 
 /* Dark mode — same palette intent (warm + a green primary), but inverted.
    Two entry points:
@@ -368,31 +378,47 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-size: 0.9em;
 }
 
-/* Top-bar nav + right-side controls */
+/* Top-bar nav — single right-aligned group so the header reads as
+   "brand … actions" instead of three competing zones. */
 .topnav {
   display: flex;
-  gap: 14px;
-  margin-right: auto;
-  margin-left: 16px;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
 }
-.topnav a {
+.navlink {
   color: var(--muted);
   font-weight: 500;
+  padding: 6px 10px;
+  border-radius: 8px;
 }
-.topnav a:hover { color: var(--fg); text-decoration: none; }
-.topbar-right {
-  display: flex;
-  align-items: center;
-  gap: 10px;
+.navlink:hover {
+  color: var(--fg);
+  background: var(--border);
+  text-decoration: none;
+}
+.iconbtn {
+  background: transparent;
+  color: var(--muted);
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+.iconbtn:hover {
+  color: var(--fg);
+  background: var(--border);
+  filter: none;
 }
 
 /* Theme toggle — shows the icon for the *active* mode (☀ in light, ☾ in
    dark). Mirrors the dark-mode entry points so OS-dark users without a
    manual override still see the moon. */
 .theme-toggle {
-  font-size: 1.1em;
-  line-height: 1;
-  padding: 4px 8px;
+  /* picks up .iconbtn base; just needs the icon-swap rules below */
 }
 .theme-toggle .theme-icon-dark { display: none; }
 .theme-toggle .theme-icon-light { display: inline; }
@@ -436,14 +462,20 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
 }
 .add-tile {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* Defensive: explicit display + var() fallbacks so Firefox renders the
+     tile even if a CSS variable lookup or grid layout misbehaves. The
+     prior version lost background/border/shadow on Firefox; the most
+     likely cause was the file-selector-button pseudo nested in the
+     descendant chain confusing the parser, so that rule is now standalone
+     below. */
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border, #e4dfd2);
+  border-radius: var(--radius, 10px);
   padding: 14px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  align-content: start;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow, 0 1px 2px rgba(0,0,0,0.04));
 }
 .add-tile h2 {
   margin: 0;
@@ -460,7 +492,9 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   color: var(--fg);
   width: 100%;
 }
-.add-tile input[type=file]::file-selector-button {
+/* Standalone rule (was nested under .add-tile input[type=file]); some
+   browsers parse the chained pseudo less reliably. */
+input[type=file]::file-selector-button {
   background: var(--neutral);
   color: var(--neutral-fg);
   border: 0;
@@ -471,7 +505,7 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   margin-right: 10px;
   cursor: pointer;
 }
-.add-tile button { justify-self: start; }
+.add-tile button { align-self: flex-start; }
 .add-tile.htmx-request { opacity: 0.6; }
 
 .add-error {
@@ -489,12 +523,15 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
 
 /* Status page */
 .status-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  /* Same defensive treatment as .add-tile — explicit display + var()
+     fallbacks so a single variable miss can't blank the whole card. */
+  display: block;
+  background: var(--card-bg, #ffffff);
+  border: 1px solid var(--border, #e4dfd2);
+  border-radius: var(--radius, 10px);
   padding: 16px;
   margin: 14px 0;
-  box-shadow: var(--shadow);
+  box-shadow: var(--shadow, 0 1px 2px rgba(0,0,0,0.04));
 }
 .status-card h2 {
   margin: 0 0 10px;

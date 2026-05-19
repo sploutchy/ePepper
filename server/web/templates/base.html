@@ -3,6 +3,10 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  {# Mobile browser chrome (URL bar / status bar) follows the active theme. #}
+  <meta name="theme-color" content="#faf8f4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)">
   <title>{% block title %}ePepper{% endblock %}</title>
   <link rel="stylesheet" href="/app/static/app.css">
   {# Apply a saved manual override before paint. When no choice is saved,
@@ -28,21 +32,16 @@
         ePepper
       </a>
       <nav class="topnav">
-        <a href="/app/add">+ Add</a>
-        <a href="/app/status">Status</a>
-      </nav>
-      <div class="topbar-right">
-        {% if saved_count is defined %}
-          <span class="muted">{{ saved_count }} saved</span>
-        {% endif %}
-        <button type="button" class="link theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+        <a href="/app/add" class="navlink">＋ Add</a>
+        <a href="/app/status" class="navlink">Status</a>
+        <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
           <span class="theme-icon-light">☀</span>
           <span class="theme-icon-dark">☾</span>
         </button>
         <form action="/app/logout" method="post" class="logout-form">
-          <button type="submit" class="link">log out</button>
+          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">⏻</button>
         </form>
-      </div>
+      </nav>
     </header>
   {% endblock %}
 
