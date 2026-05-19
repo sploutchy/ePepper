@@ -211,27 +211,36 @@ def render_recipe(
             wrapped = textwrap.wrap(f"{step_num}. {item['text']}", width=chars_right)
             all_blocks.append({"type": "step", "lines": wrapped, "font": font_body, "line_h": line_h})
 
-    # Paginate instructions
-    instr_pages: list[list[int]] = []
-    current_page = []
-    used_h = 0
-    for idx, block in enumerate(all_blocks):
-        block_h = len(block["lines"]) * block["line_h"] + 6
-        if block["type"] == "heading":
-            block_h += 4
-        # Widow control: a heading must not end a page alone. Reserve room
-        # for the next block's first line so we page-break before the heading
-        # rather than orphaning it from its content.
-        required_h = block_h
-        if block["type"] == "heading" and idx + 1 < len(all_blocks):
-            required_h += all_blocks[idx + 1]["line_h"]
-        if used_h + required_h > available_h and current_page:
-            instr_pages.append(current_page)
-            current_page = [idx]
-            used_h = block_h
+    # Paginate instructions. Group every heading with its following block
+    # so they land on the same page — steps don't split mid-block, so the
+    # earlier "reserve one line of the next block" widow heuristic still
+    # let a heading get orphaned whenever the next step needed more than
+    # one line of remaining space.
+    def _block_h(b: dict) -> int:
+        return len(b["lines"]) * b["line_h"] + (10 if b["type"] == "heading" else 6)
+
+    groups: list[list[int]] = []
+    i = 0
+    while i < len(all_blocks):
+        if all_blocks[i]["type"] == "heading" and i + 1 < len(all_blocks):
+            groups.append([i, i + 1])
+            i += 2
         else:
-            current_page.append(idx)
-            used_h += block_h
+            groups.append([i])
+            i += 1
+
+    instr_pages: list[list[int]] = []
+    current_page: list[int] = []
+    used_h = 0
+    for g in groups:
+        gh = sum(_block_h(all_blocks[k]) for k in g)
+        if used_h + gh > available_h and current_page:
+            instr_pages.append(current_page)
+            current_page = list(g)
+            used_h = gh
+        else:
+            current_page.extend(g)
+            used_h += gh
     if current_page:
         instr_pages.append(current_page)
 
