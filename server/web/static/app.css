@@ -217,8 +217,17 @@ button {
   font-weight: 600;
   cursor: pointer;
   transition: background 0.12s ease, filter 0.12s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 button:hover { filter: brightness(1.08); }
+
+/* Inline SVG icons sized + aligned with surrounding text. Each macro
+   call already sets width/height; this just keeps them from getting
+   squashed by flex parents and aligns with text baselines for cases
+   where they sit outside flex containers. */
+.icon { flex-shrink: 0; vertical-align: -3px; }
 
 button.primary {
   background: var(--primary);
@@ -485,7 +494,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   align-items: center;
   gap: 8px;
 }
-.add-tile-icon { font-size: 1.2em; }
 .add-tile p { margin: 0; font-size: 0.9em; }
 .add-tile input[type=file] {
   font: inherit;
@@ -539,15 +547,22 @@ input[type=file]::file-selector-button {
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.05em;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .status-line {
   margin: 4px 0;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 6px;
   flex-wrap: wrap;
 }
-.status-icon { font-size: 1.05em; }
+.status-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--muted);
+}
 .status-actions { margin-top: 12px; }
 
 .status-banner {
@@ -560,6 +575,11 @@ input[type=file]::file-selector-button {
   display: grid;
   gap: 4px;
 }
+.status-banner strong {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
 .warn-inline {
   margin-left: 6px;
   color: var(--warn-fg);
@@ -567,6 +587,9 @@ input[type=file]::file-selector-button {
   padding: 1px 6px;
   border-radius: 6px;
   font-size: 0.85em;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
 }
 
 /* Panel preview — full-bleed escape from main's max-width so the 800×480

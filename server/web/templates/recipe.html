@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}{{ r.title }} · ePepper{% endblock %}
 
 {% block content %}
@@ -19,12 +20,12 @@
             hx-post="/app/recipes/{{ r.id }}/push"
             hx-target="#toast"
             hx-swap="innerHTML">
-      📺 Push to panel
+      {{ icon("monitor", 18) }} Push to panel
     </button>
     <button class="danger"
             hx-delete="/app/recipes/{{ r.id }}"
             hx-confirm="Delete this recipe?">
-      🗑 Delete
+      {{ icon("trash", 18) }} Delete
     </button>
   </div>
 
