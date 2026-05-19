@@ -486,6 +486,7 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
 .file-input {
   flex: 1;
   min-width: 0;
+  position: relative;
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -504,16 +505,19 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   color: var(--fg);
 }
 .file-input input[type=file] {
-  /* Visually hidden but keyboard-focusable. */
+  /* Stretched transparent overlay so the UA's Browse / Choose-file
+     button never renders, but the input still receives clicks (anywhere
+     on the label) and is keyboard-focusable. The clip+absolute pattern
+     wasn't reliably hiding the UA chrome on Firefox. */
   position: absolute;
-  width: 1px;
-  height: 1px;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
   padding: 0;
-  margin: -1px;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
   border: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 .file-input-name {
   overflow: hidden;
@@ -572,6 +576,14 @@ input[type=file]::file-selector-button {
   cursor: pointer;
 }
 .add-tile.htmx-request { opacity: 0.6; }
+.add-help {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.9em;
+  display: grid;
+  gap: 2px;
+}
 
 .add-error {
   background: var(--danger-soft);
