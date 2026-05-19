@@ -18,34 +18,52 @@
          placeholder="Paste a recipe URL…"
          autocomplete="off"
          autofocus>
-  <button type="submit" class="primary">Add</button>
+  <button type="submit" class="primary icon-only" title="Fetch &amp; push" aria-label="Fetch and push">
+    {{ icon("arrow-right", 20) }}
+  </button>
 </form>
 
-<div class="add-grid">
-  <form class="add-tile"
-        hx-post="/app/add/photo"
-        hx-target="#add-result"
-        hx-swap="innerHTML"
-        hx-encoding="multipart/form-data"
-        hx-disabled-elt="find button"
-        hx-indicator="this">
-    <h2>{{ icon("camera", 20) }} Photo</h2>
-    <p class="muted">Pushed to the panel, not saved.</p>
-    <input type="file" name="photo" accept="image/*" required>
-    <button type="submit">Upload</button>
-  </form>
+{# One file tile covering both photo (resized + dithered, panel-only) and
+   JSON-LD (parsed into the library). The server dispatches on content
+   type, so the user picks a file without having to choose the route. #}
+<form class="add-tile"
+      hx-post="/app/add/file"
+      hx-target="#add-result"
+      hx-swap="innerHTML"
+      hx-encoding="multipart/form-data"
+      hx-disabled-elt="find button"
+      hx-indicator="this">
+  <h2>{{ icon("upload", 20) }} Upload</h2>
+  <p class="muted">
+    A photo goes straight to the panel. A
+    <code>.json</code> recipe (schema.org JSON-LD &mdash; use
+    <code>/prompt_url</code> in the bot to generate one) is parsed into
+    the library.
+  </p>
 
-  <form class="add-tile"
-        hx-post="/app/add/jsonld"
-        hx-target="#add-result"
-        hx-swap="innerHTML"
-        hx-encoding="multipart/form-data"
-        hx-disabled-elt="find button"
-        hx-indicator="this">
-    <h2>{{ icon("file-code", 20) }} JSON-LD</h2>
-    <p class="muted">For unsupported sites — use <code>/prompt_url</code> in the bot.</p>
-    <input type="file" name="file" accept=".json,application/json" required>
-    <button type="submit">Upload</button>
-  </form>
-</div>
+  <div class="file-row">
+    <label class="file-input" title="Choose file">
+      <input type="file" name="file"
+             accept="image/*,.json,application/json"
+             required>
+      {{ icon("paperclip", 18) }}
+      <span class="file-input-name muted" data-empty="no file chosen">no file chosen</span>
+    </label>
+    <button type="submit" class="primary icon-only" title="Upload" aria-label="Upload">
+      {{ icon("upload", 20) }}
+    </button>
+  </div>
+</form>
+
+<script>
+  // Reflect the picked filename in the label so the user can confirm what
+  // they're about to upload. Delegated so it survives HTMX swaps.
+  document.addEventListener('change', function(e) {
+    var input = e.target;
+    if (!input.matches('.file-input input[type=file]')) return;
+    var label = input.closest('.file-input').querySelector('.file-input-name');
+    label.textContent = (input.files[0] && input.files[0].name) || label.dataset.empty;
+    label.classList.toggle('muted', !input.files[0]);
+  });
+</script>
 {% endblock %}

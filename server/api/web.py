@@ -279,18 +279,35 @@ async def add_url(request: Request, url: str = Form(...)):
     return _hx_redirect(f"/app/recipes/{recipe_id}")
 
 
-@router.post("/add/photo", response_class=HTMLResponse)
-async def add_photo(request: Request, photo: UploadFile = File(...)):
-    """Photo upload — mirrors the bot's on_photo flow.
+@router.post("/add/file", response_class=HTMLResponse)
+async def add_file(request: Request, file: UploadFile = File(...)):
+    """Single upload endpoint — dispatches by content type / extension.
 
-    Photos are ephemeral display content: process_photo resizes + dithers,
-    set_image replaces the panel, and we redirect to /app/status so the
-    user can verify the result against the live preview.
+    Images go through process_photo (resize + dither → panel-only, not
+    saved). JSON files go through parse_recipe_jsonld (upserted into the
+    library, same dedup-by-URL behaviour as the URL ingest path).
     """
     _require_auth(request)
-    if not (photo.content_type or "").startswith("image/"):
-        return _add_error(request, "Please pick an image file.")
-    raw = await photo.read()
+    ct = (file.content_type or "").lower()
+    name = (file.filename or "").lower()
+    is_image = ct.startswith("image/") or name.endswith(
+        (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".bmp", ".gif")
+    )
+    is_json = ct in ("application/json", "application/ld+json") or name.endswith(".json")
+
+    if is_image:
+        return await _add_photo_bytes(request, file)
+    if is_json:
+        return await _add_jsonld_bytes(request, file)
+    return _add_error(
+        request,
+        "Unsupported file. Pick an image (photo for the panel) or a "
+        "<code>.json</code> file (schema.org Recipe JSON-LD).",
+    )
+
+
+async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
+    raw = await file.read()
     if len(raw) > _PHOTO_MAX_BYTES:
         return _add_error(
             request,
@@ -311,15 +328,7 @@ async def add_photo(request: Request, photo: UploadFile = File(...)):
     return _hx_redirect("/app/status?pushed=photo")
 
 
-@router.post("/add/jsonld", response_class=HTMLResponse)
-async def add_jsonld(request: Request, file: UploadFile = File(...)):
-    """JSON-LD upload — mirrors the bot's on_document flow.
-
-    Same dedup-by-URL behavior as add_url: a re-upload of the same recipe
-    collides on synthetic_url() (for files without their own `url`) or on
-    the source URL otherwise.
-    """
-    _require_auth(request)
+async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     raw = await file.read()
     if len(raw) > _JSON_MAX_BYTES:
         return _add_error(

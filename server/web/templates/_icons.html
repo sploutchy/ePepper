@@ -29,5 +29,11 @@
 <svg {{ attrs|safe }}><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
 {%- elif name == "droplet" -%}
 <svg {{ attrs|safe }}><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+{%- elif name == "arrow-right" -%}
+<svg {{ attrs|safe }}><path d="M5 12h14M13 5l7 7-7 7"/></svg>
+{%- elif name == "upload" -%}
+<svg {{ attrs|safe }}><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+{%- elif name == "paperclip" -%}
+<svg {{ attrs|safe }}><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
 {%- endif -%}
 {%- endmacro %}
