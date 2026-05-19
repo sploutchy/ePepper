@@ -1,0 +1,93 @@
+{% if is_low_battery or is_overdue %}
+  <div class="status-banner warn">
+    {% if is_overdue %}
+      <strong>⚠️ Device overdue.</strong>
+      Last check-in was {{ humanize_ago(device.last_seen) }} — battery may be flat or Wi-Fi down.
+    {% endif %}
+    {% if is_low_battery %}
+      <strong>🪫 Battery low.</strong>
+      {{ battery_pct }}% ({{ '%.2f' % (device.battery_mv / 1000) }} V) — charge soon.
+    {% endif %}
+  </div>
+{% endif %}
+
+<section class="status-card">
+  <h2>📺 Panel</h2>
+  {% if display.type == "recipe" %}
+    <p class="status-line">
+      <strong>{{ display.title }}</strong>
+      {% if display.total_pages > 1 %}
+        <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
+      {% endif %}
+    </p>
+  {% elif display.type == "photo" %}
+    <p class="status-line"><strong>Photo</strong></p>
+  {% else %}
+    <p class="status-line muted">Idle.</p>
+  {% endif %}
+  <p class="muted">Updated {{ fmt_updated }}</p>
+
+  {# Live preview of the panel. /image is cookie-authed for the browser; the
+     hash query param doubles as a cache buster so the 30s refresh always
+     pulls the current frame. #}
+  {% if display.hash %}
+    <div class="panel-preview">
+      <img src="/image?v={{ display.hash }}" alt="Current panel">
+    </div>
+  {% endif %}
+
+  {% if display.type != "idle" %}
+    <form class="status-actions"
+          hx-post="/app/display/clear"
+          hx-confirm="Clear the panel?">
+      <button class="danger" type="submit">Clear panel</button>
+    </form>
+  {% endif %}
+</section>
+
+<section class="status-card">
+  <h2>📚 Library</h2>
+  <p class="status-line">
+    <strong>{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
+  </p>
+</section>
+
+<section class="status-card">
+  <h2>📡 Device</h2>
+  {% if device.last_seen %}
+    <p class="status-line">
+      Last seen {{ humanize_ago(device.last_seen) }}
+      {% if is_overdue %}<span class="warn-inline">⚠️ overdue</span>{% endif %}
+    </p>
+    {% if device.battery_mv %}
+      <p class="status-line">
+        <span class="status-icon">{{ "🪫" if is_low_battery else "🔋" }}</span>
+        Battery: <strong>{{ battery_pct }}%</strong>
+        <span class="muted">({{ '%.2f' % (device.battery_mv / 1000) }} V)</span>
+      </p>
+    {% endif %}
+    {% if device.rssi %}
+      <p class="status-line">
+        <span class="status-icon">📶</span>
+        Signal: <strong>{{ device.rssi }} dBm</strong>
+        <span class="muted">({{ rssi_quality(device.rssi) }})</span>
+      </p>
+    {% endif %}
+    {% if device.temperature_c is not none %}
+      <p class="status-line">
+        <span class="status-icon">🌡</span>
+        Temp: <strong>{{ '%.1f' % device.temperature_c }} °C</strong>
+      </p>
+    {% endif %}
+    {% if device.humidity_pct is not none %}
+      <p class="status-line">
+        <span class="status-icon">💧</span>
+        Humidity: <strong>{{ '%.0f' % device.humidity_pct }} %</strong>
+      </p>
+    {% endif %}
+  {% else %}
+    <p class="status-line muted">
+      Never seen. Press a button on the device, or wait for the daily wake.
+    </p>
+  {% endif %}
+</section>

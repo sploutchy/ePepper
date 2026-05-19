@@ -5,6 +5,19 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ePepper{% endblock %}</title>
   <link rel="stylesheet" href="/app/static/app.css">
+  {# Apply the persisted theme synchronously so we never flash light-on-dark
+     on first paint. Reads from localStorage; falls back to OS preference. #}
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem('epepper-theme');
+        var theme = saved || (
+          window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+        );
+        document.documentElement.dataset.theme = theme;
+      } catch (e) {}
+    })();
+  </script>
   <script src="/app/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -14,12 +27,22 @@
         <img src="/app/static/pepper.svg" alt="" class="pepper">
         ePepper
       </a>
-      {% if saved_count is defined %}
-        <span class="muted">{{ saved_count }} saved</span>
-      {% endif %}
-      <form action="/app/logout" method="post" class="logout-form">
-        <button type="submit" class="link">log out</button>
-      </form>
+      <nav class="topnav">
+        <a href="/app/add">+ Add</a>
+        <a href="/app/status">Status</a>
+      </nav>
+      <div class="topbar-right">
+        {% if saved_count is defined %}
+          <span class="muted">{{ saved_count }} saved</span>
+        {% endif %}
+        <button type="button" class="link theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <span class="theme-icon-light">☀</span>
+          <span class="theme-icon-dark">☾</span>
+        </button>
+        <form action="/app/logout" method="post" class="logout-form">
+          <button type="submit" class="link">log out</button>
+        </form>
+      </div>
     </header>
   {% endblock %}
 
@@ -28,5 +51,14 @@
   </main>
 
   <div id="toast"></div>
+
+  <script>
+    function toggleTheme() {
+      var current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      var next = current === 'dark' ? 'light' : 'dark';
+      document.documentElement.dataset.theme = next;
+      try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+    }
+  </script>
 </body>
 </html>

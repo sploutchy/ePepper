@@ -1,6 +1,5 @@
 """Telegram bot handlers for ePepper."""
 
-import hashlib
 import html
 import json
 import logging
@@ -25,8 +24,9 @@ import display_state
 import library
 from display_push import push_recipe_to_display
 from processing.images import process_photo
-from processing.jsonld import parse_recipe_jsonld
+from processing.jsonld import parse_recipe_jsonld, synthetic_url
 from processing.recipes import process_recipe_url
+from status_helpers import battery_pct, humanize_ago, rssi_quality
 
 # Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
 # a few KB; anything larger is almost certainly not a recipe.
@@ -63,7 +63,7 @@ async def notify_low_battery(battery_mv: int) -> None:
         log.warning("notify_low_battery: no ALLOWED_USERS configured, skipping alert")
         return
     text = (
-        f"🪫 ePepper battery is low: {_battery_pct(battery_mv)}% "
+        f"🪫 ePepper battery is low: {battery_pct(battery_mv)}% "
         f"({battery_mv / 1000:.2f} V) — charge soon."
     )
     for uid in ALLOWED_USERS:
@@ -335,46 +335,6 @@ async def cmd_clear(update: Update, context) -> None:
     await update.message.reply_text("🧹 Display cleared.")
 
 
-# LiPo discharge curve, mV → %, piecewise linear between breakpoints.
-# Picked so 3.70 V ≈ 50 % and the curve flattens above 4.0 V like real cells.
-_BATTERY_CURVE = [(3300, 0), (3500, 25), (3700, 50), (3850, 75), (4200, 100)]
-
-
-def _battery_pct(mv: int) -> int:
-    if mv >= _BATTERY_CURVE[-1][0]:
-        return 100
-    if mv <= _BATTERY_CURVE[0][0]:
-        return 0
-    for (mv1, p1), (mv2, p2) in zip(_BATTERY_CURVE, _BATTERY_CURVE[1:]):
-        if mv1 <= mv <= mv2:
-            return int(p1 + (p2 - p1) * (mv - mv1) / (mv2 - mv1))
-    return 0
-
-
-def _humanize_ago(ts: int) -> str:
-    delta = max(0, int(time.time()) - ts)
-    abs_time = datetime.fromtimestamp(ts).strftime("%H:%M")
-    if delta < 60:
-        return f"just now ({abs_time})"
-    if delta < 3600:
-        return f"{delta // 60} min ago ({abs_time})"
-    if delta < 86400:
-        return f"{delta // 3600} h ago ({abs_time})"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
-
-
-def _rssi_quality(rssi: int) -> str:
-    if rssi > -50:
-        return "excellent"
-    if rssi > -60:
-        return "good"
-    if rssi > -70:
-        return "fair"
-    if rssi > -80:
-        return "weak"
-    return "poor"
-
-
 async def cmd_status(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
@@ -407,17 +367,17 @@ async def cmd_status(update: Update, context) -> None:
             else ""
         )
         device_lines = [
-            f"<b>📡 Device</b> — {_humanize_ago(device['last_seen'])}{stale_suffix}"
+            f"<b>📡 Device</b> — {humanize_ago(device['last_seen'])}{stale_suffix}"
         ]
         if device["battery_mv"]:
-            pct = _battery_pct(device["battery_mv"])
+            pct = battery_pct(device["battery_mv"])
             icon = "🔋" if pct >= 30 else "🪫"
             device_lines.append(
                 f"{icon} Battery: {pct}% ({device['battery_mv'] / 1000:.2f} V)"
             )
         if device.get("rssi"):
             rssi = device["rssi"]
-            device_lines.append(f"📶 Signal: {rssi} dBm ({_rssi_quality(rssi)})")
+            device_lines.append(f"📶 Signal: {rssi} dBm ({rssi_quality(rssi)})")
         if device.get("temperature_c") is not None:
             device_lines.append(f"🌡 Temp: {device['temperature_c']:.1f} °C")
         if device.get("humidity_pct") is not None:
@@ -668,25 +628,6 @@ def _format_push_reply(title: str, rating: int | None, total_pages: int) -> str:
     return body
 
 
-def _synthetic_jsonld_url(recipe: dict) -> str:
-    """Stable surrogate URL for JSON-LD recipes without their own canonical URL.
-
-    Hashing title + ingredients + instructions means re-uploading the same
-    LLM output collides on the library's UNIQUE(url) and dedupes cleanly.
-    """
-    payload = json.dumps(
-        {
-            "title": recipe.get("title", ""),
-            "ingredients": recipe.get("ingredients", []),
-            "instructions": recipe.get("instructions", []),
-        },
-        ensure_ascii=False,
-        sort_keys=True,
-    )
-    digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
-    return f"jsonld:{digest}"
-
-
 async def on_document(update: Update, context) -> None:
     """Handle .json uploads — schema.org Recipe JSON-LD ingest."""
     if not _is_allowed(update.effective_user.id):
@@ -734,7 +675,7 @@ async def on_document(update: Update, context) -> None:
         return
 
     recipe, source_url = parsed
-    url = source_url or _synthetic_jsonld_url(recipe)
+    url = source_url or synthetic_url(recipe)
     log.info("JSON-LD recipe ingested: title=%r url=%s", recipe.get("title"), url)
     await _present_recipe(url, recipe, msg)
 
