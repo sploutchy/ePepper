@@ -3,7 +3,6 @@
 {% block title %}Add recipe · ePepper{% endblock %}
 
 {% block content %}
-<a href="/app/" class="back">← Library</a>
 <h1 class="page-title">Add a recipe</h1>
 
 <div id="add-result"></div>
@@ -34,12 +33,10 @@
       hx-disabled-elt="find button"
       hx-indicator="this">
   <h2>{{ icon("upload", 20) }} Upload</h2>
-  <p class="muted">
-    A photo goes straight to the panel. A
-    <code>.json</code> recipe (schema.org JSON-LD &mdash; use
-    <code>/prompt_url</code> in the bot to generate one) is parsed into
-    the library.
-  </p>
+  <ul class="add-help muted">
+    <li>Photo &rarr; pushed to panel.</li>
+    <li>JSON-LD &rarr; parsed into library.</li>
+  </ul>
 
   <div class="file-row">
     <label class="file-input" title="Choose file">
