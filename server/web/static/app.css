@@ -31,8 +31,41 @@
 }
 
 /* Dark mode — same palette intent (warm + a green primary), but inverted.
-   The light tokens stay light so we can still read them in the var(); the
-   override happens at the :root[data-theme="dark"] selector. */
+   Two entry points:
+     1. OS dark mode, no manual override → @media block below.
+     2. Explicit data-theme="dark" from the toggle → :root selector below.
+   Both copy the same custom-property values so the CSS-only path works
+   even when the inline init script doesn't run. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:           #1c1a17;
+    --fg:           #ece6da;
+    --muted:        #9d958a;
+    --border:       #3a3631;
+
+    --card-bg:      #26221e;
+    --comment-bg:   #2f2a23;
+
+    --primary:      #6fae7a;
+    --primary-soft: #2c4a33;
+    --primary-fg:   #14130f;
+
+    --danger:       #d28365;
+    --danger-soft:  #4a2e22;
+    --danger-fg:    #14130f;
+
+    --neutral:      #c8c1b4;
+    --neutral-fg:   #14130f;
+
+    --star:         #e6b842;
+    --warn-bg:      #3c2f15;
+    --warn-fg:      #f0d28a;
+    --warn-border:  #6a5424;
+
+    --shadow:       0 1px 2px rgba(0,0,0,0.4);
+    --preview-bg:   #eee9dc;
+  }
+}
 :root[data-theme="dark"] {
   --bg:           #1c1a17;
   --fg:           #ece6da;
@@ -353,7 +386,9 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   gap: 10px;
 }
 
-/* Theme toggle — show only the icon that represents the *next* theme. */
+/* Theme toggle — shows the icon for the *active* mode (☀ in light, ☾ in
+   dark). Mirrors the dark-mode entry points so OS-dark users without a
+   manual override still see the moon. */
 .theme-toggle {
   font-size: 1.1em;
   line-height: 1;
@@ -361,52 +396,83 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
 }
 .theme-toggle .theme-icon-dark { display: none; }
 .theme-toggle .theme-icon-light { display: inline; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: inline; }
+  :root:not([data-theme="light"]) .theme-toggle .theme-icon-light { display: none; }
+}
 :root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: inline; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
 
 /* Page titles (add / status) — match h1 weight to detail page */
 .page-title { margin: 4px 0 6px; line-height: 1.2; }
 
-/* Add page */
-.add-card {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 16px;
-  margin: 14px 0;
-  box-shadow: var(--shadow);
+/* Add page — URL field is the headliner (the common case); photo and
+   JSON-LD live in compact tiles below. */
+.add-row {
+  display: flex;
+  gap: 8px;
+  margin: 18px 0 20px;
 }
-.add-card h2 {
-  margin: 0 0 6px;
+.add-row input[type=url] {
+  flex: 1;
+  padding: 12px 14px;
   font-size: 1.05em;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.add-card p { margin: 4px 0 12px; }
-.add-card form {
-  display: grid;
-  gap: 10px;
-}
-.add-card input[type=url] {
-  width: 100%;
-  padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius);
   background: var(--card-bg);
-  font: inherit;
   color: var(--fg);
 }
-.add-card input[type=url]:focus {
+.add-row input[type=url]:focus {
   outline: 2px solid var(--primary-soft);
   outline-offset: 1px;
   border-color: var(--primary);
 }
-.add-card input[type=file] {
+.add-row button { padding: 12px 20px; }
+.add-row.htmx-request button { opacity: 0.55; cursor: progress; }
+
+.add-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.add-tile {
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px;
+  display: grid;
+  gap: 10px;
+  align-content: start;
+  box-shadow: var(--shadow);
+}
+.add-tile h2 {
+  margin: 0;
+  font-size: 1em;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.add-tile-icon { font-size: 1.2em; }
+.add-tile p { margin: 0; font-size: 0.9em; }
+.add-tile input[type=file] {
   font: inherit;
   color: var(--fg);
+  width: 100%;
 }
-.add-card button { justify-self: start; }
+.add-tile input[type=file]::file-selector-button {
+  background: var(--neutral);
+  color: var(--neutral-fg);
+  border: 0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font: inherit;
+  font-weight: 600;
+  margin-right: 10px;
+  cursor: pointer;
+}
+.add-tile button { justify-self: start; }
+.add-tile.htmx-request { opacity: 0.6; }
 
 .add-error {
   background: var(--danger-soft);
@@ -417,10 +483,9 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   margin: 10px 0;
 }
 :root[data-theme="dark"] .add-error { color: var(--fg); }
-
-/* Spinner — visible only while HTMX has a request in flight. */
-.spinner { display: none; margin-left: 6px; opacity: 0.8; }
-.htmx-request .spinner { display: inline; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .add-error { color: var(--fg); }
+}
 
 /* Status page */
 .status-card {
@@ -467,18 +532,27 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-size: 0.85em;
 }
 
-/* Panel preview — keep the BMP on a white card even in dark mode so the
+/* Panel preview — full-bleed escape from main's max-width so the 800×480
+   e-ink frame fills the viewport (it's the page's hero). The negative
+   margin trick computes the gap between this element's left edge and the
+   viewport edge. The BMP stays on a light card even in dark mode so the
    1-bit render reads correctly (the panel itself is white-on-black-ink). */
 .panel-preview {
-  margin: 10px 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  width: 100vw;
+  max-width: 100vw;
+  margin-top: 10px;
+  margin-bottom: 14px;
   background: var(--preview-bg);
-  padding: 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
   display: flex;
   justify-content: center;
 }
 .panel-preview img {
+  width: 100%;
   max-width: 100%;
   height: auto;
   display: block;
