@@ -20,6 +20,14 @@ API_PORT: int = int(os.environ.get("API_PORT", "8080"))
 # Data directory (docker volume)
 DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
 
+# Backup — when BACKUP_CHAT_ID is set, library mutations trigger a gzipped
+# DB snapshot sent to that chat. Rapid mutations are coalesced so a
+# /save+/rate+/comment burst yields one upload.
+BACKUP_CHAT_ID: int | None = (
+    int(os.environ["BACKUP_CHAT_ID"]) if os.environ.get("BACKUP_CHAT_ID") else None
+)
+BACKUP_DEBOUNCE_S: int = int(os.environ.get("BACKUP_DEBOUNCE_S", "60"))
+
 # Fonts (DejaVu Sans, installed via apt in Docker)
 FONT_DIR: str = "/usr/share/fonts/truetype/dejavu"
 FONT_REGULAR: str = os.path.join(FONT_DIR, "DejaVuSans.ttf")
