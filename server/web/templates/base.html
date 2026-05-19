@@ -5,16 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>{% block title %}ePepper{% endblock %}</title>
   <link rel="stylesheet" href="/app/static/app.css">
-  {# Apply the persisted theme synchronously so we never flash light-on-dark
-     on first paint. Reads from localStorage; falls back to OS preference. #}
+  {# Apply a saved manual override before paint. When no choice is saved,
+     we leave data-theme unset so the CSS @media (prefers-color-scheme)
+     fallback handles OS dark mode automatically. #}
   <script>
     (function() {
       try {
         var saved = localStorage.getItem('epepper-theme');
-        var theme = saved || (
-          window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-        );
-        document.documentElement.dataset.theme = theme;
+        if (saved === 'dark' || saved === 'light') {
+          document.documentElement.dataset.theme = saved;
+        }
       } catch (e) {}
     })();
   </script>
@@ -54,9 +54,12 @@
 
   <script>
     function toggleTheme() {
-      var current = document.documentElement.dataset.theme === 'dark' ? 'dark' : 'light';
+      var html = document.documentElement;
+      // Read the effective theme: manual override wins, else OS preference.
+      var current = html.dataset.theme ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
       var next = current === 'dark' ? 'light' : 'dark';
-      document.documentElement.dataset.theme = next;
+      html.dataset.theme = next;
       try { localStorage.setItem('epepper-theme', next); } catch (e) {}
     }
   </script>

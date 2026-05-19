@@ -4,73 +4,47 @@
 {% block content %}
 <a href="/app/" class="back">← Library</a>
 <h1 class="page-title">Add a recipe</h1>
-<p class="muted">
-  Same three ingest paths as the Telegram bot. Whatever you push lands on
-  the panel immediately; pick a rating on the next screen to keep it in
-  the library.
-</p>
 
 <div id="add-result"></div>
 
-<section class="add-card">
-  <h2>From a URL</h2>
-  <p class="muted">
-    Parsed via recipe-scrapers. Tracking params (utm_*, fbclid, …) are
-    stripped before dedup.
-  </p>
-  <form hx-post="/app/add/url"
-        hx-target="#add-result"
-        hx-swap="innerHTML"
-        hx-disabled-elt="find button"
-        hx-indicator="#add-spinner-url">
-    <input type="url" name="url" required
-           placeholder="https://example.com/recipes/pumpkin-risotto"
-           autocomplete="off">
-    <button type="submit" class="primary">
-      Fetch &amp; push
-      <span id="add-spinner-url" class="spinner htmx-indicator">…</span>
-    </button>
-  </form>
-</section>
+<form class="add-row"
+      hx-post="/app/add/url"
+      hx-target="#add-result"
+      hx-swap="innerHTML"
+      hx-disabled-elt="find button"
+      hx-indicator="this">
+  <input type="url" name="url" required
+         placeholder="Paste a recipe URL…"
+         autocomplete="off"
+         autofocus>
+  <button type="submit" class="primary">Add</button>
+</form>
 
-<section class="add-card">
-  <h2>From a photo</h2>
-  <p class="muted">
-    Resized + dithered for the e-ink panel — no OCR. Displays only; not
-    saved to the library.
-  </p>
-  <form hx-post="/app/add/photo"
+<div class="add-grid">
+  <form class="add-tile"
+        hx-post="/app/add/photo"
         hx-target="#add-result"
         hx-swap="innerHTML"
         hx-encoding="multipart/form-data"
         hx-disabled-elt="find button"
-        hx-indicator="#add-spinner-photo">
+        hx-indicator="this">
+    <h2><span class="add-tile-icon">📷</span> Photo</h2>
+    <p class="muted">Pushed to the panel, not saved.</p>
     <input type="file" name="photo" accept="image/*" required>
-    <button type="submit" class="primary">
-      Upload &amp; push
-      <span id="add-spinner-photo" class="spinner htmx-indicator">…</span>
-    </button>
+    <button type="submit">Upload</button>
   </form>
-</section>
 
-<section class="add-card">
-  <h2>From a JSON-LD file</h2>
-  <p class="muted">
-    For sites recipe-scrapers doesn't cover, or for OCR via an LLM. Run
-    <code>/prompt_url</code> or <code>/prompt_screenshot</code> in the bot
-    to get a copy-paste prompt that produces the right shape.
-  </p>
-  <form hx-post="/app/add/jsonld"
+  <form class="add-tile"
+        hx-post="/app/add/jsonld"
         hx-target="#add-result"
         hx-swap="innerHTML"
         hx-encoding="multipart/form-data"
         hx-disabled-elt="find button"
-        hx-indicator="#add-spinner-json">
+        hx-indicator="this">
+    <h2><span class="add-tile-icon">📄</span> JSON-LD</h2>
+    <p class="muted">For unsupported sites — use <code>/prompt_url</code> in the bot.</p>
     <input type="file" name="file" accept=".json,application/json" required>
-    <button type="submit" class="primary">
-      Upload &amp; push
-      <span id="add-spinner-json" class="spinner htmx-indicator">…</span>
-    </button>
+    <button type="submit">Upload</button>
   </form>
-</section>
+</div>
 {% endblock %}
