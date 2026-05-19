@@ -30,7 +30,7 @@ from status_helpers import battery_pct, humanize_ago, rssi_quality
 log = logging.getLogger(__name__)
 
 # Hard cap on uploaded files. Schema.org Recipe payloads are typically a few
-# KB; photos uploaded for the panel max out around 1–2 MB after browser-side
+# KB; images uploaded for the display max out around 1–2 MB after browser-side
 # JPEG re-encode. 8 MB leaves headroom while still rejecting accidental drops.
 _JSON_MAX_BYTES = 256 * 1024
 _PHOTO_MAX_BYTES = 8 * 1024 * 1024
@@ -288,9 +288,10 @@ async def add_url(request: Request, url: str = Form(...)):
 async def add_file(request: Request, file: UploadFile = File(...)):
     """Single upload endpoint — dispatches by content type / extension.
 
-    Images go through process_photo (resize + dither → panel-only, not
-    saved). JSON files go through parse_recipe_jsonld (upserted into the
-    library, same dedup-by-URL behaviour as the URL ingest path).
+    Images go through process_photo (resize + dither → display-only,
+    not saved). JSON files go through parse_recipe_jsonld (upserted
+    into the library, same dedup-by-URL behaviour as the URL ingest
+    path).
     """
     _require_auth(request)
     ct = (file.content_type or "").lower()
@@ -321,7 +322,7 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
         return _add_error(request, "Couldn't read that image.")
     display_state.set_image(img, content_type="photo")
     log.info("Web add (photo): %d bytes", len(raw))
-    return _hx_redirect("/app/status?pushed=photo")
+    return _hx_redirect("/app/status?pushed=image")
 
 
 async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
@@ -402,14 +403,14 @@ async def status_page(request: Request):
 @router.get("/_status", response_class=HTMLResponse)
 async def status_partial(request: Request):
     """HTMX partial — re-rendered every 30s by the status page to keep the
-    live device readings + panel preview fresh without a full reload."""
+    live device readings + display preview fresh without a full reload."""
     _require_auth(request)
     return templates.TemplateResponse(request, "_status_body.html", _status_ctx(request))
 
 
 @router.post("/display/clear", response_class=HTMLResponse)
 async def web_display_clear(request: Request):
-    """Clear the panel from the status page — same effect as the bot's /clear."""
+    """Clear the display from the status page — same effect as the bot's /clear."""
     _require_auth(request)
     display_state.clear()
     log.info("Web cleared display")
@@ -482,7 +483,7 @@ async def delete_comment(request: Request, recipe_id: int, comment_id: int):
     return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
 
 
-# --- Push to panel ---------------------------------------------------------
+# --- Push to display -------------------------------------------------------
 
 
 @router.post("/recipes/{recipe_id}/push", response_class=HTMLResponse)
@@ -492,10 +493,10 @@ async def push_recipe(request: Request, recipe_id: int):
     if row is None:
         raise HTTPException(404)
     push_recipe_to_display(row)
-    log.info("Web push to panel: id=%d title=%r", row["id"], row["title"])
+    log.info("Web push to display: id=%d title=%r", row["id"], row["title"])
     return templates.TemplateResponse(
         request, "_toast.html",
-        {"message": f"Pushed “{row['title']}” to the panel."},
+        {"message": f"Pushed “{row['title']}” to the display."},
     )
 
 

@@ -20,9 +20,10 @@
   </button>
 </form>
 
-{# One file tile covering both photo (resized + dithered, panel-only) and
-   JSON-LD (parsed into the library). The server dispatches on content
-   type, so the user picks a file without having to choose the route. #}
+{# One file tile covering both image (resized + dithered, display-only)
+   and JSON-LD (parsed into the library). The server dispatches on
+   content type, so the user picks a file without having to choose the
+   route. #}
 <form class="add-tile"
       hx-post="/app/add/file"
       hx-target="#add-result"
@@ -32,7 +33,7 @@
       hx-indicator="this">
   <h2>{{ icon("upload", 20) }} Upload</h2>
   <ul class="add-help muted">
-    <li>Photo &rarr; pushed to panel.</li>
+    <li>Image &rarr; pushed to display.</li>
     <li>JSON-LD &rarr; parsed into library.</li>
   </ul>
 
