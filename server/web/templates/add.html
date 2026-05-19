@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_icons.html" import icon %}
 {% block title %}Add recipe · ePepper{% endblock %}
 
 {% block content %}
@@ -28,7 +29,7 @@
         hx-encoding="multipart/form-data"
         hx-disabled-elt="find button"
         hx-indicator="this">
-    <h2><span class="add-tile-icon">📷</span> Photo</h2>
+    <h2>{{ icon("camera", 20) }} Photo</h2>
     <p class="muted">Pushed to the panel, not saved.</p>
     <input type="file" name="photo" accept="image/*" required>
     <button type="submit">Upload</button>
@@ -41,7 +42,7 @@
         hx-encoding="multipart/form-data"
         hx-disabled-elt="find button"
         hx-indicator="this">
-    <h2><span class="add-tile-icon">📄</span> JSON-LD</h2>
+    <h2>{{ icon("file-code", 20) }} JSON-LD</h2>
     <p class="muted">For unsupported sites — use <code>/prompt_url</code> in the bot.</p>
     <input type="file" name="file" accept=".json,application/json" required>
     <button type="submit">Upload</button>
