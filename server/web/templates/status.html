@@ -2,16 +2,6 @@
 {% block title %}Status · ePepper{% endblock %}
 
 {% block content %}
-{# Auto-refresh every 30s so battery / last-seen / display preview stay
-   live without the user reloading. The whole status body is replaced —
-   cheap because it's a handful of small DOM nodes. #}
-<div id="status-body"
-     hx-get="/app/_status"
-     hx-trigger="every 30s"
-     hx-swap="innerHTML">
-  {% include "_status_body.html" %}
-</div>
-
 {% if request.query_params.get("pushed") == "image" %}
   <div class="toast" id="pushed-toast">
     Image pushed to the display.
@@ -24,4 +14,14 @@
   </div>
   <script>setTimeout(() => document.getElementById('cleared-toast')?.remove(), 3000);</script>
 {% endif %}
+
+{# Auto-refresh every 30s so battery / last-seen / display preview stay
+   live without the user reloading. The whole status body is replaced —
+   cheap because it's a handful of small DOM nodes. #}
+<div id="status-body"
+     hx-get="/app/_status"
+     hx-trigger="every 30s"
+     hx-swap="innerHTML">
+  {% include "_status_body.html" %}
+</div>
 {% endblock %}
