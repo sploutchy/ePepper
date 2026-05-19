@@ -230,10 +230,20 @@ def _hx_redirect(url: str) -> Response:
 
 
 def _add_error(request: Request, message: str) -> HTMLResponse:
-    """Render a small error fragment back into the add page's #add-result."""
+    """Render a small error fragment back into the add page's #add-result.
+
+    Backtick-delimited tokens in `message` (e.g. `` `.json` ``) become
+    <code> spans. Everything else is HTML-escaped first, so the message
+    can't smuggle in markup — only the bounded backtick rewrite is
+    promoted to safe HTML.
+    """
+    import re
+    from html import escape
+    from markupsafe import Markup
+    rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", escape(message))
     return templates.TemplateResponse(
         request, "_add_error.html",
-        {"request": request, "message": message},
+        {"request": request, "message": Markup(rendered)},
         status_code=400,
     )
 
@@ -257,7 +267,7 @@ async def add_url(request: Request, url: str = Form(...)):
     _require_auth(request)
     url = url.strip()
     if not (url.startswith("http://") or url.startswith("https://")):
-        return _add_error(request, "Please paste a full http(s):// URL.")
+        return _add_error(request, "Not a `http(s)://` URL.")
 
     existing = library.find_by_url(url)
     if existing is not None:
@@ -267,12 +277,7 @@ async def add_url(request: Request, url: str = Form(...)):
 
     recipe = await process_recipe_url(url)
     if recipe is None:
-        return _add_error(
-            request,
-            "Couldn't parse a recipe from that URL. If the site isn't "
-            "supported, run /prompt_url in the bot, hand the prompt to an "
-            "LLM, and upload the resulting JSON-LD file below.",
-        )
+        return _add_error(request, "Couldn't parse a recipe from that URL.")
     recipe_id = library.upsert_recipe(url, recipe)
     push_recipe_to_display(library.get_recipe(recipe_id))
     log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
@@ -299,11 +304,7 @@ async def add_file(request: Request, file: UploadFile = File(...)):
         return await _add_photo_bytes(request, file)
     if is_json:
         return await _add_jsonld_bytes(request, file)
-    return _add_error(
-        request,
-        "Unsupported file. Pick an image (photo for the panel) or a "
-        "<code>.json</code> file (schema.org Recipe JSON-LD).",
-    )
+    return _add_error(request, "Pick an image or a `.json` file.")
 
 
 async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
@@ -311,18 +312,13 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if len(raw) > _PHOTO_MAX_BYTES:
         return _add_error(
             request,
-            f"Image too large ({len(raw) // 1024} KB; limit "
-            f"{_PHOTO_MAX_BYTES // 1024} KB).",
+            f"Image too large (max `{_PHOTO_MAX_BYTES // (1024 * 1024)} MB`).",
         )
     try:
         img = process_photo(raw)
     except Exception:
         log.exception("Web photo processing failed")
-        return _add_error(
-            request,
-            "Couldn't process that image. Try a JPEG or PNG under "
-            f"{_PHOTO_MAX_BYTES // (1024 * 1024)} MB.",
-        )
+        return _add_error(request, "Couldn't read that image.")
     display_state.set_image(img, content_type="photo")
     log.info("Web add (photo): %d bytes", len(raw))
     return _hx_redirect("/app/status?pushed=photo")
@@ -333,21 +329,15 @@ async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if len(raw) > _JSON_MAX_BYTES:
         return _add_error(
             request,
-            f"JSON file too large ({len(raw) // 1024} KB; limit "
-            f"{_JSON_MAX_BYTES // 1024} KB).",
+            f"`.json` too large (max `{_JSON_MAX_BYTES // 1024} KB`).",
         )
     try:
         data = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
-        return _add_error(request, "Couldn't parse the file as JSON.")
+        return _add_error(request, "Not valid JSON.")
     parsed = parse_recipe_jsonld(data)
     if parsed is None:
-        return _add_error(
-            request,
-            "No schema.org Recipe found. The JSON must have @type \"Recipe\" "
-            "with at least a name and one of recipeIngredient or "
-            "recipeInstructions.",
-        )
+        return _add_error(request, "No schema.org `Recipe` in that `.json`.")
     recipe, source_url = parsed
     url = source_url or synthetic_url(recipe)
     existing = library.find_by_url(url)
