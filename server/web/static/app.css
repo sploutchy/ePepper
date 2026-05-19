@@ -438,9 +438,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
 :root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: block; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
 
-/* Page titles (add / status) — match h1 weight to detail page */
-.page-title { margin: 4px 0 6px; line-height: 1.2; }
-
 /* Add page — URL field is the headliner (the common case); photo and
    JSON-LD live in compact tiles below. */
 .add-row {
