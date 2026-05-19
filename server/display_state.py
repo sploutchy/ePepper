@@ -144,11 +144,12 @@ def get_image_bmp(page: int = 1) -> bytes | None:
     """Get a page as BMP bytes."""
     img = _pages.get(page)
     if img is None:
-        # In the idle state, hand the ESP32 a blank white panel so it can
-        # actually paint the cleared screen instead of getting a 204 and
-        # leaving the previous recipe up.
+        # In the idle state, render a hint panel pointing at the refresh
+        # button. Without it the cleared display is blank and there's no
+        # cue for which physical key wakes content back up.
         if _state["type"] == "idle":
-            img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
+            from rendering.layout import render_idle
+            img = render_idle()
         else:
             return None
     buf = io.BytesIO()

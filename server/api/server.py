@@ -151,6 +151,17 @@ async def page_first(request: Request):
     return {"ok": True, "page": 1, "total_pages": total}
 
 
+@app.post("/display/clear")
+async def display_clear(request: Request):
+    """Clear the panel. Fires on the device's PREV + REFRESH chord."""
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+
+    display_state.clear()
+    log.info("Display cleared via /display/clear")
+    return {"ok": True}
+
+
 @app.post("/page/last")
 async def page_last(request: Request):
     """Jump to the last page. Called by ESP32 on long-press of the next button."""

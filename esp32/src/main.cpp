@@ -39,10 +39,11 @@
 
 EPaperFixed epaper;
 
-enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
+enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV, WAKE_CLEAR };
 
 void handleRefresh(bool force = false);
 void handlePageChange(const char* direction);
+void handleClear();
 void handleTimerWake();
 void warmWindow();
 bool waitForLongPress(int btnPin, int thresholdMs);
@@ -101,6 +102,8 @@ void setup() {
     // For button wakes, sample the GPIO to distinguish a tap from a long
     // press before dispatching. ext1 only tells us which pin fired, not
     // how long it's been held; the button is typically still down here.
+    // The chord (WAKE_CLEAR) has no long-press semantics — we just wait
+    // for both pins to release so the warm window doesn't re-fire.
     bool isLong = false;
     int btnPin = -1;
     if (action == WAKE_REFRESH) btnPin = BTN_REFRESH;
@@ -113,6 +116,10 @@ void setup() {
             // immediately re-fire on the same physical press.
             while (digitalRead(btnPin) == LOW) delay(10);
         }
+    } else if (action == WAKE_CLEAR) {
+        while (digitalRead(BTN_PREV) == LOW || digitalRead(BTN_REFRESH) == LOW) {
+            delay(10);
+        }
     }
 
     switch (action) {
@@ -124,6 +131,9 @@ void setup() {
             break;
         case WAKE_PREV:
             handlePageChange(isLong ? "first" : "prev");
+            break;
+        case WAKE_CLEAR:
+            handleClear();
             break;
         case WAKE_TIMER:
             handleTimerWake();
@@ -150,6 +160,16 @@ WakeAction detectWakeAction() {
     if (reason != ESP_SLEEP_WAKEUP_EXT1) {
         Serial.println("[Wake] Timer");
         return WAKE_TIMER;
+    }
+
+    // PREV+REFRESH chord = force-clear. Sample the GPIOs directly after a
+    // brief settle so we catch the chord even when the user releases the
+    // two buttons a few ms apart (ext1 only carries the bits that fired
+    // simultaneously; a slightly-delayed second press wouldn't show up).
+    delay(15);
+    if (digitalRead(BTN_PREV) == LOW && digitalRead(BTN_REFRESH) == LOW) {
+        Serial.println("[Wake] Chord: Prev+Refresh (clear)");
+        return WAKE_CLEAR;
     }
 
     uint64_t mask = esp_sleep_get_ext1_wakeup_status();
@@ -222,6 +242,49 @@ void handlePageChange(const char* direction) {
             buzzerBeep(1, 30);
             Serial.printf("[Action] Page %d/%d displayed\n", currentPage, totalPages);
         }
+    }
+
+    digitalWrite(LED_PIN, HIGH);
+}
+
+
+// Force-clear the panel — fires on the PREV+REFRESH chord. Tells the
+// server to drop its display state, then fetches and shows the idle
+// hint image so the user knows which button wakes content back up.
+void handleClear() {
+    Serial.println("[Action] Clear (chord)");
+    digitalWrite(LED_PIN, LOW);
+    buzzerBeep(2, 50);
+
+    connectWiFi();
+    if (WiFi.status() != WL_CONNECTED) {
+        buzzerBeep(3, 100);
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    reportDeviceStatus();
+
+    HTTPClient http;
+    String url = String(SERVER_URL) + "/display/clear";
+    http.begin(url);
+    http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    collectDateHeader(http);
+    int code = http.POST("");
+    applyDateHeader(http);
+    http.end();
+    if (code != 200) {
+        Serial.printf("[API] /display/clear returned %d\n", code);
+        buzzerBeep(3, 100);
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    currentPage = 1;
+    totalPages = 1;
+    if (downloadImage(1)) {
+        displayImage(imageBuffer, imageSize);
+        Serial.println("[Action] Cleared display");
     }
 
     digitalWrite(LED_PIN, HIGH);
