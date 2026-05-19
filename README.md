@@ -222,6 +222,26 @@ pushes it to the panel. Manual pushes during the day win until the
 next tick. No fallback: if no past-year match exists, the display is
 left alone.
 
+### Web UI
+
+A small server-rendered web UI lives at `https://<your-host>/app/` for
+browsing, searching, deleting, re-rating, commenting, and pushing
+recipes to the panel from a browser. Built with Jinja2 + HTMX (no
+build step, ~50 KB JS dependency bundled locally).
+
+- **Sign in** with the same `API_KEY` the device uses; a cookie keeps
+  you logged in for a year.
+- **Browse / search** the saved library, with infinite scroll.
+- **Recipe page** lets you change the rating (star buttons),
+  add/remove notes, push to the panel, or delete.
+- **Delete is soft** — the row is hidden via a `deleted_at` timestamp
+  and an undo toast appears on the index for ~8 seconds. Hard-deleting
+  is a manual SQL job (intentional; the recipe library is precious).
+
+The same cookie auth also unlocks `/version`, `/image`, etc. for the
+browser, so you can debug the device by opening those URLs after
+signing in to `/app/`.
+
 ### Backup to Telegram
 
 If `BACKUP_CHAT_ID` is set, every library mutation (`/save`, `/rate`,

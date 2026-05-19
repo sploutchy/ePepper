@@ -36,7 +36,8 @@ CREATE TABLE IF NOT EXISTS recipes (
     lang        TEXT NOT NULL,
     rating      INTEGER,
     saved_at    INTEGER,
-    created_at  INTEGER NOT NULL
+    created_at  INTEGER NOT NULL,
+    deleted_at  INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipes_saved_at ON recipes(saved_at);
@@ -102,9 +103,18 @@ def init_db() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        _migrate_add_deleted_at(conn)
         _migrate_normalize_urls(conn)
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
+
+
+def _migrate_add_deleted_at(conn: sqlite3.Connection) -> None:
+    """Add `deleted_at` to an older DB if it's missing. Idempotent."""
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
+    if "deleted_at" not in cols:
+        conn.execute("ALTER TABLE recipes ADD COLUMN deleted_at INTEGER")
+        log.info("Migration: added recipes.deleted_at column")
 
 
 def _ingredients_text(parsed_json: str) -> str:
@@ -222,40 +232,113 @@ def _row_to_dict(row) -> dict:
 
 
 def get_recipe(recipe_id: int) -> dict | None:
-    """Fetch a recipe row + parsed dict. Returns None if not found."""
+    """Fetch a non-deleted recipe row + parsed dict. None if not found."""
     with _connect() as conn:
         row = conn.execute(
             "SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at "
-            "FROM recipes WHERE id = ?",
+            "FROM recipes WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
 
 def find_by_url(url: str) -> dict | None:
-    """Return the saved recipe for a URL, or None if we don't have it."""
+    """Return the saved recipe for a URL, or None if we don't have it or it's deleted."""
     canonical = normalize_url(url)
     with _connect() as conn:
         row = conn.execute(
             "SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at "
-            "FROM recipes WHERE url = ?",
+            "FROM recipes WHERE url = ? AND deleted_at IS NULL",
             (canonical,),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
 
 def mark_saved(recipe_id: int, rating: int) -> bool:
-    """Set rating + saved_at on a recipe. Returns True if the row exists."""
+    """Set rating + saved_at on a recipe. Returns True if the row exists.
+
+    Also clears `deleted_at` — re-saving a previously-deleted URL restores
+    the row, matching user intent (the Save button is the only way to keep
+    something in the library).
+    """
     if not 1 <= rating <= 5:
         raise ValueError(f"rating must be 1..5, got {rating}")
     now = int(time.time())
     with _connect() as conn:
         cur = conn.execute(
-            "UPDATE recipes SET rating = ?, saved_at = COALESCE(saved_at, ?) "
+            "UPDATE recipes "
+            "SET rating = ?, saved_at = COALESCE(saved_at, ?), deleted_at = NULL "
             "WHERE id = ?",
             (rating, now, recipe_id),
         )
     return cur.rowcount > 0
+
+
+def delete_recipe(recipe_id: int) -> bool:
+    """Soft-delete a recipe. Returns True if a non-deleted row was hit."""
+    now = int(time.time())
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE recipes SET deleted_at = ? "
+            "WHERE id = ? AND deleted_at IS NULL",
+            (now, recipe_id),
+        )
+        if cur.rowcount > 0:
+            # Drop the row from the FTS index so search results stop returning it.
+            conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
+    return cur.rowcount > 0
+
+
+def restore_recipe(recipe_id: int) -> dict | None:
+    """Undo a soft-delete. Returns the restored row dict, or None if nothing to restore."""
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE recipes SET deleted_at = NULL "
+            "WHERE id = ? AND deleted_at IS NOT NULL",
+            (recipe_id,),
+        )
+        if cur.rowcount == 0:
+            return None
+        row = conn.execute(
+            "SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at "
+            "FROM recipes WHERE id = ?",
+            (recipe_id,),
+        ).fetchone()
+        # Re-add to FTS so search picks it up again.
+        if row is not None:
+            _fts_upsert(
+                conn,
+                recipe_id,
+                row["title"],
+                _ingredients_text(row["parsed_json"]),
+                _comments_text(conn, recipe_id),
+            )
+    return _row_to_dict(row) if row else None
+
+
+def remove_comment(comment_id: int) -> int | None:
+    """Delete a comment. Returns the parent recipe_id if a row was deleted, else None."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT recipe_id FROM comments WHERE id = ?", (comment_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        recipe_id = int(row["recipe_id"])
+        conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
+        # Re-index FTS with the new (shorter) notes blob.
+        recipe = conn.execute(
+            "SELECT title, parsed_json FROM recipes WHERE id = ?", (recipe_id,)
+        ).fetchone()
+        if recipe is not None:
+            _fts_upsert(
+                conn,
+                recipe_id,
+                recipe["title"],
+                _ingredients_text(recipe["parsed_json"]),
+                _comments_text(conn, recipe_id),
+            )
+    return recipe_id
 
 
 def add_comment(recipe_id: int, body: str) -> int:
@@ -282,10 +365,11 @@ def add_comment(recipe_id: int, body: str) -> int:
 
 
 def count_saved() -> int:
-    """Number of recipes in the library that have been explicitly saved."""
+    """Number of non-deleted recipes in the library that the user explicitly saved."""
     with _connect() as conn:
         return conn.execute(
-            "SELECT COUNT(*) FROM recipes WHERE saved_at IS NOT NULL"
+            "SELECT COUNT(*) FROM recipes "
+            "WHERE saved_at IS NOT NULL AND deleted_at IS NULL"
         ).fetchone()[0]
 
 
@@ -302,6 +386,7 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
             SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at
             FROM recipes
             WHERE saved_at IS NOT NULL
+              AND deleted_at IS NULL
               AND strftime('%m-%d', saved_at, 'unixepoch', 'localtime') = ?
               AND CAST(strftime('%Y', saved_at, 'unixepoch', 'localtime') AS INTEGER) < ?
             ORDER BY saved_at DESC
@@ -310,6 +395,47 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
             (today_mmdd, today_year),
         ).fetchone()
     return _row_to_dict(row) if row else None
+
+
+def list_recipes(offset: int = 0, limit: int = 20, query: str | None = None) -> list[dict]:
+    """Paginated list of saved, non-deleted recipes.
+
+    If `query` is non-empty, results come from FTS5 ranked by relevance.
+    Otherwise newest-saved first.
+    """
+    if query and query.strip():
+        tokens = _FTS_TOKEN_RE.findall(query)
+        if not tokens:
+            return []
+        fts_query = " ".join(f'"{t}"' for t in tokens)
+        with _connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
+                       r.saved_at, r.created_at
+                FROM recipes_fts f
+                JOIN recipes r ON r.id = f.rowid
+                WHERE recipes_fts MATCH ?
+                  AND r.saved_at IS NOT NULL
+                  AND r.deleted_at IS NULL
+                ORDER BY rank
+                LIMIT ? OFFSET ?
+                """,
+                (fts_query, limit, offset),
+            ).fetchall()
+    else:
+        with _connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at
+                FROM recipes
+                WHERE saved_at IS NOT NULL AND deleted_at IS NULL
+                ORDER BY saved_at DESC
+                LIMIT ? OFFSET ?
+                """,
+                (limit, offset),
+            ).fetchall()
+    return [_row_to_dict(r) for r in rows]
 
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
@@ -333,7 +459,9 @@ def search(query: str, limit: int = 5) -> list[dict]:
                    r.saved_at, r.created_at
             FROM recipes_fts f
             JOIN recipes r ON r.id = f.rowid
-            WHERE recipes_fts MATCH ? AND r.saved_at IS NOT NULL
+            WHERE recipes_fts MATCH ?
+              AND r.saved_at IS NOT NULL
+              AND r.deleted_at IS NULL
             ORDER BY rank
             LIMIT ?
             """,

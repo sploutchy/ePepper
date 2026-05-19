@@ -1,0 +1,34 @@
+{% extends "base.html" %}
+{% block title %}ePepper · Library{% endblock %}
+
+{% block content %}
+<div class="search">
+  <input type="search"
+         name="q"
+         value="{{ q }}"
+         placeholder="Search title, ingredients, notes…"
+         hx-get="/app/_search"
+         hx-trigger="input changed delay:200ms, search"
+         hx-target="#list"
+         hx-swap="innerHTML"
+         hx-include="this"
+         autofocus>
+</div>
+
+<div id="list">
+  {% include "_list.html" %}
+</div>
+
+{# Restore-after-delete undo toast — rendered on initial page load if ?undo=ID present #}
+{% if request.query_params.get("undo") %}
+  <div id="undo-toast" class="toast">
+    Deleted “{{ request.query_params.get("undo_title", "recipe") }}”.
+    <button hx-post="/app/recipes/{{ request.query_params.get('undo') }}/restore"
+            hx-target="#toast"
+            hx-on::after-request="document.getElementById('undo-toast').remove(); htmx.ajax('GET', '/app/_search', {target:'#list'});">
+      Undo
+    </button>
+  </div>
+  <script>setTimeout(() => { const t = document.getElementById('undo-toast'); if (t) t.remove(); }, 8000);</script>
+{% endif %}
+{% endblock %}

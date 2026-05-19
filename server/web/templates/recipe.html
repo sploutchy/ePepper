@@ -1,0 +1,64 @@
+{% extends "base.html" %}
+{% block title %}{{ r.title }} · ePepper{% endblock %}
+
+{% block content %}
+<a href="/app/" class="back">← Library</a>
+
+<article class="recipe">
+  <h1>{{ r.title }}</h1>
+  <p class="muted">
+    {% if r.url and not r.url.startswith("jsonld:") %}
+      <a href="{{ r.url }}" target="_blank" rel="noopener">source</a> ·
+    {% endif %}
+    saved {{ fmt_saved(r.saved_at) }}
+  </p>
+
+  <div class="actions">
+    <button class="primary"
+            hx-post="/app/recipes/{{ r.id }}/push"
+            hx-target="#toast"
+            hx-swap="innerHTML">
+      📺 Push to panel
+    </button>
+    <button class="danger"
+            hx-delete="/app/recipes/{{ r.id }}"
+            hx-confirm="Delete this recipe?">
+      🗑 Delete
+    </button>
+  </div>
+
+  <div id="rating">
+    {% include "_rating.html" %}
+  </div>
+
+  {% set ings = ingredients(r.recipe) %}
+  {% if ings %}
+    <h2>Ingredients</h2>
+    <ul class="ingredients">
+      {% for i in ings %}<li>{{ i }}</li>{% endfor %}
+    </ul>
+  {% endif %}
+
+  {% set steps = instructions(r.recipe) %}
+  {% if steps %}
+    <h2>Instructions</h2>
+    <ol class="steps">
+      {% set step_num = namespace(n=0) %}
+      {% for s in steps %}
+        {% if s.type == "heading" %}
+          </ol><h3>{{ s.text }}</h3><ol class="steps">
+        {% else %}
+          {% set step_num.n = step_num.n + 1 %}
+          <li>{{ s.text }}</li>
+        {% endif %}
+      {% endfor %}
+    </ol>
+  {% endif %}
+
+  <h2>Notes</h2>
+  <div id="comments">
+    {% set r_id = r.id %}
+    {% include "_comments.html" %}
+  </div>
+</article>
+{% endblock %}

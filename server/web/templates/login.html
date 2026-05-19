@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ePepper · Sign in</title>
+  <link rel="stylesheet" href="/app/static/app.css">
+</head>
+<body class="centered">
+  <main class="login">
+    <h1>🫑 ePepper</h1>
+    <p class="muted">Paste your <code>API_KEY</code> to unlock the library.</p>
+    {% if error %}<p class="error">Wrong key.</p>{% endif %}
+    <form action="/app/login" method="post">
+      <input type="password" name="api_key" autofocus required placeholder="API_KEY">
+      <button type="submit">Sign in</button>
+    </form>
+  </main>
+</body>
+</html>

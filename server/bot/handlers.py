@@ -23,6 +23,7 @@ from config import TELEGRAM_BOT_TOKEN, ALLOWED_USERS
 import backup
 import display_state
 import library
+from display_push import push_recipe_to_display
 from processing.images import process_photo
 from processing.jsonld import parse_recipe_jsonld
 from processing.recipes import process_recipe_url
@@ -736,18 +737,6 @@ async def on_document(update: Update, context) -> None:
     url = source_url or _synthetic_jsonld_url(recipe)
     log.info("JSON-LD recipe ingested: title=%r url=%s", recipe.get("title"), url)
     await _present_recipe(url, recipe, msg)
-
-
-def push_recipe_to_display(row: dict) -> None:
-    """Render the recipe in `row` with its current comments + rating and push to the panel."""
-    comments = [c["body"] for c in library.get_comments(row["id"])]
-    display_state.set_recipe(
-        row["recipe"],
-        comments=comments,
-        rating=row.get("rating"),
-        recipe_id=row["id"],
-        url=row["url"],
-    )
 
 
 async def on_save_button(update: Update, context) -> None:

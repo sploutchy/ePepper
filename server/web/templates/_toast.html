@@ -1,0 +1,9 @@
+<div class="toast" id="t-{{ range(1000, 9999) | random }}">
+  {{ message }}
+</div>
+<script>
+  (function() {
+    const el = document.currentScript.previousElementSibling;
+    setTimeout(() => el.remove(), 3000);
+  })();
+</script>

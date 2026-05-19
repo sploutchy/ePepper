@@ -12,6 +12,10 @@ from library.db import (
     search,
     pick_anniversary_recipe,
     count_saved,
+    list_recipes,
+    delete_recipe,
+    restore_recipe,
+    remove_comment,
 )
 
 __all__ = [
@@ -26,4 +30,8 @@ __all__ = [
     "search",
     "pick_anniversary_recipe",
     "count_saved",
+    "list_recipes",
+    "delete_recipe",
+    "restore_recipe",
+    "remove_comment",
 ]

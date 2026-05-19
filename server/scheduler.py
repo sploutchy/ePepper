@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 
 import display_state
 import library
-from bot.handlers import push_recipe_to_display
+from display_push import push_recipe_to_display
 
 log = logging.getLogger(__name__)
 

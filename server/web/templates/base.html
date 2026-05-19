@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}ePepper{% endblock %}</title>
+  <link rel="stylesheet" href="/app/static/app.css">
+  <script src="/app/static/htmx.min.js" defer></script>
+</head>
+<body>
+  {% block header %}
+    <header class="topbar">
+      <a href="/app/" class="brand">🫑 ePepper</a>
+      {% if saved_count is defined %}
+        <span class="muted">{{ saved_count }} saved</span>
+      {% endif %}
+      <form action="/app/logout" method="post" class="logout-form">
+        <button type="submit" class="link">log out</button>
+      </form>
+    </header>
+  {% endblock %}
+
+  <main>
+    {% block content %}{% endblock %}
+  </main>
+
+  <div id="toast"></div>
+</body>
+</html>

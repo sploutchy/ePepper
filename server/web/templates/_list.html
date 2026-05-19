@@ -1,0 +1,23 @@
+{% if not recipes %}
+  <p class="muted empty">{% if q %}No matches for “{{ q }}”.{% else %}Nothing saved yet.{% endif %}</p>
+{% else %}
+  <ul class="recipes">
+    {% for r in recipes %}
+      <li>
+        <a href="/app/recipes/{{ r.id }}" class="card">
+          <div class="card-title">{{ r.title }}</div>
+          <div class="card-meta">
+            <span class="stars">{{ stars(r.rating) }}</span>
+            <span class="muted">saved {{ fmt_saved(r.saved_at) }}</span>
+          </div>
+        </a>
+      </li>
+    {% endfor %}
+    {% if has_more %}
+      <li class="loader"
+          hx-get="/app/_search?q={{ q|urlencode }}&offset={{ next_offset }}"
+          hx-trigger="revealed"
+          hx-swap="outerHTML">Loading…</li>
+    {% endif %}
+  </ul>
+{% endif %}
