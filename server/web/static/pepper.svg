@@ -1,0 +1,5 @@
+<svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+  <path d="M11 3 Q11 6 10 7 L 14 7 Q13 6 13 3 Z" fill="#3d6e2a"/>
+  <path d="M6 9 C 6 7, 9 6, 12 8 C 15 6, 18 7, 18 9 L 18 16 C 18 19, 15.5 21, 12 21 C 8.5 21, 6 19, 6 16 Z" fill="#5fa341"/>
+  <path d="M8 10 C 8 9, 9.5 9, 10 9.5 C 10 11, 9 13, 8.5 14 Z" fill="#82c563" opacity="0.7"/>
+</svg>

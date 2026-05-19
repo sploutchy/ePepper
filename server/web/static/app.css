@@ -1,15 +1,28 @@
 :root {
-  --bg: #faf8f4;
-  --fg: #1f1d1a;
-  --muted: #7a766e;
-  --accent: #c9523a;
-  --accent-soft: #f4d5cd;
-  --border: #e2dccf;
-  --card-bg: #ffffff;
-  --danger: #b22b1c;
-  --star: #d6a017;
-  --radius: 10px;
-  --gap: 14px;
+  --bg:           #faf8f4;
+  --fg:           #2a2620;
+  --muted:        #807a70;
+  --border:       #e4dfd2;
+
+  --card-bg:      #ffffff;
+  --comment-bg:   #f3eedf;   /* warm cream, distinct from the white textarea */
+
+  --primary:      #3d7a4d;   /* forest green — push, sign-in, save */
+  --primary-soft: #d4e3cd;
+  --primary-fg:   #ffffff;
+
+  --danger:       #a85a3d;   /* terracotta — delete */
+  --danger-soft:  #ebd0c4;
+  --danger-fg:    #ffffff;
+
+  --neutral:      #3d3a35;   /* charcoal — default buttons */
+  --neutral-fg:   #faf8f4;
+
+  --star:         #d6a017;
+
+  --radius:       10px;
+  --gap:          14px;
+  --shadow:       0 1px 2px rgba(0,0,0,0.04);
 }
 
 * { box-sizing: border-box; }
@@ -34,12 +47,21 @@ main {
   padding: var(--gap);
 }
 
-a { color: var(--accent); text-decoration: none; }
+a { color: var(--primary); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
 .muted { color: var(--muted); font-size: 0.92em; }
 .error { color: var(--danger); }
 
+/* Brand icon — inline SVG so we don't depend on system emoji fonts. */
+.pepper {
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: -0.2em;
+  margin-right: 4px;
+}
+
+/* Top bar */
 .topbar {
   display: flex;
   align-items: center;
@@ -53,6 +75,8 @@ a:hover { text-decoration: underline; }
   font-weight: 700;
   font-size: 1.1em;
   color: var(--fg);
+  display: inline-flex;
+  align-items: center;
 }
 .logout-form { margin: 0; }
 .link {
@@ -73,14 +97,20 @@ a:hover { text-decoration: underline; }
   padding: 24px;
   width: min(360px, 90vw);
   text-align: center;
+  box-shadow: var(--shadow);
 }
-.login h1 { margin: 0 0 6px; }
+.login h1 {
+  margin: 0 0 6px;
+  display: inline-flex;
+  align-items: center;
+}
 .login form {
   margin-top: 16px;
   display: grid;
   gap: 10px;
 }
 
+/* Inputs */
 input[type=search], input[type=password], textarea {
   width: 100%;
   padding: 10px 12px;
@@ -91,28 +121,47 @@ input[type=search], input[type=password], textarea {
   color: var(--fg);
 }
 input:focus, textarea:focus {
-  outline: 2px solid var(--accent-soft);
+  outline: 2px solid var(--primary-soft);
   outline-offset: 1px;
+  border-color: var(--primary);
 }
 
+/* Buttons */
 button {
-  background: var(--fg);
-  color: var(--bg);
+  background: var(--neutral);
+  color: var(--neutral-fg);
   border: 0;
   border-radius: var(--radius);
-  padding: 10px 16px;
+  padding: 9px 16px;
   font: inherit;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.12s ease, filter 0.12s ease;
 }
-button.primary { background: var(--accent); }
-button.danger { background: var(--danger); }
 button:hover { filter: brightness(1.08); }
 
-/* Search */
-.search {
-  margin-bottom: var(--gap);
+button.primary {
+  background: var(--primary);
+  color: var(--primary-fg);
 }
+button.danger {
+  background: var(--danger);
+  color: var(--danger-fg);
+}
+button.link {
+  background: transparent;
+  color: var(--muted);
+  padding: 4px 6px;
+  font-weight: 500;
+}
+button.link:hover { filter: none; color: var(--fg); }
+button.link.danger {
+  color: var(--danger);
+}
+button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
+
+/* Search */
+.search { margin-bottom: var(--gap); }
 
 /* Recipe list */
 .recipes {
@@ -129,9 +178,11 @@ button:hover { filter: brightness(1.08); }
   border-radius: var(--radius);
   padding: 12px 14px;
   color: inherit;
+  box-shadow: var(--shadow);
+  transition: border-color 0.12s ease;
 }
 .card:hover {
-  border-color: var(--accent-soft);
+  border-color: var(--primary);
   text-decoration: none;
 }
 .card-title { font-weight: 600; }
@@ -156,8 +207,18 @@ button:hover { filter: brightness(1.08); }
   color: var(--muted);
 }
 .recipe h1 { margin: 4px 0 6px; line-height: 1.2; }
-.recipe h2 { margin: 24px 0 8px; font-size: 1.05em; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
-.recipe h3 { margin: 18px 0 6px; font-size: 1em; }
+.recipe h2 {
+  margin: 24px 0 8px;
+  font-size: 1.05em;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.recipe h3 {
+  margin: 18px 0 6px;
+  font-size: 1em;
+  color: var(--primary);
+}
 .ingredients, .steps { padding-left: 22px; }
 .ingredients li, .steps li { margin: 4px 0; }
 
@@ -186,7 +247,8 @@ button:hover { filter: brightness(1.08); }
 .star.on { color: var(--star); }
 .star:hover { color: var(--star); filter: none; }
 
-/* Comments */
+/* Comments — distinct warm-cream background so they don't blend with the
+   white textarea below. Left-border accent gives a quoted-note feel. */
 .comments {
   list-style: none;
   padding: 0;
@@ -195,9 +257,10 @@ button:hover { filter: brightness(1.08); }
   gap: 6px;
 }
 .comments li {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  background: var(--comment-bg);
+  border: 1px solid transparent;
+  border-left: 3px solid var(--primary);
+  border-radius: 6px;
   padding: 8px 12px;
   display: flex;
   gap: 8px;
@@ -208,10 +271,12 @@ button:hover { filter: brightness(1.08); }
 .add-comment {
   display: grid;
   gap: 8px;
+  margin-top: 6px;
 }
 
-/* Toast */
-#toast, .toast {
+/* Toast container is invisible; only actual .toast children show. */
+#toast { position: static; }
+.toast {
   position: fixed;
   left: 50%;
   transform: translateX(-50%);
@@ -227,8 +292,8 @@ button:hover { filter: brightness(1.08); }
   align-items: center;
 }
 #undo-toast button {
-  background: var(--accent);
-  color: var(--bg);
+  background: var(--primary);
+  color: var(--primary-fg);
   padding: 6px 10px;
   font-size: 0.9em;
 }

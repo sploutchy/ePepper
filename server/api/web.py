@@ -10,6 +10,7 @@ import os
 import secrets
 from datetime import datetime
 from pathlib import Path
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Form, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -64,23 +65,51 @@ def _ingredients(recipe: dict) -> list[str]:
     return [str(i) for i in ings if i]
 
 
-def _instructions(recipe: dict) -> list[dict]:
-    """Flatten schema.org HowToStep / HowToSection into a uniform list."""
+def _instruction_groups(recipe: dict) -> list[dict]:
+    """Group flat instructions into sections so the template can render
+    properly nested <h3> + <ol> blocks (Jinja autoescaping rules out
+    inlining tags in strings).
+
+    Input: parser flattens recipes to a list of {"type": "heading"|"step",
+    "text": ...}. Steps without a preceding heading land in an initial
+    headless group.
+    """
     items = recipe.get("instructions") or []
-    out: list[dict] = []
+    groups: list[dict] = [{"heading": None, "steps": []}]
     for item in items:
-        if isinstance(item, dict) and item.get("type") == "section":
-            out.append({"type": "heading", "text": item.get("name") or ""})
-            for sub in item.get("items") or []:
-                if isinstance(sub, dict):
-                    out.append({"type": "step", "text": sub.get("text") or ""})
-                else:
-                    out.append({"type": "step", "text": str(sub)})
-        elif isinstance(item, dict):
-            out.append({"type": "step", "text": item.get("text") or ""})
+        if isinstance(item, dict) and item.get("type") == "heading":
+            text = (item.get("text") or "").strip()
+            if not text:
+                continue
+            groups.append({"heading": text, "steps": []})
         else:
-            out.append({"type": "step", "text": str(item)})
-    return out
+            text = (
+                item.get("text") if isinstance(item, dict) else str(item)
+            ) or ""
+            text = text.strip()
+            if text:
+                groups[-1]["steps"].append(text)
+    # Drop the empty leading group if nothing landed in it.
+    if not groups[0]["steps"] and groups[0]["heading"] is None and len(groups) > 1:
+        groups = groups[1:]
+    return groups
+
+
+def _source_name(url: str | None) -> str | None:
+    """Humanize a recipe URL's host: 'fooby.ch' → 'Fooby'.
+
+    Returns None for missing or synthetic (jsonld:...) URLs so the template
+    can hide the source line entirely.
+    """
+    if not url or url.startswith("jsonld:"):
+        return None
+    host = urlparse(url).netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    parts = host.split(".")
+    if len(parts) >= 2:
+        return parts[-2].capitalize()
+    return host or None
 
 
 def _context_globals(request: Request) -> dict:
@@ -89,7 +118,8 @@ def _context_globals(request: Request) -> dict:
         "stars": _stars,
         "fmt_saved": _fmt_saved,
         "ingredients": _ingredients,
-        "instructions": _instructions,
+        "instruction_groups": _instruction_groups,
+        "source_name": _source_name,
         "saved_count": library.count_saved(),
     }
 

@@ -10,7 +10,10 @@
 <body>
   {% block header %}
     <header class="topbar">
-      <a href="/app/" class="brand">🫑 ePepper</a>
+      <a href="/app/" class="brand">
+        <img src="/app/static/pepper.svg" alt="" class="pepper">
+        ePepper
+      </a>
       {% if saved_count is defined %}
         <span class="muted">{{ saved_count }} saved</span>
       {% endif %}

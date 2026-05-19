@@ -7,8 +7,9 @@
 <article class="recipe">
   <h1>{{ r.title }}</h1>
   <p class="muted">
-    {% if r.url and not r.url.startswith("jsonld:") %}
-      <a href="{{ r.url }}" target="_blank" rel="noopener">source</a> ·
+    {% set src = source_name(r.url) %}
+    {% if src %}
+      from <a href="{{ r.url }}" target="_blank" rel="noopener">{{ src }}</a> ·
     {% endif %}
     saved {{ fmt_saved(r.saved_at) }}
   </p>
@@ -39,20 +40,17 @@
     </ul>
   {% endif %}
 
-  {% set steps = instructions(r.recipe) %}
-  {% if steps %}
+  {% set groups = instruction_groups(r.recipe) %}
+  {% if groups %}
     <h2>Instructions</h2>
-    <ol class="steps">
-      {% set step_num = namespace(n=0) %}
-      {% for s in steps %}
-        {% if s.type == "heading" %}
-          </ol><h3>{{ s.text }}</h3><ol class="steps">
-        {% else %}
-          {% set step_num.n = step_num.n + 1 %}
-          <li>{{ s.text }}</li>
-        {% endif %}
-      {% endfor %}
-    </ol>
+    {% for g in groups %}
+      {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
+      {% if g.steps %}
+        <ol class="steps">
+          {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
+        </ol>
+      {% endif %}
+    {% endfor %}
   {% endif %}
 
   <h2>Notes</h2>

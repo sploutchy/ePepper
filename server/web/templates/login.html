@@ -8,7 +8,10 @@
 </head>
 <body class="centered">
   <main class="login">
-    <h1>🫑 ePepper</h1>
+    <h1>
+      <img src="/app/static/pepper.svg" alt="" class="pepper">
+      ePepper
+    </h1>
     <p class="muted">Paste your <code>API_KEY</code> to unlock the library.</p>
     {% if error %}<p class="error">Wrong key.</p>{% endif %}
     <form action="/app/login" method="post">
