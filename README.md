@@ -55,15 +55,22 @@ docker compose -f ../docker-compose.yml up -d --build
 ```
 
 The container mounts `./data:/app/data` for the SQLite library; back it
-up periodically if your saved recipes matter.
+up periodically if your saved recipes matter (or use the built-in
+Telegram-chat backup — see [Backup to Telegram](#backup-to-telegram)
+below).
+
+Runtime: Python 3.12 in the bundled Dockerfile. The web UI sets a
+`Secure` session cookie, so the `/app/` routes effectively require
+HTTPS — terminate TLS at a reverse proxy (Caddy, nginx, Traefik, …)
+in front of the container.
 
 ### Environment Variables
 
 | Variable | Description |
 |---|---|
-| `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather) |
-| `ALLOWED_USERS` | Comma-separated Telegram user IDs. Empty = allow all (only safe for a private bot). |
-| `API_KEY` | Shared secret for ESP32 ↔ server auth. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
+| `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather). **Required** — server won't start without it. |
+| `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
+| `ALLOWED_USERS` | Comma-separated Telegram user IDs. Empty = anyone can talk to the bot (only safe for a truly private bot). **Note:** empty also means low-battery and stale-heartbeat alerts have no one to notify and are silently skipped. |
 | `API_PORT` | Server port (default: `8080`). |
 | `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a gzipped DB snapshot after every library mutation. Unset = backups disabled. |
 | `BACKUP_DEBOUNCE_S` | Coalesce mutation bursts into one snapshot upload (default: `60`). |
@@ -219,8 +226,18 @@ before they hit the unique index, so equivalent links dedupe cleanly.
 local midnight, then picks the most recently-saved recipe whose
 `saved_at` (local time) lands on today's MM-DD in any past year and
 pushes it to the panel. Manual pushes during the day win until the
-next tick. No fallback: if no past-year match exists, the display is
-left alone.
+next tick. DST-aware: the sleep uses timezone-aware arithmetic, so
+fall-back nights run ~25 h and spring-forward nights ~23 h without
+drifting away from local midnight.
+
+**Fallback when no anniversary exists:** the scheduler fetches Fooby's
+French "Inspirations de la semaine" block from
+[fooby.ch/fr.html](https://fooby.ch/fr.html) and picks one recipe URL
+rotated by ISO weekday, so each slot reappears on the same weekday
+every week. The picked recipe is rendered transiently (not added to
+the library); to keep it, paste its URL into the bot or the web UI's
+*Add* page. If the Fooby fetch or parse fails, the display is left
+unchanged.
 
 ### Web UI
 
@@ -229,9 +246,14 @@ browsing, searching, deleting, re-rating, commenting, and pushing
 recipes to the panel from a browser. Built with Jinja2 + HTMX (no
 build step, ~50 KB JS dependency bundled locally).
 
-- **Sign in** with the same `API_KEY` the device uses; a cookie keeps
-  you logged in for a year.
+- **Sign in** with the same `API_KEY` the device uses. The login form
+  sets an `epepper_auth` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`,
+  365-day max-age) — `Secure` means you must serve `/app/` over
+  HTTPS or the login won't stick.
 - **Browse / search** the saved library, with infinite scroll.
+- **Add a recipe** at `/app/add` — paste a URL, drop a photo (≤ 8 MB,
+  panel-only), or upload a schema.org Recipe JSON-LD file (≤ 256 KB,
+  parsed into the library).
 - **Recipe page** lets you change the rating (star buttons),
   add/remove notes, push to the panel, or delete.
 - **Delete is soft** — the row is hidden via a `deleted_at` timestamp
@@ -257,10 +279,25 @@ the bot added as admin (`Post Messages` permission). Files sent to
 normal Telegram chats persist indefinitely, so the channel doubles as
 unlimited versioned history at no storage cost.
 
+**Restore from a snapshot:** stop the container, drop the snapshot in
+place, and start again:
+
+```bash
+docker compose stop epepper
+gunzip -c recipes_<timestamp>.db.gz > ./data/recipes.db
+docker compose start epepper
+```
+
+URL canonicalization and the FTS index both run idempotent migrations
+on startup, so a snapshot from any prior version restores cleanly.
+
 ## API endpoints
 
-All endpoints require `Authorization: Bearer <API_KEY>` or
-`?key=<API_KEY>`.
+All endpoints require one of:
+- `Authorization: Bearer <API_KEY>` header (the firmware uses this)
+- `?key=<API_KEY>` query param (handy in the browser, but the key
+  ends up in proxy logs / browser history / Referer — use sparingly)
+- `epepper_auth` cookie set by the `/app/login` flow
 
 | Method | Path | Description |
 |---|---|---|
@@ -271,6 +308,7 @@ All endpoints require `Authorization: Bearer <API_KEY>` or
 | POST | `/page/prev` | Previous page (wraps around at page 1). |
 | POST | `/page/first` | Jump to page 1 (long-press of prev). |
 | POST | `/page/last` | Jump to last page (long-press of next). |
+| POST | `/display/clear` | Clear the panel to the idle frame. Fired by the device's PREV + REFRESH chord, and by the bot's `/clear` command. |
 | POST | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` are optional. May trigger a low-battery Telegram alert. |
 | GET | `/device/status` | Last-known wake-cycle report (JSON). |
 
