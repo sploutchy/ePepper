@@ -1,0 +1,52 @@
+name: Deploy
+
+# Push main → SSH to the VPS, pull, rebuild + restart, healthcheck.
+# Path filter keeps doc-only / firmware-only commits from triggering a rebuild.
+# Use the "Run workflow" button in the Actions tab for manual deploys.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'server/**'
+      - 'docker-compose.yml'
+  workflow_dispatch:
+
+# Never let two deploys overlap on the same host.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: SSH to VPS and rebuild container
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: epepper.fyx.ch
+          username: debian
+          key: ${{ secrets.VPS_SSH_KEY }}
+          script_stop: true  # bail on the first failing command
+          script: |
+            set -euo pipefail
+            cd /home/debian/epepper
+            git fetch origin main
+            git checkout main
+            git pull --ff-only origin main
+            sudo docker compose up -d --build
+
+      - name: Healthcheck
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 5 https://epepper.fyx.ch/ \
+                 | grep -q '"status":"ok"'; then
+              echo "Healthy after attempt $i"
+              exit 0
+            fi
+            echo "Attempt $i: not ready, waiting 5s…"
+            sleep 5
+          done
+          echo "Healthcheck failed after 12 attempts (~60s)"
+          exit 1
