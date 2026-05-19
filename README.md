@@ -11,12 +11,12 @@ saved library or let yesterday's anniversary recipe surface itself.
    │  Telegram bot   │  URL / photo / .json  │  Python server           │
    │                 │ ────────────────────► │  (FastAPI +              │
    │                 │  /search  /status     │   python-telegram-bot)   │
-   │                 │ ◄──── low-batt alert  │                          │
+   │                 │ ◄── alerts + backup   │                          │
    └─────────────────┘                       │  ▸ display state         │
                                              │  ▸ recipe library        │
                                              │    (SQLite + FTS)        │
-                                             │  ▸ midnight anniversary  │
-                                             │    scheduler             │
+                                             │  ▸ anniversary scheduler │
+                                             │  ▸ heartbeat scheduler   │
                                              └─────────────┬────────────┘
                                                            │ GET  /version
                                                            │ GET  /image (BMP)
@@ -65,6 +65,8 @@ up periodically if your saved recipes matter.
 | `ALLOWED_USERS` | Comma-separated Telegram user IDs. Empty = allow all (only safe for a private bot). |
 | `API_KEY` | Shared secret for ESP32 ↔ server auth. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
 | `API_PORT` | Server port (default: `8080`). |
+| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a gzipped DB snapshot after every library mutation. Unset = backups disabled. |
+| `BACKUP_DEBOUNCE_S` | Coalesce mutation bursts into one snapshot upload (default: `60`). |
 | `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
 
 ## Firmware Setup
@@ -153,12 +155,13 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 | `/recipe <url>` | Force-parse a URL even if the on_text fallback misreads it. |
 | `/comment <text>` | Add a note to the currently-displayed *saved* recipe. |
 | `/rate <1-5>` | Change the rating of the currently-displayed saved recipe. |
-| `/search <query>` | Full-text search over title + ingredients + notes. Tap a result to push it. |
+| `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push it. |
 | `/clear` | Clear the panel (renders a blank white frame). |
-| `/status` | Last-known battery / temp / humidity + last-seen age. |
+| `/status` | Sectioned device + library snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count. |
 | `/prompt_screenshot` | Copy-paste LLM prompt for converting a photo → JSON-LD. |
 | `/prompt_url [URL]` | Copy-paste LLM prompt for fetching a webpage → JSON-LD; the URL is baked in if you provide one. |
-| `/start`, `/help` | Show the command list. |
+| `/start` | Brief welcome + how to send recipes. |
+| `/help` | Full command reference (this list, in-bot). |
 
 ### LLM prompt workflow
 
@@ -168,16 +171,30 @@ photo), the workflow is:
 1. Run `/prompt_screenshot` or `/prompt_url https://…` on the bot.
 2. Copy the prompt and hand it to an LLM (Claude, ChatGPT, etc.) with
    your screenshot or instructing it to fetch the URL.
-3. Save the LLM's JSON output as `recipe.json` and upload that file to
-   the bot. `parse_recipe_jsonld` ingests it into the same internal
-   shape `process_recipe_url` produces; the library dedupes by URL.
+3. Upload the `recipe.json` to the bot — either the file the assistant
+   offers as a download (the prompt asks for it explicitly), or save
+   its code block to a file yourself. `parse_recipe_jsonld` ingests it
+   into the same internal shape `process_recipe_url` produces; the
+   library dedupes by URL.
 
-### Battery monitoring
+### Device health alerts
 
 The ESP32 reports its battery, RSSI, and SHT40 readings on every wake
-(button or daily timer). When the battery crosses below 3500 mV the
-bot pushes a one-shot warning to every `ALLOWED_USERS` recipient.
-Hysteresis re-arms only above 3600 mV, so noisy readings don't spam.
+(button or daily timer). Two one-shot alerts go out to every
+`ALLOWED_USERS` recipient:
+
+- **Low battery** — fires the first POST that comes in below 3500 mV;
+  hysteresis re-arms only above 3600 mV so noisy readings don't spam.
+  Driven reactively by the `/device/status` POST.
+- **Stale heartbeat** — fires when the device hasn't checked in for
+  ≥25 h (24 h daily-timer cadence + an hour of buffer for clock drift /
+  Wi-Fi reconnect). Driven proactively by an hourly scheduler in
+  `server/scheduler.py`, because the absence of POSTs is the signal.
+  Re-armed by the next successful POST.
+
+Both conditions are also surfaced inline in `/status` — the device
+section shows `🪫` instead of `🔋` for low battery, and appends
+`⚠️ overdue` to the "Last seen" line when the heartbeat is stale.
 
 ## Recipe library
 
@@ -204,6 +221,21 @@ local midnight, then picks the most recently-saved recipe whose
 pushes it to the panel. Manual pushes during the day win until the
 next tick. No fallback: if no past-year match exists, the display is
 left alone.
+
+### Backup to Telegram
+
+If `BACKUP_CHAT_ID` is set, every library mutation (`/save`, `/rate`,
+`/comment`) triggers an online SQLite snapshot (via
+`sqlite3.Connection.backup()`, safe under concurrent writes), gzips it
+in memory, and posts the bytes as a `recipes_<utc-timestamp>.db.gz`
+document to that chat. Bursts within `BACKUP_DEBOUNCE_S` (default 60 s)
+coalesce into a single upload so a `/save` + `/rate` + `/comment` flow
+produces one snapshot rather than three.
+
+Recommended setup: a private Telegram channel "ePepper backups" with
+the bot added as admin (`Post Messages` permission). Files sent to
+normal Telegram chats persist indefinitely, so the channel doubles as
+unlimited versioned history at no storage cost.
 
 ## API endpoints
 
