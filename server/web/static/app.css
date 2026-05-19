@@ -669,12 +669,13 @@ input[type=file]::file-selector-button {
   gap: 4px;
 }
 
-/* Panel preview — full-bleed escape from main's max-width so the 800×480
-   e-ink frame fills the viewport (it's the page's hero). The negative
-   margin trick computes the gap between this element's left edge and the
-   viewport edge. The BMP stays on a light card even in dark mode so the
-   1-bit render reads correctly (the panel itself is white-on-black-ink). */
-.panel-preview {
+/* Display preview — full-bleed escape from main's max-width so the
+   800×480 e-ink frame fills the viewport (it's the page's hero). The
+   negative margin trick computes the gap between this element's left
+   edge and the viewport edge. The BMP stays on a light card even in
+   dark mode so the 1-bit render reads correctly (the display itself
+   is white-on-black-ink). */
+.display-preview {
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   width: 100vw;
@@ -688,7 +689,7 @@ input[type=file]::file-selector-button {
   display: flex;
   justify-content: center;
 }
-.panel-preview img {
+.display-preview img {
   width: 100%;
   max-width: 100%;
   height: auto;
