@@ -84,45 +84,14 @@ def _draw_button_glyphs(draw, page: int, total_pages: int) -> None:
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
 
 
-def _draw_glyph_scaled(draw, x: int, y: int, glyph: tuple[str, ...], scale: int) -> None:
-    """Paint a '#'-encoded bitmap at (x, y), each cell expanded to scale × scale px."""
-    for row, line in enumerate(glyph):
-        for col, ch in enumerate(line):
-            if ch == "#":
-                draw.rectangle(
-                    [x + col * scale, y + row * scale,
-                     x + (col + 1) * scale - 1, y + (row + 1) * scale - 1],
-                    fill=0,
-                )
-
-
 def render_idle() -> Image.Image:
-    """Cleared-display panel: a large refresh icon + hint, plus the usual
-    small button glyph so the user can spatially map the icon to the
-    physical refresh key.
+    """Cleared-display panel: blank, with only the small button-position
+    glyph above the physical refresh key so it's clear which button wakes
+    content back up.
     """
     img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
     draw = ImageDraw.Draw(img)
-
-    # Small glyph above the physical refresh button.
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
-
-    # Big centered refresh icon (8× scale → 80×80 px).
-    scale = 8
-    big_w = _GLYPH_W * scale
-    icon_x = (DISPLAY_WIDTH - big_w) // 2
-    icon_y = (DISPLAY_HEIGHT - big_w) // 2 - 30
-    _draw_glyph_scaled(draw, icon_x, icon_y, _GLYPH_REFRESH, scale)
-
-    # Hint below the big icon.
-    font = ImageFont.truetype(FONT_REGULAR, 28)
-    text = "Press refresh to start"
-    bbox = draw.textbbox((0, 0), text, font=font)
-    tw = bbox[2] - bbox[0]
-    draw.text(
-        ((DISPLAY_WIDTH - tw) // 2, icon_y + big_w + 24),
-        text, font=font, fill=0,
-    )
     return img
 
 
