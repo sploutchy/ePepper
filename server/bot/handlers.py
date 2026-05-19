@@ -293,6 +293,46 @@ async def cmd_clear(update: Update, context) -> None:
     await update.message.reply_text("🧹 Display cleared.")
 
 
+# LiPo discharge curve, mV → %, piecewise linear between breakpoints.
+# Picked so 3.70 V ≈ 50 % and the curve flattens above 4.0 V like real cells.
+_BATTERY_CURVE = [(3300, 0), (3500, 25), (3700, 50), (3850, 75), (4200, 100)]
+
+
+def _battery_pct(mv: int) -> int:
+    if mv >= _BATTERY_CURVE[-1][0]:
+        return 100
+    if mv <= _BATTERY_CURVE[0][0]:
+        return 0
+    for (mv1, p1), (mv2, p2) in zip(_BATTERY_CURVE, _BATTERY_CURVE[1:]):
+        if mv1 <= mv <= mv2:
+            return int(p1 + (p2 - p1) * (mv - mv1) / (mv2 - mv1))
+    return 0
+
+
+def _humanize_ago(ts: int) -> str:
+    delta = max(0, int(time.time()) - ts)
+    abs_time = datetime.fromtimestamp(ts).strftime("%H:%M")
+    if delta < 60:
+        return f"just now ({abs_time})"
+    if delta < 3600:
+        return f"{delta // 60} min ago ({abs_time})"
+    if delta < 86400:
+        return f"{delta // 3600} h ago ({abs_time})"
+    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+
+
+def _rssi_quality(rssi: int) -> str:
+    if rssi > -50:
+        return "excellent"
+    if rssi > -60:
+        return "good"
+    if rssi > -70:
+        return "fair"
+    if rssi > -80:
+        return "weak"
+    return "poor"
+
+
 async def cmd_status(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
@@ -300,32 +340,44 @@ async def cmd_status(update: Update, context) -> None:
     state = display_state.get()
     device = display_state.get_device_status()
 
-    # Device-reported fields are "as of last wake" (button press or the
-    # daily timer, whichever fired more recently). The last_seen line
-    # makes the freshness explicit.
-    lines = [
-        "📊 <b>ePepper Status</b>",
-        "",
-        f"Display: {html.escape(state['type'])}",
-    ]
+    sections = ["🫑 <b>ePepper Status</b>"]
+
+    # Display section
+    display_lines = ["<b>📺 Display</b>"]
     if state["title"]:
-        lines.append(f"Recipe: {html.escape(state['title'])}")
-    if state["total_pages"] > 1:
-        lines.append(f"Page: {state['page']}/{state['total_pages']}")
-
-    if device["last_seen"]:
-        ago = int(time.time() - device["last_seen"])
-        lines.append(f"Last seen: {ago}s ago")
-        if device["battery_mv"]:
-            lines.append(f"Battery: {device['battery_mv'] / 1000:.2f} V")
-        if device.get("temperature_c") is not None:
-            lines.append(f"Temp: {device['temperature_c']:.1f} °C")
-        if device.get("humidity_pct") is not None:
-            lines.append(f"Humidity: {device['humidity_pct']:.0f} %")
+        line = html.escape(state["title"])
+        if state["total_pages"] > 1:
+            line += f" — page {state['page']}/{state['total_pages']}"
+        display_lines.append(line)
     else:
-        lines.append("Last seen: never")
+        display_lines.append(html.escape(state["type"]))
+    sections.append("\n".join(display_lines))
 
-    await update.message.reply_text("\n".join(lines), parse_mode="HTML")
+    # Library section
+    sections.append(f"<b>📚 Library</b>\n{library.count_saved()} saved recipes")
+
+    # Device section — header carries freshness so the rows can be tight.
+    # Fields are "as of last wake" (button press or daily timer).
+    if device["last_seen"]:
+        device_lines = [f"<b>📡 Device</b> — {_humanize_ago(device['last_seen'])}"]
+        if device["battery_mv"]:
+            pct = _battery_pct(device["battery_mv"])
+            icon = "🔋" if pct >= 30 else "🪫"
+            device_lines.append(
+                f"{icon} Battery: {pct}% ({device['battery_mv'] / 1000:.2f} V)"
+            )
+        if device.get("rssi"):
+            rssi = device["rssi"]
+            device_lines.append(f"📶 Signal: {rssi} dBm ({_rssi_quality(rssi)})")
+        if device.get("temperature_c") is not None:
+            device_lines.append(f"🌡 Temp: {device['temperature_c']:.1f} °C")
+        if device.get("humidity_pct") is not None:
+            device_lines.append(f"💧 Humidity: {device['humidity_pct']:.0f} %")
+        sections.append("\n".join(device_lines))
+    else:
+        sections.append("<b>📡 Device</b> — never seen")
+
+    await update.message.reply_text("\n\n".join(sections), parse_mode="HTML")
 
 
 async def cmd_comment(update: Update, context) -> None:

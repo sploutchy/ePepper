@@ -281,6 +281,14 @@ def add_comment(recipe_id: int, body: str) -> int:
     return comment_id
 
 
+def count_saved() -> int:
+    """Number of recipes in the library that have been explicitly saved."""
+    with _connect() as conn:
+        return conn.execute(
+            "SELECT COUNT(*) FROM recipes WHERE saved_at IS NOT NULL"
+        ).fetchone()[0]
+
+
 def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     """Return the most recently-saved recipe whose `saved_at` (local time) lands on
     the calendar day `today_mmdd` (format 'MM-DD') in a year strictly before

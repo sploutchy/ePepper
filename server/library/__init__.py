@@ -11,6 +11,7 @@ from library.db import (
     normalize_url,
     search,
     pick_anniversary_recipe,
+    count_saved,
 )
 
 __all__ = [
@@ -24,4 +25,5 @@ __all__ = [
     "normalize_url",
     "search",
     "pick_anniversary_recipe",
+    "count_saved",
 ]
