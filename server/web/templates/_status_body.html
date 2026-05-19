@@ -11,6 +11,16 @@
   </div>
 {% endif %}
 
+{# Live preview of the panel — full-bleed hero so the 800×480 frame reads
+   at a useful size. /image is cookie-authed for the browser; the hash
+   query param doubles as a cache buster so the 30 s refresh always pulls
+   the current frame. #}
+{% if display.hash %}
+  <div class="panel-preview">
+    <img src="/image?v={{ display.hash }}" alt="Current panel">
+  </div>
+{% endif %}
+
 <section class="status-card">
   <h2>📺 Panel</h2>
   {% if display.type == "recipe" %}
@@ -26,15 +36,6 @@
     <p class="status-line muted">Idle.</p>
   {% endif %}
   <p class="muted">Updated {{ fmt_updated }}</p>
-
-  {# Live preview of the panel. /image is cookie-authed for the browser; the
-     hash query param doubles as a cache buster so the 30s refresh always
-     pulls the current frame. #}
-  {% if display.hash %}
-    <div class="panel-preview">
-      <img src="/image?v={{ display.hash }}" alt="Current panel">
-    </div>
-  {% endif %}
 
   {% if display.type != "idle" %}
     <form class="status-actions"

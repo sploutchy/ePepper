@@ -532,18 +532,27 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-size: 0.85em;
 }
 
-/* Panel preview — keep the BMP on a white card even in dark mode so the
+/* Panel preview — full-bleed escape from main's max-width so the 800×480
+   e-ink frame fills the viewport (it's the page's hero). The negative
+   margin trick computes the gap between this element's left edge and the
+   viewport edge. The BMP stays on a light card even in dark mode so the
    1-bit render reads correctly (the panel itself is white-on-black-ink). */
 .panel-preview {
-  margin: 10px 0;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+  width: 100vw;
+  max-width: 100vw;
+  margin-top: 10px;
+  margin-bottom: 14px;
   background: var(--preview-bg);
-  padding: 6px;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  padding: 6px 0;
   display: flex;
   justify-content: center;
 }
 .panel-preview img {
+  width: 100%;
   max-width: 100%;
   height: auto;
   display: block;
