@@ -62,7 +62,8 @@ async def notify_low_battery(battery_mv: int) -> None:
         log.warning("notify_low_battery: no ALLOWED_USERS configured, skipping alert")
         return
     text = (
-        f"⚠️ ePepper battery is low: {battery_mv / 1000:.2f} V — charge soon."
+        f"🪫 ePepper battery is low: {_battery_pct(battery_mv)}% "
+        f"({battery_mv / 1000:.2f} V) — charge soon."
     )
     for uid in ALLOWED_USERS:
         try:
@@ -292,7 +293,7 @@ async def cmd_recipe(update: Update, context) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: `/recipe <url>`", parse_mode="Markdown")
+        await update.message.reply_text("Usage: <code>/recipe &lt;url&gt;</code>", parse_mode="HTML")
         return
 
     url = context.args[0]
@@ -405,16 +406,16 @@ async def cmd_comment(update: Update, context) -> None:
 
     if state["type"] != "recipe" or recipe_id is None:
         await update.message.reply_text(
-            "Save the recipe first (tap *💾 Save* under the push message), "
+            "Save the recipe first (tap 💾 <b>Save</b> under the push message), "
             "then add notes with /comment.",
-            parse_mode="Markdown",
+            parse_mode="HTML",
         )
         return
 
     text = " ".join(context.args).strip() if context.args else ""
     if not text:
         await update.message.reply_text(
-            "Usage: `/comment <your note>`", parse_mode="Markdown"
+            "Usage: <code>/comment &lt;your note&gt;</code>", parse_mode="HTML"
         )
         return
 
@@ -428,10 +429,7 @@ async def cmd_comment(update: Update, context) -> None:
         return
 
     push_recipe_to_display(row)
-    total = display_state.get()["total_pages"]
-    await update.message.reply_text(
-        f"📝 Note added — recipe now spans {total} page{'s' if total != 1 else ''}."
-    )
+    await update.message.reply_text("📝 Note added.")
 
 
 async def cmd_rate(update: Update, context) -> None:
@@ -454,7 +452,7 @@ async def cmd_rate(update: Update, context) -> None:
     except ValueError:
         rating = 0
     if not 1 <= rating <= 5:
-        await update.message.reply_text("Usage: `/rate <1-5>`", parse_mode="Markdown")
+        await update.message.reply_text("Usage: <code>/rate &lt;1-5&gt;</code>", parse_mode="HTML")
         return
 
     library.mark_saved(recipe_id, rating)
@@ -477,12 +475,14 @@ async def cmd_search(update: Update, context) -> None:
 
     query = " ".join(context.args).strip() if context.args else ""
     if not query:
-        await update.message.reply_text("Usage: `/search <query>`", parse_mode="Markdown")
+        await update.message.reply_text("Usage: <code>/search &lt;query&gt;</code>", parse_mode="HTML")
         return
 
     results = library.search(query, limit=5)
     if not results:
-        await update.message.reply_text(f"No saved recipes match '{query}'.")
+        await update.message.reply_text(
+            f"No saved recipes match '{query}'. Try a shorter or different term."
+        )
         return
 
     # Render results as a readable numbered list above the keyboard, then
@@ -602,28 +602,37 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
     existing = library.find_by_url(url)
     if existing is not None:
         push_recipe_to_display(existing)
-        rating_badge = ("⭐" * existing["rating"]) if existing["rating"] else "saved"
         total = display_state.get()["total_pages"]
-        reply = f"✅ *{existing['title']}* ({rating_badge})\nSent to display!"
-        if total > 1:
-            reply += f"\n📄 {total} pages"
-        await msg.edit_text(reply, parse_mode="Markdown")
+        await msg.edit_text(
+            _format_push_reply(existing["title"], existing["rating"], total),
+            parse_mode="HTML",
+        )
         return
 
     display_state.set_recipe(recipe, comments=[], recipe_id=None, url=url)
     total_pages = display_state.get()["total_pages"]
 
     token = _stash_pending(url, recipe)
-    reply = f"✅ *{recipe['title']}*\nSent to display!"
-    if total_pages > 1:
-        reply += f"\n📄 {total_pages} pages"
     await msg.edit_text(
-        reply,
-        parse_mode="Markdown",
+        _format_push_reply(recipe["title"], rating=None, total_pages=total_pages),
+        parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("💾 Save", callback_data=f"save:{token}")
         ]]),
     )
+
+
+def _format_push_reply(title: str, rating: int | None, total_pages: int) -> str:
+    """Two-line confirmation for a pushed recipe (HTML, matches /status style)."""
+    meta_parts = []
+    if rating:
+        meta_parts.append("⭐" * rating)
+    if total_pages > 1:
+        meta_parts.append(f"📄 {total_pages} pages")
+    body = f"✅ <b>{html.escape(title)}</b>"
+    if meta_parts:
+        body += "\n" + " · ".join(meta_parts)
+    return body
 
 
 def _synthetic_jsonld_url(recipe: dict) -> str:
@@ -660,8 +669,8 @@ async def on_document(update: Update, context) -> None:
 
     if doc.file_size and doc.file_size > _JSON_MAX_BYTES:
         await msg.edit_text(
-            f"❌ JSON file too large ({doc.file_size} bytes; limit "
-            f"{_JSON_MAX_BYTES}).",
+            f"❌ JSON file too large ({doc.file_size // 1024} KB; limit "
+            f"{_JSON_MAX_BYTES // 1024} KB)."
         )
         return
 
@@ -682,9 +691,12 @@ async def on_document(update: Update, context) -> None:
     if parsed is None:
         await msg.edit_text(
             "❌ No schema.org Recipe found.\n"
-            "Expecting an object with `@type: \"Recipe\"`, plus at least "
-            "`name` and one of `recipeIngredient` / `recipeInstructions`.",
-            parse_mode="Markdown",
+            "Expecting an object with <code>@type: \"Recipe\"</code>, plus "
+            "at least <code>name</code> and one of "
+            "<code>recipeIngredient</code> / <code>recipeInstructions</code>.\n"
+            "Re-run /prompt_url or /prompt_screenshot — that prompt produces "
+            "the right shape.",
+            parse_mode="HTML",
         )
         return
 
