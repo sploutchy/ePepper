@@ -356,14 +356,12 @@ async def add_page(request: Request):
 
 @router.post("/add/url", response_class=HTMLResponse)
 async def add_url(request: Request, url: str = Form(...)):
-    """URL paste — adds the recipe to the library and pushes it.
+    """URL paste — adds the recipe to the library, without pushing to the panel.
 
-    Dedupes via find_by_url so a re-pasted URL just re-pushes the cached
-    parse instead of re-fetching the site. New URLs are upserted and
-    immediately saved (saved_at = now) so they appear in the library
-    right away; the rating widget on the detail page upgrades them from
-    unrated to N stars. The bot's flow keeps its explicit Save+rating
-    button step (different UX surface, different mental model).
+    Dedupes via find_by_url so a re-pasted URL just lands the user back on
+    its detail page. The explicit Display button on the detail page is
+    what actually sends a recipe to the panel — so `last_displayed_at`
+    only moves when the user really wants the recipe shown.
     """
     _require_auth(request)
     url = url.strip()
@@ -372,7 +370,6 @@ async def add_url(request: Request, url: str = Form(...)):
 
     existing = library.find_by_url(url)
     if existing is not None:
-        push_recipe_to_display(existing)
         log.info("Web add (existing URL): id=%d url=%s", existing["id"], url)
         return _hx_redirect(f"/app/recipes/{existing['id']}")
 
@@ -381,7 +378,6 @@ async def add_url(request: Request, url: str = Form(...)):
         return _add_error(request, "Couldn't parse a recipe from that URL.")
     recipe_id = library.upsert_recipe(url, recipe)
     library.save_unrated(recipe_id)
-    push_recipe_to_display(library.get_recipe(recipe_id))
     log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
     return _hx_redirect(f"/app/recipes/{recipe_id}")
 
@@ -428,6 +424,11 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
 
 
 async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
+    """JSON-LD upload — adds the recipe to the library without pushing.
+
+    Same shape as `add_url`: Add is library-only, Display is panel. See
+    that handler's docstring for the rationale.
+    """
     raw = await _read_capped(file, _JSON_MAX_BYTES)
     if raw is None:
         return _add_error(
@@ -445,12 +446,10 @@ async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     url = resolve_url(source_url, recipe)
     existing = library.find_by_url(url)
     if existing is not None:
-        push_recipe_to_display(existing)
         log.info("Web add (existing JSON-LD): id=%d", existing["id"])
         return _hx_redirect(f"/app/recipes/{existing['id']}")
     recipe_id = library.upsert_recipe(url, recipe)
     library.save_unrated(recipe_id)
-    push_recipe_to_display(library.get_recipe(recipe_id))
     log.info("Web add (JSON-LD): id=%d title=%r", recipe_id, recipe.get("title"))
     return _hx_redirect(f"/app/recipes/{recipe_id}")
 
