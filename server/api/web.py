@@ -356,13 +356,14 @@ async def add_page(request: Request):
 
 @router.post("/add/url", response_class=HTMLResponse)
 async def add_url(request: Request, url: str = Form(...)):
-    """URL paste — mirrors the bot's on_text URL flow.
+    """URL paste — adds the recipe to the library and pushes it.
 
     Dedupes via find_by_url so a re-pasted URL just re-pushes the cached
-    parse instead of re-fetching the site. New URLs are upserted before the
-    detail-page redirect so the rating widget has a real recipe_id to bind
-    to; the row sits with saved_at=NULL and is invisible in the library
-    list until the user picks a rating.
+    parse instead of re-fetching the site. New URLs are upserted and
+    immediately saved (saved_at = now) so they appear in the library
+    right away; the rating widget on the detail page upgrades them from
+    unrated to N stars. The bot's flow keeps its explicit Save+rating
+    button step (different UX surface, different mental model).
     """
     _require_auth(request)
     url = url.strip()
@@ -379,6 +380,7 @@ async def add_url(request: Request, url: str = Form(...)):
     if recipe is None:
         return _add_error(request, "Couldn't parse a recipe from that URL.")
     recipe_id = library.upsert_recipe(url, recipe)
+    library.save_unrated(recipe_id)
     push_recipe_to_display(library.get_recipe(recipe_id))
     log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
     return _hx_redirect(f"/app/recipes/{recipe_id}")
@@ -447,6 +449,7 @@ async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
         log.info("Web add (existing JSON-LD): id=%d", existing["id"])
         return _hx_redirect(f"/app/recipes/{existing['id']}")
     recipe_id = library.upsert_recipe(url, recipe)
+    library.save_unrated(recipe_id)
     push_recipe_to_display(library.get_recipe(recipe_id))
     log.info("Web add (JSON-LD): id=%d title=%r", recipe_id, recipe.get("title"))
     return _hx_redirect(f"/app/recipes/{recipe_id}")

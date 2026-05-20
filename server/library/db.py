@@ -354,6 +354,30 @@ def find_by_url(url: str) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
+def save_unrated(recipe_id: int) -> bool:
+    """Mark a recipe as saved without setting a rating. Returns True if a
+    row was updated.
+
+    Idempotent — `saved_at` is set via COALESCE, so re-calling on an
+    already-saved row doesn't move the original save date. Also clears
+    `deleted_at` so re-adding a previously-deleted URL restores the row.
+
+    Used by the web "Add" flow (URL paste / JSON-LD upload) so a fresh
+    paste lands in the library immediately and the user can rate it
+    later. The bot's Save → rating button flow keeps its explicit
+    save-via-`mark_saved` step.
+    """
+    now = int(time.time())
+    with _connect() as conn:
+        cur = conn.execute(
+            "UPDATE recipes "
+            "SET saved_at = COALESCE(saved_at, ?), deleted_at = NULL "
+            "WHERE id = ?",
+            (now, recipe_id),
+        )
+    return cur.rowcount > 0
+
+
 def mark_saved(recipe_id: int, rating: int) -> bool:
     """Set rating + saved_at on a recipe. Returns True if the row was updated.
 
