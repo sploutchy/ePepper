@@ -1,19 +1,23 @@
 """Background schedulers.
 
-`anniversary_loop` at every local midnight selects a saved recipe whose
-calendar day matches today (from any past year) and pushes it to the
-display. When no anniversary candidate exists, it falls back to one of
-Fooby's "Inspiration de la semaine" recipes (French), rotated by ISO
-weekday so the seven slots cycle deterministically through the week.
+`anniversary_loop` runs at every local midnight. It first pushes a
+recipe to the display — a saved recipe whose calendar day matches
+today (any past year), falling back to one of Fooby's "Inspiration
+de la semaine" recipes (French), rotated by ISO weekday. It then
+triggers a daily DB backup (only if the library was written to since
+the previous upload), folding both midnight jobs into one task.
 
 Manual Telegram pushes during the day are preserved — they win until
 the next midnight tick.
+
+`heartbeat_loop` wakes hourly to alert on the device falling silent.
 """
 
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
+import backup
 import display_state
 import library
 from config import TZ
@@ -109,15 +113,15 @@ async def _push_fooby_inspiration_for(today: datetime) -> None:
 
 async def anniversary_loop() -> None:
     """Run forever: sleep until next local midnight, then push an anniversary
-    or, failing that, a Fooby weekly-inspiration recipe."""
+    (or Fooby fallback) and run the daily backup if the DB has changed."""
     while True:
         now = datetime.now(TZ)
         sleep_s = _seconds_until_next_local_midnight(now)
-        log.info("Anniversary scheduler sleeping %.0fs until next local midnight", sleep_s)
+        log.info("Midnight scheduler sleeping %.0fs until next local midnight", sleep_s)
         try:
             await asyncio.sleep(sleep_s)
         except asyncio.CancelledError:
-            log.info("Anniversary scheduler cancelled")
+            log.info("Midnight scheduler cancelled")
             raise
         try:
             today = datetime.now(TZ)
@@ -128,7 +132,13 @@ async def anniversary_loop() -> None:
                 )
                 await _push_fooby_inspiration_for(today)
         except Exception:
-            log.exception("Midnight push failed; will retry tomorrow")
+            log.exception("Midnight push failed; backup will still run")
+        # Daily DB snapshot — runs unconditionally each tick; backup itself
+        # skips the upload when nothing has changed.
+        try:
+            await backup.flush_if_dirty()
+        except Exception:
+            log.exception("Daily backup failed; will retry tomorrow")
 
 
 _HEARTBEAT_CHECK_INTERVAL_S = 3600  # hourly is fine — alert fires once per stale episode
