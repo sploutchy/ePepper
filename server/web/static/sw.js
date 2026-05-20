@@ -1,10 +1,16 @@
 // Minimal service worker — pre-caches the page shell (CSS, htmx, pepper
 // icon, manifest) so the installed PWA loads fast and works briefly
 // offline. HTML and API responses are NEVER cached: the library is
-// dynamic (search, sort, ratings, comments) and we'd rather show a
-// network error than stale data.
+// dynamic (search, sort, comments) and we'd rather show a network error
+// than stale data.
 
-const CACHE = 'epepper-shell-v1';
+// Bump CACHE to force-invalidate the old cache on next activation —
+// the activate handler below deletes any cache whose name doesn't
+// match this constant. Bumping is only required when the cache key
+// strategy changes; routine CSS / JS edits now ride the
+// stale-while-revalidate path below and roll out on the second load
+// after deploy.
+const CACHE = 'epepper-shell-v2';
 const SHELL = [
   '/app/static/app.css',
   '/app/static/htmx.min.js',
@@ -36,7 +42,24 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET') return;
   if (url.origin !== self.location.origin) return;
   if (!url.pathname.startsWith('/app/static/')) return;
+
+  // Stale-while-revalidate: serve cache instantly (fast) AND refetch
+  // in the background so the next load picks up the new file. Prior
+  // strategy was cache-first with no refresh, which froze users on
+  // whatever shell was current at install time and required a CACHE
+  // version bump for every CSS tweak to ship.
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    caches.open(CACHE).then(async (cache) => {
+      const cached = await cache.match(event.request);
+      const refresh = fetch(event.request)
+        .then((response) => {
+          if (response && response.ok) {
+            cache.put(event.request, response.clone());
+          }
+          return response;
+        })
+        .catch(() => null);
+      return cached || refresh;
+    })
   );
 });
