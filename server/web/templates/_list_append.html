@@ -7,7 +7,10 @@
         <span class="stars">{{ stars(r.rating) }}</span>
         <span class="muted">saved {{ fmt_saved(r.saved_at) }}</span>
         {% if r.id == current_recipe_id %}
-          <span class="card-badge">{{ icon("monitor", 14) }} on display</span>
+          <span class="card-badge" title="Currently on display">
+            {{ icon("monitor", 14) }}
+            <span class="iconbtn-label">on display</span>
+          </span>
         {% endif %}
       </div>
     </a>
