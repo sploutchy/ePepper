@@ -378,7 +378,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   gap: 4px;
   align-items: center;
 }
-.rating-label { color: var(--muted); margin-right: 6px; }
 .star {
   background: transparent;
   color: var(--border);
@@ -591,11 +590,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-size: 0.95em;
 }
 
-.add-grid {
-  display: grid;
-  gap: 12px;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-}
 .add-tile {
   /* Defensive: explicit display + var() fallbacks so Firefox renders the
      tile even if a CSS variable lookup or grid layout misbehaves. The

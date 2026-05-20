@@ -84,12 +84,3 @@ def source_name(url: str | None) -> str | None:
     if len(pieces) >= 2:
         return pieces[-2].capitalize()
     return host or None
-
-
-def is_external_url(url: str | None) -> bool:
-    """True iff `url` is an http(s) URL the browser can actually open.
-
-    Used by templates to decide whether to wrap the source name in a
-    link — cookbook:// and jsonld:* URLs are internal markers.
-    """
-    return bool(url) and (url.startswith("http://") or url.startswith("https://"))
