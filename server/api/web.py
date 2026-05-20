@@ -7,7 +7,6 @@ Routes live under /app/ to keep the existing device-facing endpoints clean.
 
 import json
 import logging
-import os
 import secrets
 import time
 from datetime import datetime
@@ -21,6 +20,7 @@ from fastapi.templating import Jinja2Templates
 import backup
 import display_state
 import library
+from config import API_KEY
 from display_push import push_recipe_to_display
 from processing.images import process_photo
 from processing.jsonld import parse_recipe_jsonld, synthetic_url
@@ -35,7 +35,28 @@ log = logging.getLogger(__name__)
 _JSON_MAX_BYTES = 256 * 1024
 _PHOTO_MAX_BYTES = 8 * 1024 * 1024
 
-API_KEY = os.environ.get("API_KEY", "")
+# Stream-read chunk size for the size-capped upload reader.
+_UPLOAD_CHUNK_BYTES = 64 * 1024
+
+
+async def _read_capped(file: UploadFile, cap: int) -> bytes | None:
+    """Read an UploadFile into memory, bailing out if it exceeds `cap` bytes.
+
+    Returns the bytes on success, or None when the upload is over the cap.
+    Streamed so a 10 GB file doesn't OOM the process before the size check.
+    """
+    chunks: list[bytes] = []
+    total = 0
+    while True:
+        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
+        if not chunk:
+            break
+        total += len(chunk)
+        if total > cap:
+            return None
+        chunks.append(chunk)
+    return b"".join(chunks)
+
 COOKIE_NAME = "epepper_auth"
 COOKIE_MAX_AGE = 365 * 24 * 3600  # one year
 
@@ -44,8 +65,6 @@ templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 
 
 def _is_authed(request: Request) -> bool:
-    if not API_KEY:
-        return True
     cookie = request.cookies.get(COOKIE_NAME, "")
     return bool(cookie) and secrets.compare_digest(cookie, API_KEY)
 
@@ -154,7 +173,7 @@ async def login_page(request: Request, error: str | None = None):
 
 @router.post("/login")
 async def login_submit(request: Request, api_key: str = Form(...)):
-    if not API_KEY or not secrets.compare_digest(api_key, API_KEY):
+    if not secrets.compare_digest(api_key, API_KEY):
         return RedirectResponse("/app/login?error=1", status_code=303)
     resp = RedirectResponse("/app/", status_code=303)
     resp.set_cookie(
@@ -309,11 +328,11 @@ async def add_file(request: Request, file: UploadFile = File(...)):
 
 
 async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
-    raw = await file.read()
-    if len(raw) > _PHOTO_MAX_BYTES:
+    raw = await _read_capped(file, _PHOTO_MAX_BYTES)
+    if raw is None:
         return _add_error(
             request,
-            f"Image too large (max `{_PHOTO_MAX_BYTES // (1024 * 1024)} MB`).",
+            f"Image too large (limit {_PHOTO_MAX_BYTES // 1024} KB).",
         )
     try:
         img = process_photo(raw)
@@ -326,11 +345,11 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
 
 
 async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
-    raw = await file.read()
-    if len(raw) > _JSON_MAX_BYTES:
+    raw = await _read_capped(file, _JSON_MAX_BYTES)
+    if raw is None:
         return _add_error(
             request,
-            f"`.json` too large (max `{_JSON_MAX_BYTES // 1024} KB`).",
+            f"JSON file too large (limit {_JSON_MAX_BYTES // 1024} KB).",
         )
     try:
         data = json.loads(raw.decode("utf-8"))

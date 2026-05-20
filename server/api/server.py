@@ -2,7 +2,6 @@
 
 import asyncio
 import logging
-import os
 import secrets
 from pathlib import Path
 
@@ -12,11 +11,10 @@ from fastapi.staticfiles import StaticFiles
 
 import display_state
 from api.web import router as web_router
+from config import API_KEY
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="ePepper", version="0.1.0")
-
-API_KEY = os.environ.get("API_KEY", "")
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/app/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
@@ -25,8 +23,6 @@ app.include_router(web_router)
 
 def _check_api_key(request: Request) -> bool:
     """Validate API key from Authorization header, query param, or session cookie."""
-    if not API_KEY:
-        return True  # no key configured = open (dev mode)
     # Check Bearer token
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], API_KEY):

@@ -8,6 +8,15 @@ import aiohttp
 
 log = logging.getLogger(__name__)
 
+# Cap on HTML body size we'll pull from a recipe URL. Big enough for any
+# real recipe page (a generous one is ~1 MB with images inlined as data:),
+# small enough that a hostile / runaway endpoint can't OOM the server.
+_MAX_HTML_BYTES = 5 * 1024 * 1024
+
+
+class _ResponseTooLarge(Exception):
+    """Raised when the HTTP body exceeds the configured cap."""
+
 
 async def process_recipe_url(url: str) -> dict | None:
     """Fetch a URL and extract structured recipe data.
@@ -55,7 +64,7 @@ async def process_recipe_url(url: str) -> dict | None:
 
 
 async def _fetch_html(url: str) -> str:
-    """Fetch HTML content from a URL."""
+    """Fetch HTML content from a URL, capped at `_MAX_HTML_BYTES`."""
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ePepper/1.0; recipe display)"
     }
@@ -63,7 +72,22 @@ async def _fetch_html(url: str) -> str:
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             log.info("HTTP %d from %s", resp.status, url)
             resp.raise_for_status()
-            return await resp.text()
+            # Fast path: trust an honest Content-Length header when present.
+            declared = resp.content_length
+            if declared is not None and declared > _MAX_HTML_BYTES:
+                raise _ResponseTooLarge(
+                    f"{url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
+                )
+            # Stream so a server that lies about (or omits) Content-Length
+            # still can't OOM us.
+            buf = bytearray()
+            async for chunk in resp.content.iter_chunked(64 * 1024):
+                buf.extend(chunk)
+                if len(buf) > _MAX_HTML_BYTES:
+                    raise _ResponseTooLarge(
+                        f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
+                    )
+            return buf.decode(resp.charset or "utf-8", errors="replace")
 
 
 def _safe_call(fn):
@@ -163,14 +187,13 @@ def _detect_language(url: str, instructions: str, html: str) -> str:
     lang_match = re.search(r'<html[^>]*\slang=["\']([a-z]{2})', html[:2000], re.IGNORECASE)
     if lang_match:
         lang = lang_match.group(1).lower()
-        if lang in ("de", "fr", "it", "en", "es", "nl", "pt"):
+        if lang in ("de", "fr", "it", "en"):
             return lang
 
     # 2. Check URL for language hints
     url_lower = url.lower()
     for pattern, lang in [
-        (r"/de/", "de"), (r"/fr/", "fr"), (r"/it/", "it"),
-        (r"/en/", "en"), (r"/es/", "es"), (r"/nl/", "nl"),
+        (r"/de/", "de"), (r"/fr/", "fr"), (r"/it/", "it"), (r"/en/", "en"),
         (r"\.de/", "de"), (r"\.fr/", "fr"), (r"\.it/", "it"),
         (r"\.ch/de", "de"), (r"\.ch/fr", "fr"), (r"\.ch/it", "it"),
     ]:

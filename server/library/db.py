@@ -191,7 +191,10 @@ def upsert_recipe(url: str, recipe: dict) -> int:
     """Insert or update a recipe by URL. Returns the recipe id.
 
     Always overwrites title / parsed_json / lang so a re-fetched recipe
-    picks up corrected parsing. Leaves rating / saved_at untouched.
+    picks up corrected parsing. Leaves rating / saved_at untouched. Clears
+    `deleted_at` on conflict — re-pushing a URL is an explicit user signal
+    that they want the recipe back (caller would also crash on the get_recipe
+    that follows, since that filter excludes soft-deleted rows).
     """
     now = int(time.time())
     payload = json.dumps(recipe, ensure_ascii=False)
@@ -208,7 +211,8 @@ def upsert_recipe(url: str, recipe: dict) -> int:
             ON CONFLICT(url) DO UPDATE SET
                 title       = excluded.title,
                 parsed_json = excluded.parsed_json,
-                lang        = excluded.lang
+                lang        = excluded.lang,
+                deleted_at  = NULL
             RETURNING id
             """,
             (canonical, title, payload, lang, now),
