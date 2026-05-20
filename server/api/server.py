@@ -10,6 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 import display_state
+import library
 from api.web import router as web_router
 from config import API_KEY
 
@@ -22,16 +23,17 @@ app.include_router(web_router)
 
 
 def _check_api_key(request: Request) -> bool:
-    """Validate API key from Authorization header, query param, or session cookie."""
-    # Check Bearer token
+    """Validate auth from Authorization header or a /app/ session cookie.
+
+    The query-param fallback was dropped — uvicorn's access log records the
+    full path+query, so passing the key in `?key=` leaked it on every request.
+    """
+    # Device path: Bearer token == raw API key.
     auth = request.headers.get("Authorization", "")
     if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], API_KEY):
         return True
-    # Check query param fallback (for browser testing)
-    if secrets.compare_digest(request.query_params.get("key", ""), API_KEY):
-        return True
-    # Session cookie set by the /app/ login flow.
-    if secrets.compare_digest(request.cookies.get("epepper_auth", ""), API_KEY):
+    # Browser path: random session token minted by /app/login.
+    if library.validate_session(request.cookies.get("epepper_auth", "")):
         return True
     return False
 

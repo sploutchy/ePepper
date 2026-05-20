@@ -592,8 +592,12 @@ async def cmd_comment(update: Update, context) -> None:
         await update.message.reply_text("⚠️ Couldn't reload the recipe.")
         return
 
-    push_recipe_to_display(row)
-    await update.message.reply_text("📝 Note added.")
+    if push_recipe_to_display(row):
+        await update.message.reply_text("📝 Note added.")
+    else:
+        await update.message.reply_text(
+            "📝 Note added — but the display refresh failed (see logs)."
+        )
 
 
 async def cmd_rate(update: Update, context) -> None:
@@ -632,8 +636,12 @@ async def cmd_rate(update: Update, context) -> None:
         await update.message.reply_text("⚠️ Couldn't reload the recipe.")
         return
 
-    push_recipe_to_display(row)
-    await update.message.reply_text(f"{'⭐' * rating} Rating updated.")
+    if push_recipe_to_display(row):
+        await update.message.reply_text(f"{'⭐' * rating} Rating updated.")
+    else:
+        await update.message.reply_text(
+            f"{'⭐' * rating} Rating updated — but the display refresh failed."
+        )
 
 
 async def cmd_search(update: Update, context) -> None:
@@ -687,7 +695,11 @@ async def cmd_surprise(update: Update, context) -> None:
             "Your library is empty — save a recipe first."
         )
         return
-    push_recipe_to_display(row)
+    if not push_recipe_to_display(row):
+        await update.message.reply_text(
+            "⚠️ Couldn't render that recipe to the display (see logs)."
+        )
+        return
     total = display_state.get()["total_pages"]
     log.info("Surprise push: id=%d title=%r", row["id"], row["title"])
     await update.message.reply_text(
@@ -714,7 +726,9 @@ async def on_push_button(update: Update, context) -> None:
         await query.answer("Recipe missing — was it deleted?", show_alert=True)
         return
 
-    push_recipe_to_display(row)
+    if not push_recipe_to_display(row):
+        await query.answer("Couldn't render that recipe.", show_alert=True)
+        return
     stars = ("⭐" * row["rating"]) if row["rating"] else ""
     await query.answer(f"Pushed: {row['title']} {stars}".strip())
 
@@ -791,7 +805,9 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
     """
     existing = library.find_by_url(url)
     if existing is not None:
-        push_recipe_to_display(existing)
+        if not push_recipe_to_display(existing):
+            await msg.edit_text("❌ Couldn't render that recipe to the display.")
+            return
         total = display_state.get()["total_pages"]
         await msg.edit_text(
             _format_push_reply(existing["title"], existing["rating"], total),
@@ -799,7 +815,12 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
         )
         return
 
-    display_state.set_recipe(recipe, comments=[], recipe_id=None, url=url)
+    try:
+        display_state.set_recipe(recipe, comments=[], recipe_id=None, url=url)
+    except Exception:
+        log.exception("Failed to render recipe %r to display", recipe.get("title"))
+        await msg.edit_text("❌ Couldn't render that recipe to the display.")
+        return
     total_pages = display_state.get()["total_pages"]
 
     token = _stash_pending(url, recipe)

@@ -82,11 +82,10 @@ def set_recipe(
         "rating": rating,
         "url": url,
     }
-    try:
-        new_pages = _render_pages(inputs)
-    except Exception:
-        log.exception("set_recipe: render failed; leaving display unchanged")
-        return
+    # Render first (may raise — exception propagates to the caller). The
+    # commit below only runs on success, so a failure leaves the previous
+    # display content intact.
+    new_pages = _render_pages(inputs)
     if not new_pages:
         return
 

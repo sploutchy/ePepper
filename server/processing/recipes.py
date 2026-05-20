@@ -6,6 +6,8 @@ import re
 from recipe_scrapers import scrape_html
 import aiohttp
 
+from processing.safe_url import assert_url_safe
+
 log = logging.getLogger(__name__)
 
 # Cap on HTML body size we'll pull from a recipe URL. Big enough for any
@@ -78,6 +80,7 @@ async def process_recipe_url(url: str) -> dict | None:
 
 async def _fetch_html(url: str) -> str:
     """Fetch HTML content from a URL, capped at `_MAX_HTML_BYTES`."""
+    await assert_url_safe(url)
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ePepper/1.0; recipe display)"
     }

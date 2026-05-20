@@ -17,6 +17,9 @@ from library.db import (
     random_recipe,
     delete_recipe,
     remove_comment,
+    create_session,
+    validate_session,
+    delete_session,
 )
 
 __all__ = [
@@ -36,4 +39,7 @@ __all__ = [
     "random_recipe",
     "delete_recipe",
     "remove_comment",
+    "create_session",
+    "validate_session",
+    "delete_session",
 ]
