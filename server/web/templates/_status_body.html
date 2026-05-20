@@ -40,7 +40,12 @@
   {% else %}
     <p class="status-line muted">Idle.</p>
   {% endif %}
-  <p class="muted">Updated {{ fmt_updated }}</p>
+  {# Show the "Updated" timestamp whenever the display state has actually
+     been touched. Suppress only at first start (updated_at == 0), when
+     the em-dash placeholder would render as bare "Updated —". #}
+  {% if display.updated_at %}
+    <p class="muted">Updated {{ fmt_updated }}</p>
+  {% endif %}
 
   {% if display.type != "idle" %}
     <form class="status-actions"
@@ -102,8 +107,6 @@
       </p>
     {% endif %}
   {% else %}
-    <p class="status-line muted">
-      Never seen. Press a button on the device, or wait for the daily wake.
-    </p>
+    <p class="status-line muted">Never seen.</p>
   {% endif %}
 </section>
