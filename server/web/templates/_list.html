@@ -7,25 +7,15 @@
       <li>
         <a href="/app/recipes/{{ r.id }}" class="card">
           <div class="card-title">
-            {# Mobile-only source hint next to the title: favicon for
-               http(s) sources, book icon for cookbook:// URLs, nothing
-               for jsonld:* synthetic IDs. Hidden on desktop where the
-               "from X" text in card-meta carries the info. #}
-            {% set fav = favicon_url(r.url) %}
-            {% if fav %}
-              <img class="card-favicon mobile-only" src="{{ fav }}" alt="" loading="lazy" referrerpolicy="no-referrer">
-            {% elif r.url and r.url.startswith("cookbook:") and source_name(r.url) %}
-              <span class="card-favicon mobile-only">{{ icon("book", 14) }}</span>
+            <span>{{ r.title }}</span>
+            {% set src = source_name(r.url) %}
+            {% if src %}
+              <span class="card-source iconbtn-label">from {{ src }}</span>
             {% endif %}
-            {{ r.title }}
           </div>
           <div class="card-meta">
             <span class="stars">{{ stars(r.rating) }}</span>
             <span class="muted">saved {{ fmt_saved(r.saved_at) }}</span>
-            {% set src = source_name(r.url) %}
-            {% if src %}
-              <span class="muted iconbtn-label">from {{ src }}</span>
-            {% endif %}
             {% if r.id == current_recipe_id %}
               <span class="card-badge" title="Currently on display">
                 {{ icon("monitor", 14) }}

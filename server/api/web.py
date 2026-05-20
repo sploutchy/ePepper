@@ -232,21 +232,6 @@ def _sanitize_source(source: str | None) -> str | None:
     return s or None
 
 
-def _favicon_url(url: str | None) -> str | None:
-    """Public favicon-service URL for an external http(s) URL, else None.
-
-    Returns Google's S2 favicon endpoint — cached + scaled by Google's
-    CDN. cookbook:// and jsonld: URLs return None so the template can
-    fall back to a book icon (or nothing).
-    """
-    if not url or not (url.startswith("http://") or url.startswith("https://")):
-        return None
-    host = (url.split("/", 3)[2] if "//" in url else "").lower()
-    if not host:
-        return None
-    return f"https://www.google.com/s2/favicons?domain={host}&sz=32"
-
-
 def _list_context(
     request: Request,
     q: str,
@@ -280,7 +265,6 @@ def _list_context(
         "fmt_saved": _fmt_saved,
         # Helpers for the per-row source chip on the list cards.
         "source_name": source_name,
-        "favicon_url": _favicon_url,
         # Marks the recipe currently rendered on the e-ink display so the
         # list can flag it. None if the display isn't showing a saved recipe.
         "current_recipe_id": display_state.get().get("recipe_id"),

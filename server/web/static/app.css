@@ -292,26 +292,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-weight: 600;
 }
 
-/* Tiny source icon next to the card title (mobile only, where the
-   "from X" text in the meta row is hidden). 16 px favicon for external
-   URLs; a stroked book SVG for cookbook:// recipes. Sizing applies
-   when visible; .mobile-only takes display off above 640 px. */
-.card-favicon {
-  width: 16px;
-  height: 16px;
-  margin-right: 6px;
-  vertical-align: -3px;
-  color: var(--muted);
-  flex-shrink: 0;
-}
-.card-favicon img { width: 16px; height: 16px; display: block; }
-
-/* Inverse of .iconbtn-label: visible only below 640 px. */
-.mobile-only { display: inline-flex; align-items: center; }
-@media (min-width: 640px) {
-  .mobile-only { display: none; }
-}
-
 /* Recipe list */
 .recipes {
   list-style: none;
@@ -334,7 +314,20 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   border-color: var(--primary);
   text-decoration: none;
 }
-.card-title { font-weight: 600; }
+.card-title {
+  font-weight: 600;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+/* "from X" chip next to the recipe title. Uses .iconbtn-label for the
+   ≥ 640 px-only show — on phones the row collapses to just the title. */
+.card-source {
+  font-size: 0.9em;
+  font-weight: 400;
+  color: var(--muted);
+}
 .card-meta {
   display: flex;
   gap: 10px;
