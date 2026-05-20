@@ -692,6 +692,7 @@ input[type=file]::file-selector-button {
 /* Display card's title row uses plain inline flow so the page indicator
    stays beside the title until the line genuinely overflows. */
 .display-title { margin: 4px 0; }
+.display-source { margin: 0 0 4px; font-size: 0.9em; }
 .status-icon {
   display: inline-flex;
   align-items: center;

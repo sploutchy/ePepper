@@ -109,6 +109,7 @@ def render_recipe(
     page: int = 1,
     comments: list[str] | None = None,
     rating: int | None = None,
+    source: str | None = None,
 ) -> tuple[Image.Image, int]:
     """Render a recipe dict to a 1-bit image for e-ink display.
 
@@ -119,6 +120,8 @@ def render_recipe(
             "Notes" page is appended after the recipe pages.
         rating: optional 1-5 star rating from the library; rendered next to
             time / servings on the meta line.
+        source: optional humanized source name ("Fooby", "BBC", …) drawn
+            in the meta font just below the title.
 
     Returns:
         (image, total_pages)
@@ -139,10 +142,12 @@ def render_recipe(
     lang = recipe.get("lang", "en")
     strings = _L10N.get(lang, _L10N["en"])
 
-    # --- Compute header height (title + meta + divider) without drawing ---
+    # --- Compute header height (title + source + meta + divider) ---
     title = recipe.get("title", "Untitled Recipe")
     title_lines = textwrap.wrap(title, width=40)
     header_h = MARGIN + len(title_lines) * (font_title.size + 4) + 4
+    if source:
+        header_h += font_meta.size + 4
 
     meta_parts = []
     if recipe.get("total_time"):
@@ -317,11 +322,14 @@ def render_recipe(
                 draw.text((MARGIN, y), wline, font=font_body, fill=0)
                 y += line_h
     else:
-        # --- Recipe page: draw title, meta+page, divider, then two columns ---
+        # --- Recipe page: draw title, source, meta+page, divider, two columns ---
         y = MARGIN
         for line in title_lines:
             draw.text((MARGIN, y), line, font=font_title, fill=0)
             y += font_title.size + 4
+        if source:
+            draw.text((MARGIN, y), f"from {source}", font=font_meta, fill=0)
+            y += font_meta.size + 4
         y += 4
 
         meta_text = "  ·  ".join(meta_parts)

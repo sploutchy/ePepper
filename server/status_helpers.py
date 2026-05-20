@@ -6,6 +6,7 @@ RSSI).
 
 import time
 from datetime import datetime
+from urllib.parse import urlparse
 
 
 # LiPo discharge curve, mV → %, piecewise linear between breakpoints.
@@ -46,3 +47,21 @@ def rssi_quality(rssi: int) -> str:
     if rssi > -80:
         return "weak"
     return "poor"
+
+
+def source_name(url: str | None) -> str | None:
+    """Humanize a recipe URL's host: 'fooby.ch' → 'Fooby'.
+
+    Returns None for missing URLs, jsonld:* synthetic surrogates, or the
+    cookbook:// marker used for image-sourced recipes — the caller can
+    hide the source line entirely in those cases.
+    """
+    if not url or url.startswith("jsonld:") or url.startswith("cookbook:"):
+        return None
+    host = urlparse(url).netloc.lower()
+    if host.startswith("www."):
+        host = host[4:]
+    parts = host.split(".")
+    if len(parts) >= 2:
+        return parts[-2].capitalize()
+    return host or None

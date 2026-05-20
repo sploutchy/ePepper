@@ -18,11 +18,15 @@ from processing.recipes import _detect_language
 log = logging.getLogger(__name__)
 
 
-def synthetic_url(recipe: dict) -> str:
+def synthetic_url(recipe: dict, prefix: str = "jsonld:") -> str:
     """Stable surrogate URL for JSON-LD recipes without their own canonical URL.
 
     Hashing title + ingredients + instructions means re-uploading the same
     LLM output collides on the library's UNIQUE(url) and dedupes cleanly.
+
+    `prefix` lets callers distinguish provenance (e.g. "cookbook://" for
+    photo-sourced recipes — the prompt asks the LLM to put that literal
+    in the `url` field, and resolve_url() rewrites it to a hashed form).
     """
     payload = json.dumps(
         {
@@ -34,7 +38,23 @@ def synthetic_url(recipe: dict) -> str:
         sort_keys=True,
     )
     digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:12]
-    return f"jsonld:{digest}"
+    return f"{prefix}{digest}"
+
+
+def resolve_url(source_url: str, recipe: dict) -> str:
+    """Pick the canonical library URL for a JSON-LD ingest.
+
+    - Real http(s) URL → use as-is.
+    - "cookbook://" marker (from the screenshot prompt) → cookbook://<hash>
+      so each photo-sourced recipe dedupes by content instead of all
+      colliding on the bare marker.
+    - Anything else (empty, jsonld:..., …) → jsonld:<hash>.
+    """
+    if source_url and source_url.startswith("cookbook:"):
+        return synthetic_url(recipe, prefix="cookbook://")
+    if source_url:
+        return source_url
+    return synthetic_url(recipe)
 
 
 def parse_recipe_jsonld(data: Any) -> tuple[dict, str] | None:

@@ -24,9 +24,9 @@ import display_state
 import library
 from display_push import push_recipe_to_display
 from processing.images import process_photo
-from processing.jsonld import parse_recipe_jsonld, synthetic_url
+from processing.jsonld import parse_recipe_jsonld, resolve_url
 from processing.recipes import process_recipe_url
-from status_helpers import battery_pct, humanize_ago, rssi_quality
+from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 # Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
 # a few KB; anything larger is almost certainly not a recipe.
@@ -237,10 +237,18 @@ _PROMPT_RULES = """Rules:
 
 
 def _build_screenshot_prompt() -> str:
+    # Inject "url": "cookbook://" as a fixed marker so the resulting JSON
+    # is recognisable as photo-sourced. The server rewrites it to a
+    # content-hashed cookbook:// URL on ingest, so cookbook recipes get
+    # unique library URLs while staying identifiable by scheme.
+    template = _PROMPT_JSON_TEMPLATE.replace(
+        '"@type": "Recipe",',
+        '"@type": "Recipe",\n  "url": "cookbook://",',
+    )
     return (
         "I'm attaching a photo of a recipe. Convert it to schema.org Recipe "
         "JSON-LD with this exact shape:\n\n"
-        f"{_PROMPT_JSON_TEMPLATE}\n\n"
+        f"{template}\n\n"
         f"{_PROMPT_RULES}"
     )
 
@@ -351,6 +359,12 @@ async def cmd_status(update: Update, context) -> None:
         if state["total_pages"] > 1:
             line += f" — page {state['page']}/{state['total_pages']}"
         display_lines.append(line)
+        src = source_name(state.get("url"))
+        if src:
+            display_lines.append(
+                f"<i>from <a href=\"{html.escape(state['url'])}\">"
+                f"{html.escape(src)}</a></i>"
+            )
     else:
         display_lines.append(html.escape(state["type"]))
     sections.append("\n".join(display_lines))
@@ -685,7 +699,7 @@ async def on_document(update: Update, context) -> None:
         return
 
     recipe, source_url = parsed
-    url = source_url or synthetic_url(recipe)
+    url = resolve_url(source_url, recipe)
     log.info("JSON-LD recipe ingested: title=%r url=%s", recipe.get("title"), url)
     await _present_recipe(url, recipe, msg)
 

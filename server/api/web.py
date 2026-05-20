@@ -11,8 +11,6 @@ import secrets
 import time
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import urlparse
-
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -23,9 +21,9 @@ import library
 from config import API_KEY
 from display_push import push_recipe_to_display
 from processing.images import process_photo
-from processing.jsonld import parse_recipe_jsonld, synthetic_url
+from processing.jsonld import parse_recipe_jsonld, resolve_url
 from processing.recipes import process_recipe_url
-from status_helpers import battery_pct, humanize_ago, rssi_quality
+from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
@@ -127,23 +125,6 @@ def _instruction_groups(recipe: dict) -> list[dict]:
     return groups
 
 
-def _source_name(url: str | None) -> str | None:
-    """Humanize a recipe URL's host: 'fooby.ch' → 'Fooby'.
-
-    Returns None for missing or synthetic (jsonld:...) URLs so the template
-    can hide the source line entirely.
-    """
-    if not url or url.startswith("jsonld:"):
-        return None
-    host = urlparse(url).netloc.lower()
-    if host.startswith("www."):
-        host = host[4:]
-    parts = host.split(".")
-    if len(parts) >= 2:
-        return parts[-2].capitalize()
-    return host or None
-
-
 def _context_globals(request: Request) -> dict:
     return {
         "request": request,
@@ -151,7 +132,7 @@ def _context_globals(request: Request) -> dict:
         "fmt_saved": _fmt_saved,
         "ingredients": _ingredients,
         "instruction_groups": _instruction_groups,
-        "source_name": _source_name,
+        "source_name": source_name,
         "saved_count": library.count_saved(),
     }
 
@@ -428,7 +409,7 @@ async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if parsed is None:
         return _add_error(request, "No schema.org `Recipe` in that `.json`.")
     recipe, source_url = parsed
-    url = source_url or synthetic_url(recipe)
+    url = resolve_url(source_url, recipe)
     existing = library.find_by_url(url)
     if existing is not None:
         push_recipe_to_display(existing)
@@ -479,6 +460,10 @@ def _status_ctx(request: Request) -> dict:
         ),
         "backup_enabled": backup.is_enabled(),
         "last_backup_at": backup.get_last_backup_at(),
+        # _context_globals only fires on the full /status page render; the
+        # 30 s HTMX partial calls this directly, so include source_name
+        # here too so the Display card can keep rendering "from X".
+        "source_name": source_name,
     }
 
 
