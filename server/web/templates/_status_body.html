@@ -41,7 +41,12 @@
     {% set src = source_name(display.url) %}
     {% if src %}
       <p class="muted display-source">
-        from <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
+        from
+        {% if display.url.startswith("http") %}
+          <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
+        {% else %}
+          {{ src }}
+        {% endif %}
       </p>
     {% endif %}
   {% elif display.type == "photo" %}

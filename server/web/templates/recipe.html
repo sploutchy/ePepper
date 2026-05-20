@@ -10,7 +10,13 @@
   <p class="muted">
     {% set src = source_name(r.url) %}
     {% if src %}
-      from <a href="{{ r.url }}" target="_blank" rel="noopener">{{ src }}</a> ·
+      from
+      {% if r.url.startswith("http") -%}
+        <a href="{{ r.url }}" target="_blank" rel="noopener">{{ src }}</a>
+      {%- else -%}
+        {{ src }}
+      {%- endif %}
+      ·
     {% endif %}
     saved {{ fmt_saved(r.saved_at) }}
   </p>

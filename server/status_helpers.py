@@ -50,18 +50,46 @@ def rssi_quality(rssi: int) -> str:
 
 
 def source_name(url: str | None) -> str | None:
-    """Humanize a recipe URL's host: 'fooby.ch' → 'Fooby'.
+    """Humanize a recipe's source from its URL.
 
-    Returns None for missing URLs, jsonld:* synthetic surrogates, or the
-    cookbook:// marker used for image-sourced recipes — the caller can
-    hide the source line entirely in those cases.
+    - http(s) URL → second-to-last domain part, capitalized
+      ('fooby.ch' → 'Fooby').
+    - cookbook://name/slug → the netloc, capitalized
+      ('cookbook://nos-recettes-preferees/crepes' →
+      'Nos-recettes-preferees'). The caller decides whether to render
+      it as a link (cookbook:// isn't browseable; the netloc is just
+      a human label).
+    - cookbook://<hash> (no netloc-as-name, used for photo-sourced
+      recipes that the LLM tagged with a bare 'cookbook://' marker)
+      → None.
+    - jsonld:<hash> → None.
+    - Missing / empty → None.
     """
-    if not url or url.startswith("jsonld:") or url.startswith("cookbook:"):
+    if not url:
         return None
-    host = urlparse(url).netloc.lower()
+    if url.startswith("jsonld:"):
+        return None
+    parts = urlparse(url)
+    if parts.scheme == "cookbook":
+        # A named cookbook URL has both a netloc and a path. The bare
+        # "cookbook://" marker and the hashed "cookbook://<hash>" form
+        # have no path → no human-meaningful name.
+        if parts.netloc and parts.path and parts.path != "/":
+            return parts.netloc.capitalize()
+        return None
+    host = parts.netloc.lower()
     if host.startswith("www."):
         host = host[4:]
-    parts = host.split(".")
-    if len(parts) >= 2:
-        return parts[-2].capitalize()
+    pieces = host.split(".")
+    if len(pieces) >= 2:
+        return pieces[-2].capitalize()
     return host or None
+
+
+def is_external_url(url: str | None) -> bool:
+    """True iff `url` is an http(s) URL the browser can actually open.
+
+    Used by templates to decide whether to wrap the source name in a
+    link — cookbook:// and jsonld:* URLs are internal markers.
+    """
+    return bool(url) and (url.startswith("http://") or url.startswith("https://"))

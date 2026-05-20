@@ -236,20 +236,35 @@ _PROMPT_RULES = """Rules:
   attached directly without copy-pasting."""
 
 
+# Screenshot-specific URL rule: ask the LLM to identify the cookbook /
+# magazine / source from the photo and put it into the cookbook:// URL,
+# with a kebab-case title slug for the path. The server preserves these
+# URLs as-is; on the panel + status surfaces the netloc renders as
+# "from Nos-recettes-preferees" (no link — cookbook:// isn't browseable).
+# If the LLM truly can't guess the source, it falls back to "cookbook"
+# as a generic netloc.
+_PROMPT_SCREENSHOT_URL_RULE = (
+    "- `url`: build it as `cookbook://<source-slug>/<title-slug>`. The "
+    "source-slug is a kebab-case identifier you infer from any visible "
+    "branding in the photo — the cookbook title on the cover/spine, a "
+    "magazine name, a restaurant — lowercase ASCII, dashes for spaces. "
+    "If you really can't tell, use `cookbook` as the source-slug. The "
+    "title-slug is the recipe title in the same kebab-case form. "
+    "Example: `cookbook://nos-recettes-preferees/crepes-bretonnes`."
+)
+
+
 def _build_screenshot_prompt() -> str:
-    # Inject "url": "cookbook://" as a fixed marker so the resulting JSON
-    # is recognisable as photo-sourced. The server rewrites it to a
-    # content-hashed cookbook:// URL on ingest, so cookbook recipes get
-    # unique library URLs while staying identifiable by scheme.
     template = _PROMPT_JSON_TEMPLATE.replace(
         '"@type": "Recipe",',
-        '"@type": "Recipe",\n  "url": "cookbook://",',
+        '"@type": "Recipe",\n  "url": "cookbook://<source-slug>/<title-slug>",',
     )
     return (
         "I'm attaching a photo of a recipe. Convert it to schema.org Recipe "
         "JSON-LD with this exact shape:\n\n"
         f"{template}\n\n"
-        f"{_PROMPT_RULES}"
+        f"{_PROMPT_RULES}\n"
+        f"{_PROMPT_SCREENSHOT_URL_RULE}"
     )
 
 
@@ -361,10 +376,15 @@ async def cmd_status(update: Update, context) -> None:
         display_lines.append(line)
         src = source_name(state.get("url"))
         if src:
-            display_lines.append(
-                f"<i>from <a href=\"{html.escape(state['url'])}\">"
-                f"{html.escape(src)}</a></i>"
-            )
+            url = state.get("url") or ""
+            if url.startswith("http://") or url.startswith("https://"):
+                src_html = (
+                    f"<a href=\"{html.escape(url)}\">{html.escape(src)}</a>"
+                )
+            else:
+                # Named cookbook URL: no link, just the human label.
+                src_html = html.escape(src)
+            display_lines.append(f"<i>from {src_html}</i>")
     else:
         display_lines.append(html.escape(state["type"]))
     sections.append("\n".join(display_lines))

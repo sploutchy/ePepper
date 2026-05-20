@@ -12,6 +12,7 @@ import json
 import logging
 import re
 from typing import Any
+from urllib.parse import urlparse
 
 from processing.recipes import _detect_language
 
@@ -45,16 +46,25 @@ def resolve_url(source_url: str, recipe: dict) -> str:
     """Pick the canonical library URL for a JSON-LD ingest.
 
     - Real http(s) URL → use as-is.
-    - "cookbook://" marker (from the screenshot prompt) → cookbook://<hash>
-      so each photo-sourced recipe dedupes by content instead of all
-      colliding on the bare marker.
-    - Anything else (empty, jsonld:..., …) → jsonld:<hash>.
+    - Named cookbook URL (cookbook://name/slug, with both a netloc and
+      a path) → use as-is. The netloc becomes the displayed source name
+      on the panel + status surfaces; the slug provides per-recipe
+      uniqueness for the library's UNIQUE(url).
+    - Bare `cookbook://` or stray `cookbook:` marker without a netloc →
+      cookbook://<content-hash> so each photo-sourced recipe still
+      dedupes by content instead of colliding on the bare marker.
+    - Anything else (empty, jsonld:…) → jsonld:<content-hash>.
     """
-    if source_url and source_url.startswith("cookbook:"):
-        return synthetic_url(recipe, prefix="cookbook://")
-    if source_url:
-        return source_url
-    return synthetic_url(recipe)
+    s = (source_url or "").strip()
+    if not s:
+        return synthetic_url(recipe)
+    if s.startswith("cookbook:"):
+        # urlparse separates 'cookbook://name/slug' into netloc='name',
+        # path='/slug'. The bare 'cookbook://' marker has neither.
+        parts = urlparse(s)
+        if not parts.netloc:
+            return synthetic_url(recipe, prefix="cookbook://")
+    return s
 
 
 def parse_recipe_jsonld(data: Any) -> tuple[dict, str] | None:
