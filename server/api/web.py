@@ -502,11 +502,13 @@ async def push_recipe(request: Request, recipe_id: int):
     )
 
 
-# --- Soft delete + undo ----------------------------------------------------
+# --- Delete -----------------------------------------------------------------
 
 
 @router.delete("/recipes/{recipe_id}", response_class=HTMLResponse)
 async def delete_recipe(request: Request, recipe_id: int):
+    """Soft-delete a recipe. No restore path — deleted rows are recoverable
+    from the Telegram DB backups if you really need them."""
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
@@ -514,24 +516,7 @@ async def delete_recipe(request: Request, recipe_id: int):
     if not library.delete_recipe(recipe_id):
         raise HTTPException(404)
     backup.schedule()
-    log.info("Web soft-deleted recipe id=%d title=%r", recipe_id, row["title"])
-    # HX-Redirect tells HTMX to navigate the browser; the source page (detail)
-    # is gone so we send the user back to the index where the undo toast is
-    # rendered with the deleted recipe's id baked in.
+    log.info("Web deleted recipe id=%d title=%r", recipe_id, row["title"])
     resp = Response(status_code=200)
-    resp.headers["HX-Redirect"] = f"/app/?undo={recipe_id}&undo_title={row['title']}"
+    resp.headers["HX-Redirect"] = "/app/"
     return resp
-
-
-@router.post("/recipes/{recipe_id}/restore", response_class=HTMLResponse)
-async def restore_recipe(request: Request, recipe_id: int):
-    _require_auth(request)
-    restored = library.restore_recipe(recipe_id)
-    if restored is None:
-        raise HTTPException(404)
-    backup.schedule()
-    log.info("Web restored recipe id=%d title=%r", recipe_id, restored["title"])
-    return templates.TemplateResponse(
-        request, "_toast.html",
-        {"message": f"Restored “{restored['title']}”."},
-    )

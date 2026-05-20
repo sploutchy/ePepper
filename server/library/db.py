@@ -289,33 +289,6 @@ def delete_recipe(recipe_id: int) -> bool:
     return cur.rowcount > 0
 
 
-def restore_recipe(recipe_id: int) -> dict | None:
-    """Undo a soft-delete. Returns the restored row dict, or None if nothing to restore."""
-    with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE recipes SET deleted_at = NULL "
-            "WHERE id = ? AND deleted_at IS NOT NULL",
-            (recipe_id,),
-        )
-        if cur.rowcount == 0:
-            return None
-        row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at "
-            "FROM recipes WHERE id = ?",
-            (recipe_id,),
-        ).fetchone()
-        # Re-add to FTS so search picks it up again.
-        if row is not None:
-            _fts_upsert(
-                conn,
-                recipe_id,
-                row["title"],
-                _ingredients_text(row["parsed_json"]),
-                _comments_text(conn, recipe_id),
-            )
-    return _row_to_dict(row) if row else None
-
-
 def remove_comment(comment_id: int) -> int | None:
     """Delete a comment. Returns the parent recipe_id if a row was deleted, else None."""
     with _connect() as conn:

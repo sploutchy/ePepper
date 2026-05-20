@@ -14,7 +14,6 @@ from library.db import (
     count_saved,
     list_recipes,
     delete_recipe,
-    restore_recipe,
     remove_comment,
 )
 
@@ -32,6 +31,5 @@ __all__ = [
     "count_saved",
     "list_recipes",
     "delete_recipe",
-    "restore_recipe",
     "remove_comment",
 ]
