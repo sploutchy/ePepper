@@ -23,7 +23,6 @@
   --neutral:      #3d3a35;   /* charcoal — default buttons */
   --neutral-fg:   #faf8f4;
 
-  --star:         #d6a017;
   --warn-bg:      #fbeed3;
   --warn-fg:      #6a4a00;
   --warn-border:  #e5c97a;
@@ -66,7 +65,6 @@
     --neutral:      #c8c1b4;
     --neutral-fg:   #14130f;
 
-    --star:         #e6b842;
     --warn-bg:      #3c2f15;
     --warn-fg:      #f0d28a;
     --warn-border:  #6a5424;
@@ -94,7 +92,6 @@
   --neutral:      #c8c1b4;
   --neutral-fg:   #14130f;
 
-  --star:         #e6b842;
   --warn-bg:      #3c2f15;
   --warn-fg:      #f0d28a;
   --warn-border:  #6a5424;
@@ -334,7 +331,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   align-items: center;
   margin-top: 4px;
 }
-.stars { color: var(--star); letter-spacing: 1px; }
 .loader, .more {
   text-align: center;
   padding: 14px;
@@ -371,22 +367,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   margin: 12px 0 6px;
 }
 
-/* Rating widget */
-.rating-picker {
-  margin: 14px 0;
-  display: flex;
-  gap: 4px;
-  align-items: center;
-}
-.star {
-  background: transparent;
-  color: var(--border);
-  font-size: 1.4em;
-  padding: 2px 6px;
-  font-weight: 700;
-}
-.star.on { color: var(--star); }
-.star:hover { color: var(--star); filter: none; }
 
 /* Comments — distinct warm-cream background so they don't blend with the
    white textarea below. Left-border accent gives a quoted-note feel. */

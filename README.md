@@ -174,9 +174,9 @@ The web app's home page (`/app/`) is the main browse surface:
 - **Currently-on-display badge.** The recipe live on the panel is
   flagged with a monitor icon next to its row.
 - **Source attribution.** Each card carries a `from <Source>` chip
-  next to the title (desktop ≥ 640 px) — the same source name that's
-  shown on the status page, the bot's `/status`, and the e-ink panel
-  itself.
+  next to the title — same source name that's shown on the status
+  page, the bot's `/status` / `/search` / push confirmations, and the
+  e-ink panel itself.
 
 In the bot, `/search <query>` returns the top 5 results as a tappable
 keyboard.
