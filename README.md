@@ -257,8 +257,9 @@ build step, ~50 KB JS dependency bundled locally).
 - **Recipe page** lets you change the rating (star buttons),
   add/remove notes, push to the panel, or delete.
 - **Delete is soft** — the row is hidden via a `deleted_at` timestamp
-  and an undo toast appears on the index for ~8 seconds. Hard-deleting
-  is a manual SQL job (intentional; the recipe library is precious).
+  with no UI restore path; if you actually need a deleted recipe back,
+  pull it from the most recent backup snapshot in the Telegram channel
+  (or clear `deleted_at` in SQL).
 
 The same cookie auth also unlocks `/version`, `/image`, etc. for the
 browser, so you can debug the device by opening those URLs after

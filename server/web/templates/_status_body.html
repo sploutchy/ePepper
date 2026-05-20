@@ -25,7 +25,10 @@
 <section class="status-card">
   <h2>{{ icon("monitor", 18) }} Display</h2>
   {% if display.type == "recipe" %}
-    <p class="status-line">
+    {# Plain <p> with inline children so the page indicator flows next
+       to the title and only wraps when the actual text overflows.
+       .status-line's flex-wrap was wrapping it prematurely. #}
+    <p class="display-title">
       {% if display.recipe_id %}
         <strong><a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a></strong>
       {% else %}
@@ -36,9 +39,9 @@
       {% endif %}
     </p>
   {% elif display.type == "photo" %}
-    <p class="status-line"><strong>Image</strong></p>
+    <p class="display-title"><strong>Image</strong></p>
   {% else %}
-    <p class="status-line muted">Idle.</p>
+    <p class="display-title muted">Idle.</p>
   {% endif %}
   {# Show the "Updated" timestamp whenever the display state has actually
      been touched. Suppress only at first start (updated_at == 0), when
