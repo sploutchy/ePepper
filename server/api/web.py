@@ -89,7 +89,7 @@ def _stars(rating: int | None) -> str:
 def _fmt_saved(ts: int | None) -> str:
     if not ts:
         return "—"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d")
+    return datetime.fromtimestamp(ts).strftime("%d.%m.%Y")
 
 
 def _ingredients(recipe: dict) -> list[str]:

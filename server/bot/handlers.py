@@ -670,16 +670,15 @@ async def cmd_search(update: Update, context) -> None:
         stars = ("⭐" * r["rating"]) if r["rating"] else ""
         title = html.escape(r["title"])
         if r.get("last_displayed_at"):
-            shown_label = "shown " + datetime.fromtimestamp(
-                r["last_displayed_at"]
-            ).strftime("%Y-%m-%d")
+            last = datetime.fromtimestamp(r["last_displayed_at"]).strftime("%d.%m.%Y")
             count = r.get("displayed_count") or 0
-            if count > 1:
-                shown_label += f" · {count}×"
+            cooked_label = (
+                f"cooked {count}×, last {last}" if count > 1 else f"cooked {last}"
+            )
         else:
-            shown_label = "never shown"
+            cooked_label = "never cooked"
         lines.append(f"<b>{i}.</b> {title} {stars}".rstrip())
-        lines.append(f"<i>   {shown_label}</i>")
+        lines.append(f"<i>   {cooked_label}</i>")
         lines.append("")
         buttons.append(InlineKeyboardButton(str(i), callback_data=f"push:{r['id']}"))
 
