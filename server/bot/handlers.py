@@ -356,7 +356,12 @@ async def cmd_status(update: Update, context) -> None:
     sections.append("\n".join(display_lines))
 
     # Library section
-    sections.append(f"<b>📚 Library</b>\n{library.count_saved()} saved recipes")
+    library_lines = [f"<b>📚 Library</b>", f"{library.count_saved()} saved recipes"]
+    if backup.is_enabled():
+        last_ts = backup.get_last_backup_at()
+        backup_text = humanize_ago(last_ts) if last_ts else "never"
+        library_lines.append(f"Last backup: {backup_text}")
+    sections.append("\n".join(library_lines))
 
     # Device section — header carries freshness so the rows can be tight.
     # Fields are "as of last wake" (button press or daily timer).
