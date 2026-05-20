@@ -175,6 +175,11 @@ async def page_last(request: Request):
     return {"ok": True, "page": total, "total_pages": total}
 
 
+# Strong refs to in-flight fire-and-forget tasks. asyncio only tracks them
+# weakly, so without this the GC can eat a task mid-execution.
+_background_tasks: set[asyncio.Task] = set()
+
+
 def _log_task_exception(task: asyncio.Task) -> None:
     """Done-callback that logs any unhandled exception from a fire-and-forget task."""
     if task.cancelled():
@@ -215,6 +220,8 @@ async def device_status(
         task = asyncio.create_task(
             notify_low_battery(alert_mv), name="notify_low_battery"
         )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
         task.add_done_callback(_log_task_exception)
 
     return {"ok": True}

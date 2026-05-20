@@ -18,6 +18,19 @@ class _ResponseTooLarge(Exception):
     """Raised when the HTTP body exceeds the configured cap."""
 
 
+# Reused across calls so we're not paying TCP+TLS handshake + DNS for every
+# recipe fetch. Lazily created on the running event loop; recreated if it's
+# been closed (e.g. test teardown).
+_session: aiohttp.ClientSession | None = None
+
+
+def _get_session() -> aiohttp.ClientSession:
+    global _session
+    if _session is None or _session.closed:
+        _session = aiohttp.ClientSession()
+    return _session
+
+
 async def process_recipe_url(url: str) -> dict | None:
     """Fetch a URL and extract structured recipe data.
 
@@ -68,26 +81,33 @@ async def _fetch_html(url: str) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ePepper/1.0; recipe display)"
     }
-    async with aiohttp.ClientSession() as session:
-        async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-            log.info("HTTP %d from %s", resp.status, url)
-            resp.raise_for_status()
-            # Fast path: trust an honest Content-Length header when present.
-            declared = resp.content_length
-            if declared is not None and declared > _MAX_HTML_BYTES:
+    session = _get_session()
+    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
+        log.info("HTTP %d from %s", resp.status, url)
+        resp.raise_for_status()
+        # Fast path: trust an honest Content-Length header when present.
+        declared = resp.content_length
+        if declared is not None and declared > _MAX_HTML_BYTES:
+            raise _ResponseTooLarge(
+                f"{url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
+            )
+        # Stream so a server that lies about (or omits) Content-Length
+        # still can't OOM us.
+        buf = bytearray()
+        async for chunk in resp.content.iter_chunked(64 * 1024):
+            buf.extend(chunk)
+            if len(buf) > _MAX_HTML_BYTES:
                 raise _ResponseTooLarge(
-                    f"{url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
+                    f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
                 )
-            # Stream so a server that lies about (or omits) Content-Length
-            # still can't OOM us.
-            buf = bytearray()
-            async for chunk in resp.content.iter_chunked(64 * 1024):
-                buf.extend(chunk)
-                if len(buf) > _MAX_HTML_BYTES:
-                    raise _ResponseTooLarge(
-                        f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
-                    )
-            return buf.decode(resp.charset or "utf-8", errors="replace")
+        # A bogus Content-Type charset (unknown codec name) makes
+        # bytes.decode raise LookupError *before* it consults errors=,
+        # so fall back to utf-8 instead of crashing the fetch.
+        charset = resp.charset or "utf-8"
+        try:
+            return buf.decode(charset, errors="replace")
+        except LookupError:
+            return buf.decode("utf-8", errors="replace")
 
 
 def _safe_call(fn):

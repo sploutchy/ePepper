@@ -296,14 +296,17 @@ def find_by_url(url: str) -> dict | None:
 
 
 def mark_saved(recipe_id: int, rating: int) -> bool:
-    """Set rating + saved_at on a recipe. Returns True if the row exists.
+    """Set rating + saved_at on a recipe. Returns True if the row was updated.
+
+    Returns False on either an out-of-range rating or a missing row, matching
+    the "rows-affected" convention used by the rest of the module.
 
     Also clears `deleted_at` — re-saving a previously-deleted URL restores
     the row, matching user intent (the Save button is the only way to keep
     something in the library).
     """
     if not 1 <= rating <= 5:
-        raise ValueError(f"rating must be 1..5, got {rating}")
+        return False
     now = int(time.time())
     with _connect() as conn:
         cur = conn.execute(
@@ -324,10 +327,11 @@ def delete_recipe(recipe_id: int) -> bool:
             "WHERE id = ? AND deleted_at IS NULL",
             (now, recipe_id),
         )
-        if cur.rowcount > 0:
+        affected = cur.rowcount > 0
+        if affected:
             # Drop the row from the FTS index so search results stop returning it.
             conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
-    return cur.rowcount > 0
+    return affected
 
 
 def remove_comment(comment_id: int) -> int | None:

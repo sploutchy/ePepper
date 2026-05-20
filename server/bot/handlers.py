@@ -699,6 +699,9 @@ async def cmd_surprise(update: Update, context) -> None:
 async def on_push_button(update: Update, context) -> None:
     """User tapped a /search result — render and push that recipe."""
     query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
     try:
         _, recipe_id_str = query.data.split(":")
         recipe_id = int(recipe_id_str)
@@ -835,15 +838,28 @@ async def on_document(update: Update, context) -> None:
 
     msg = await update.message.reply_text("🧾 Reading JSON...")
 
-    if doc.file_size and doc.file_size > _JSON_MAX_BYTES:
+    # Refuse uploads with unknown or oversized declared size — download_as_bytearray
+    # buffers the whole document in memory, so we need the cap up-front.
+    if not doc.file_size or doc.file_size > _JSON_MAX_BYTES:
         await msg.edit_text(
-            f"❌ JSON file too large ({doc.file_size // 1024} KB; limit "
+            f"❌ JSON file too large or size unknown (limit "
             f"{_JSON_MAX_BYTES // 1024} KB)."
         )
         return
 
-    file = await doc.get_file()
-    raw = await file.download_as_bytearray()
+    try:
+        file = await doc.get_file()
+        raw = await file.download_as_bytearray()
+    except Exception:
+        log.exception("Failed to download JSON document")
+        await msg.edit_text("❌ Couldn't download the file. Try again.")
+        return
+    # Double-check actual size in case Telegram's declared size was wrong.
+    if len(raw) > _JSON_MAX_BYTES:
+        await msg.edit_text(
+            f"❌ JSON file too large (limit {_JSON_MAX_BYTES // 1024} KB)."
+        )
+        return
     try:
         data = json.loads(bytes(raw).decode("utf-8"))
     except (ValueError, UnicodeDecodeError) as e:
@@ -877,6 +893,9 @@ async def on_document(update: Update, context) -> None:
 async def on_save_button(update: Update, context) -> None:
     """User tapped 💾 Save — show 1-5 star rating buttons."""
     query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
     try:
         _, token = query.data.split(":", 1)
     except ValueError:
@@ -904,6 +923,9 @@ async def on_save_button(update: Update, context) -> None:
 async def on_rate_button(update: Update, context) -> None:
     """User tapped a star — persist recipe + rating, confirm in chat."""
     query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
     try:
         _, token, rating_str = query.data.split(":", 2)
         rating = int(rating_str)
