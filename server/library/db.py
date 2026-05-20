@@ -42,7 +42,9 @@ CREATE TABLE IF NOT EXISTS recipes (
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipes_saved_at ON recipes(saved_at);
-CREATE INDEX IF NOT EXISTS idx_recipes_source   ON recipes(source);
+-- idx_recipes_source is created inside _migrate_add_source so it only runs
+-- after the column is guaranteed to exist (otherwise executescript blows up
+-- here on an old DB upgraded from before the source column landed).
 
 CREATE TABLE IF NOT EXISTS comments (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -127,6 +129,9 @@ def _migrate_add_source(conn: sqlite3.Connection) -> None:
     if "source" not in cols:
         conn.execute("ALTER TABLE recipes ADD COLUMN source TEXT")
         log.info("Migration: added recipes.source column")
+    # Index lives here (not in _SCHEMA) so it can't race the ALTER above on
+    # a DB that pre-dated the column.
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_recipes_source ON recipes(source)")
     # Backfill anywhere the column is still NULL (covers both fresh-add
     # and any rows inserted before this migration landed).
     rows = conn.execute(
