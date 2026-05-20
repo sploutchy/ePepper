@@ -483,7 +483,6 @@ async def cmd_comment(update: Update, context) -> None:
 
     library.add_comment(recipe_id, text)
     log.info("Comment added to recipe %d (%d chars)", recipe_id, len(text))
-    backup.schedule()
 
     row = library.get_recipe(recipe_id)
     if row is None:
@@ -524,7 +523,6 @@ async def cmd_rate(update: Update, context) -> None:
         )
         return
     log.info("Rating updated for recipe %d → %d", recipe_id, rating)
-    backup.schedule()
 
     row = library.get_recipe(recipe_id)
     if row is None:
@@ -826,7 +824,6 @@ async def on_rate_button(update: Update, context) -> None:
     url, recipe = pending
     recipe_id = library.upsert_recipe(url, recipe)
     library.mark_saved(recipe_id, rating)
-    backup.schedule()
 
     # If this recipe is still on the display, re-render so the rating
     # stars appear on the panel. Compare by URL — title alone can collide.

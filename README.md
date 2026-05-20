@@ -72,9 +72,11 @@ on their anniversary.
   page and in `/status` on the bot. One-shot alerts go out when
   battery drops below 3.5 V or the device's daily heartbeat is
   overdue.
-- **Backup to Telegram.** Every library mutation triggers a debounced
-  gzipped SQLite snapshot to a configurable Telegram chat — unlimited
-  versioned history at no storage cost.
+- **Backup to Telegram.** The midnight scheduler tick uploads a
+  gzipped SQLite snapshot to a configurable Telegram chat — but only
+  when the library has changed since the previous upload. Quiet days
+  produce no message; busy days produce one. Unlimited versioned
+  history at no storage cost.
 - **Dark mode.** Follows the OS preference automatically (with a
   manual toggle in the header), including matching mobile browser
   chrome.
@@ -238,8 +240,7 @@ Three physical buttons:
 | `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
 | `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty = anyone can talk to the bot (only safe for a truly private bot). **Note:** empty also means low-battery and stale-heartbeat alerts have no one to notify and are silently skipped. |
 | `API_PORT` | Server port (default: `8080`). |
-| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a gzipped DB snapshot after every library mutation. Unset = backups disabled. |
-| `BACKUP_DEBOUNCE_S` | Coalesce mutation bursts into one snapshot upload (default: `60`). |
+| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the library hasn't changed since the previous one. Unset = backups disabled. |
 | `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
 | `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
 
@@ -330,12 +331,15 @@ the Fooby fetch or parse fails, the display is left unchanged.
 
 ### Backup to Telegram
 
-If `BACKUP_CHAT_ID` is set, every library mutation (save / rate /
-comment / delete) triggers an online SQLite snapshot (via
-`sqlite3.Connection.backup()`, safe under concurrent writes), gzips
-it in memory, and posts the bytes as a `recipes_<utc-timestamp>.db.gz`
-document to that chat. Bursts within `BACKUP_DEBOUNCE_S` (default
-60 s) coalesce into a single upload.
+If `BACKUP_CHAT_ID` is set, the midnight scheduler tick runs a
+"dirty check": if the DB file's mtime is later than the last
+successful upload's timestamp (persisted next to the DB), the
+server takes an online SQLite snapshot via
+`sqlite3.Connection.backup()` (safe under concurrent writes),
+gzips it in memory, and posts the bytes as
+`recipes_<utc-timestamp>.db.gz` to the configured chat. A day with
+no mutations produces no message; a day with a hundred produces
+one. The DB-mtime source of truth survives container restarts.
 
 **Recommended setup:** a private Telegram channel "ePepper backups"
 with the bot added as admin (`Post Messages` permission). Files sent

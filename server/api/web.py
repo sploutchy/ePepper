@@ -545,7 +545,6 @@ async def update_rating(request: Request, recipe_id: int, rating: int = Form(...
         raise HTTPException(400, detail="rating must be 1..5")
     if not library.mark_saved(recipe_id, rating):
         raise HTTPException(404)
-    backup.schedule()
     return templates.TemplateResponse(
         request, "_rating.html", _rating_ctx(request, recipe_id, rating)
     )
@@ -569,7 +568,6 @@ async def add_comment(request: Request, recipe_id: int, body: str = Form(...)):
     if library.get_recipe(recipe_id) is None:
         raise HTTPException(404)
     library.add_comment(recipe_id, body)
-    backup.schedule()
     return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
 
 
@@ -579,7 +577,6 @@ async def delete_comment(request: Request, recipe_id: int, comment_id: int):
     parent = library.remove_comment(comment_id)
     if parent is None or parent != recipe_id:
         raise HTTPException(404)
-    backup.schedule()
     return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
 
 
@@ -613,7 +610,6 @@ async def delete_recipe(request: Request, recipe_id: int):
         raise HTTPException(404)
     if not library.delete_recipe(recipe_id):
         raise HTTPException(404)
-    backup.schedule()
     log.info("Web deleted recipe id=%d title=%r", recipe_id, row["title"])
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"

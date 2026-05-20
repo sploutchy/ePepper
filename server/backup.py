@@ -1,17 +1,20 @@
 """DB backup to a Telegram chat.
 
-When BACKUP_CHAT_ID is set, library mutations call schedule(); after a
-short debounce window the SQLite file is snapshotted (online .backup()
-API, safe under concurrent writes), gzipped, and sent as a document.
+When BACKUP_CHAT_ID is set, the scheduler's midnight tick uploads a
+gzipped snapshot of the SQLite library to the configured chat — but
+only if the DB has been written to since the last successful upload.
+This collapses an entire day's worth of mutations into one upload
+instead of one per mutation.
 
-Debouncing collapses bursts like /save → /rate → /comment into one
-upload, which keeps the backup chat tidy.
+The dirty check is "DB mtime > last_backup_at": the file's modify
+time on disk is the source of truth (survives process restarts, no
+in-memory flag to lose), and the last-upload timestamp is persisted
+next to the DB so it also survives restarts.
 
-The timestamp of the most recent successful upload is persisted next to
-the DB so /status can report it across container restarts.
+The snapshot uses sqlite3.Connection.backup(), safe under concurrent
+writes.
 """
 
-import asyncio
 import gzip
 import io
 import logging
@@ -21,17 +24,15 @@ import tempfile
 import time
 from datetime import datetime, timezone
 
-from config import BACKUP_CHAT_ID, BACKUP_DEBOUNCE_S, DATA_DIR
+from config import BACKUP_CHAT_ID, DATA_DIR
 from library.db import DB_PATH
 
 log = logging.getLogger(__name__)
 
 _bot = None
-_task: asyncio.Task | None = None
 
-# Persisted timestamp of the most recent successful upload. We cache the
-# read so /status doesn't touch the FS on every refresh, and rewrite on
-# every send.
+# Persisted timestamp of the most recent successful upload. Cached on
+# first read; rewritten on every send.
 _LAST_BACKUP_FILE = os.path.join(DATA_DIR, "last_backup")
 _last_backup_at: int | None = None
 _last_backup_loaded = False
@@ -76,14 +77,15 @@ def set_bot(bot) -> None:
     _bot = bot
 
 
-def schedule() -> None:
-    """Request a backup. Repeated calls within the debounce window collapse."""
-    if BACKUP_CHAT_ID is None or _bot is None:
-        return
-    global _task
-    if _task and not _task.done():
-        _task.cancel()
-    _task = asyncio.create_task(_run())
+def has_pending_changes() -> bool:
+    """True if the DB file has been written to since the last successful
+    upload. Used by the scheduler to skip a tick when nothing changed."""
+    try:
+        mtime = os.path.getmtime(DB_PATH)
+    except OSError:
+        return False
+    last_ts = get_last_backup_at() or 0
+    return mtime > last_ts
 
 
 def _snapshot() -> bytes:
@@ -101,12 +103,20 @@ def _snapshot() -> bytes:
             return gzip.compress(g.read())
 
 
-async def _run() -> None:
+async def flush_if_dirty() -> bool:
+    """Snapshot + upload if the DB has changed since the last upload.
+
+    Returns True when an upload was sent, False otherwise. Wraps every
+    failure mode so the scheduler's daily tick is robust to network
+    blips and Telegram API hiccups.
+    """
+    if _bot is None or BACKUP_CHAT_ID is None:
+        return False
+    if not has_pending_changes():
+        log.info("Backup: no changes since last upload; skipping daily tick")
+        return False
     try:
-        await asyncio.sleep(BACKUP_DEBOUNCE_S)
-    except asyncio.CancelledError:
-        return
-    try:
+        import asyncio
         data = await asyncio.to_thread(_snapshot)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         filename = f"recipes_{ts}.db.gz"
@@ -115,11 +125,11 @@ async def _run() -> None:
             chat_id=BACKUP_CHAT_ID,
             document=buf,
             filename=filename,
-            caption=f"ePepper backup · {len(data)} B gzipped",
+            caption=f"ePepper daily backup · {len(data)} B gzipped",
         )
         _record_success(int(time.time()))
         log.info("Backup sent to chat %s (%d B gzipped)", BACKUP_CHAT_ID, len(data))
-    except asyncio.CancelledError:
-        raise
+        return True
     except Exception:
-        log.exception("Backup failed")
+        log.exception("Daily backup failed; will retry tomorrow")
+        return False

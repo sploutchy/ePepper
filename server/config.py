@@ -38,13 +38,12 @@ DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
 TZ_NAME: str = os.environ.get("TZ", "Europe/Zurich")
 TZ: ZoneInfo = ZoneInfo(TZ_NAME)
 
-# Backup — when BACKUP_CHAT_ID is set, library mutations trigger a gzipped
-# DB snapshot sent to that chat. Rapid mutations are coalesced so a
-# /save+/rate+/comment burst yields one upload.
+# Backup — when BACKUP_CHAT_ID is set, the midnight scheduler tick
+# uploads a gzipped DB snapshot to that chat *if the library has
+# changed since the previous upload*. Quiet days produce no message.
 BACKUP_CHAT_ID: int | None = (
     int(os.environ["BACKUP_CHAT_ID"]) if os.environ.get("BACKUP_CHAT_ID") else None
 )
-BACKUP_DEBOUNCE_S: int = int(os.environ.get("BACKUP_DEBOUNCE_S", "60"))
 
 # Fonts (DejaVu Sans, installed via apt in Docker)
 FONT_DIR: str = "/usr/share/fonts/truetype/dejavu"
