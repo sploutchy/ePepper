@@ -395,20 +395,22 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   margin-left: auto;
 }
 .iconbtn {
-  /* Equal 36×36 hit area for every header control so they read as one
-     row of action buttons rather than mixed widgets. SVG children
-     inherit currentColor so they pick up the theme. */
+  /* Equal 36 px hit-area baseline for every header control. Icon-only on
+     mobile (min-width = padded SVG width); labels appear ≥ 640 px and
+     let the button grow to fit. SVG children inherit currentColor. */
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 36px;
+  gap: 8px;
+  min-width: 36px;
   height: 36px;
-  padding: 0;
+  padding: 0 8px;
   background: transparent;
   color: var(--muted);
   border: 0;
   border-radius: 8px;
   cursor: pointer;
+  font: inherit;
   transition: background 0.15s ease, color 0.15s ease;
 }
 .iconbtn:hover,
@@ -426,17 +428,30 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   display: block;
 }
 
-/* Theme toggle SVG swap — shows the icon for the *active* mode (☀ in
-   light, ☾ in dark). Mirrors the dark-mode entry points so OS-dark users
-   without a manual override still see the moon. */
+/* Theme toggle icon+label swap — shows the wrapper matching the active
+   mode (sun + "Light" in light, moon + "Dark" in dark). Mirrors the
+   dark-mode entry points so OS-dark users without a manual override
+   still see the moon. */
+.theme-toggle .theme-icon-light,
+.theme-toggle .theme-icon-dark {
+  align-items: center;
+  gap: 8px;
+}
 .theme-toggle .theme-icon-dark { display: none; }
-.theme-toggle .theme-icon-light { display: block; }
+.theme-toggle .theme-icon-light { display: inline-flex; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: block; }
+  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: inline-flex; }
   :root:not([data-theme="light"]) .theme-toggle .theme-icon-light { display: none; }
 }
-:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: block; }
+:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: inline-flex; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
+
+/* Labels are hidden in the icon-only mobile layout; the breakpoint
+   matches the point where the header has comfortable room. */
+.iconbtn-label { display: none; }
+@media (min-width: 640px) {
+  .iconbtn-label { display: inline; }
+}
 
 /* Add page — URL field is the headliner (the common case); photo and
    JSON-LD live in compact tiles below. */
@@ -691,7 +706,11 @@ input[type=file]::file-selector-button {
 }
 .display-preview img {
   width: 100%;
-  max-width: 100%;
+  /* Cap at the panel's native 800 px so we don't upscale on wide
+     desktops — pixelated rendering at 3× looks unintentionally chunky.
+     The flex centering on the parent keeps it middle of the page above
+     that width. */
+  max-width: 800px;
   height: auto;
   display: block;
   image-rendering: pixelated;
