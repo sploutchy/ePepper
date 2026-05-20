@@ -25,6 +25,11 @@ if not API_KEY:
         "python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
     )
 
+# Public web app URL (optional). When set, the bot's /start and /help
+# include a clickable link to the web library; otherwise the path is
+# described in plain text. Trailing slashes are trimmed.
+WEB_URL: str = os.environ.get("WEB_URL", "").rstrip("/")
+
 # Data directory (docker volume)
 DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
 

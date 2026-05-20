@@ -240,6 +240,7 @@ Three physical buttons:
 | `API_PORT` | Server port (default: `8080`). |
 | `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a gzipped DB snapshot after every library mutation. Unset = backups disabled. |
 | `BACKUP_DEBOUNCE_S` | Coalesce mutation bursts into one snapshot upload (default: `60`). |
+| `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
 | `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
 
 ### Web app (`/app/`)
@@ -395,6 +396,7 @@ and *(b)* receiving the device-health alerts.
 | `/comment <text>` | Add a note to the currently-displayed *saved* recipe. |
 | `/rate <1-5>` | Change the rating of the currently-displayed saved recipe. |
 | `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
+| `/surprise` | Push a random saved recipe to the display. |
 | `/clear` | Clear the panel (renders a blank white frame). |
 | `/status` | Sectioned device + library snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
 | `/prompt_screenshot` | Copy-paste LLM prompt for converting a photo → JSON-LD. |

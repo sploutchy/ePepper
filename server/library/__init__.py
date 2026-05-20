@@ -14,6 +14,7 @@ from library.db import (
     count_saved,
     list_recipes,
     list_sources,
+    random_recipe,
     delete_recipe,
     remove_comment,
 )
@@ -32,6 +33,7 @@ __all__ = [
     "count_saved",
     "list_recipes",
     "list_sources",
+    "random_recipe",
     "delete_recipe",
     "remove_comment",
 ]

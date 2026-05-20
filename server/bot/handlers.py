@@ -18,7 +18,7 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_BOT_TOKEN, ALLOWED_USERS
+from config import TELEGRAM_BOT_TOKEN, ALLOWED_USERS, WEB_URL
 import backup
 import display_state
 import library
@@ -122,6 +122,7 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("comment", cmd_comment))
     app.add_handler(CommandHandler("rate", cmd_rate))
     app.add_handler(CommandHandler("search", cmd_search))
+    app.add_handler(CommandHandler("surprise", cmd_surprise))
     app.add_handler(CommandHandler("prompt_screenshot", cmd_prompt_screenshot))
     app.add_handler(CommandHandler("prompt_url", cmd_prompt_url))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
@@ -153,6 +154,24 @@ def _is_allowed(user_id: int) -> bool:
     return user_id in ALLOWED_USERS
 
 
+def _web_app_line() -> str:
+    """One-line pointer to the web app, formatted for HTML mode.
+
+    Linkified when WEB_URL is set in the environment; otherwise just
+    describes the path so the user can navigate manually.
+    """
+    if WEB_URL:
+        return (
+            f"🌐 <b>Web app:</b> "
+            f"<a href=\"{html.escape(WEB_URL)}/app/\">{html.escape(WEB_URL)}/app/</a> "
+            "(same API_KEY logs you in) — sort, filter, and browse the full library."
+        )
+    return (
+        "🌐 <b>Web app:</b> open <code>/app/</code> on your server "
+        "(same API_KEY logs you in) — sort, filter, and browse the full library."
+    )
+
+
 _START_TEXT = (
     "🫑 <b>ePepper — your kitchen recipe display</b>\n\n"
     "<b>Send me:</b>\n"
@@ -164,6 +183,7 @@ _START_TEXT = (
     "to cycle between recipe pages.\n\n"
     "💡 <b>Tip:</b> for unsupported sites, /prompt_url or /prompt_screenshot "
     "give you an LLM prompt that produces a JSON-LD file you can upload here.\n\n"
+    "{web_line}\n\n"
     "Type /help for the full command list."
 )
 
@@ -171,7 +191,11 @@ _START_TEXT = (
 async def cmd_start(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
-    await update.message.reply_text(_START_TEXT, parse_mode="HTML")
+    await update.message.reply_text(
+        _START_TEXT.format(web_line=_web_app_line()),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 _HELP_TEXT = (
@@ -184,6 +208,7 @@ _HELP_TEXT = (
     "<b>📚 Library</b>\n"
     "Tap 💾 Save under a pushed recipe (rate 1–5 to confirm).\n"
     "/search &lt;query&gt; — find a saved recipe\n"
+    "/surprise — push a random saved recipe to the display\n"
     "/rate &lt;1-5&gt; — update rating of the displayed recipe\n"
     "/comment &lt;text&gt; — add a note to the displayed recipe\n\n"
     "<b>📺 Display</b>\n"
@@ -191,14 +216,19 @@ _HELP_TEXT = (
     "/clear — clear the display\n\n"
     "<b>ℹ️ Info</b>\n"
     "/status — device status\n"
-    "/help — this message"
+    "/help — this message\n\n"
+    "{web_line}"
 )
 
 
 async def cmd_help(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
-    await update.message.reply_text(_HELP_TEXT, parse_mode="HTML")
+    await update.message.reply_text(
+        _HELP_TEXT.format(web_line=_web_app_line()),
+        parse_mode="HTML",
+        disable_web_page_preview=True,
+    )
 
 
 # Shared body of the LLM prompts. Tracks parse_recipe_jsonld's expected fields
@@ -543,6 +573,25 @@ async def cmd_search(update: Update, context) -> None:
         "\n".join(lines).rstrip(),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([buttons]),
+    )
+
+
+async def cmd_surprise(update: Update, context) -> None:
+    """Pick a random saved recipe and push it to the display."""
+    if not _is_allowed(update.effective_user.id):
+        return
+    row = library.random_recipe()
+    if row is None:
+        await update.message.reply_text(
+            "Your library is empty — save a recipe first."
+        )
+        return
+    push_recipe_to_display(row)
+    total = display_state.get()["total_pages"]
+    log.info("Surprise push: id=%d title=%r", row["id"], row["title"])
+    await update.message.reply_text(
+        "🎲 " + _format_push_reply(row["title"], row.get("rating"), total),
+        parse_mode="HTML",
     )
 
 
