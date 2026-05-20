@@ -1,6 +1,5 @@
 <form class="rating-picker" hx-post="/app/recipes/{{ r_id if r_id is defined else r.id }}/rating" hx-target="#rating" hx-swap="innerHTML">
   {% set current = rating if rating is defined else (r.rating if r is defined else None) %}
-  {% set rid = r_id if r_id is defined else r.id %}
   {% for n in range(1, 6) %}
     <button type="submit" name="rating" value="{{ n }}"
             class="star {% if current and n <= current %}on{% endif %}"

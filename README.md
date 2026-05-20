@@ -54,7 +54,15 @@ on their anniversary.
   notes, and push to the display.
 - **Library.** Saved recipes persist in SQLite with FTS5 full-text
   search over title + ingredients + notes. Sort by recency or rating,
-  filter by minimum rating, paginate via infinite scroll.
+  filter by minimum rating or source (a website, a named cookbook),
+  paginate via infinite scroll. A live "on display" badge marks the
+  recipe currently rendered on the panel.
+- **Source provenance.** Each recipe carries a source — a website
+  host or a named cookbook (`cookbook://<name>/<slug>` URLs, produced
+  by the screenshot prompt with the LLM inferring `<name>` from
+  visible branding in the photo). The source surfaces on the library
+  cards, the recipe detail page, the bot's `/status`, and inline on
+  the e-ink panel (with the "from" word localised).
 - **Anniversary scheduler.** At local midnight, picks a recipe whose
   saved-at calendar day matches today (any past year) and pushes it.
   Falls back to Fooby's weekly-inspiration block when no anniversary
@@ -157,9 +165,14 @@ The web app's home page (`/app/`) is the main browse surface:
 
 - **Search** by title, ingredients, or notes (FTS5, accent-insensitive).
 - **Sort** by recency (default), highest rated, lowest rated, or oldest.
-- **Filter** to a minimum rating (2★+, 3★+, …).
+- **Filter** to a minimum rating (2★+, 3★+, …) or to a specific source
+  (Fooby, BBC, a named cookbook, …).
 - **Currently-on-display badge.** The recipe live on the panel is
   flagged with a monitor icon next to its row.
+- **Source attribution.** Each card carries a `from <Source>` chip
+  next to the title (desktop ≥ 640 px) — the same source name that's
+  shown on the status page, the bot's `/status`, and the e-ink panel
+  itself.
 
 In the bot, `/search <query>` returns the top 5 results as a tappable
 keyboard.
@@ -172,8 +185,11 @@ library already knows.
 
 The panel renders title + ingredients + numbered steps across as
 many pages as fit (a tall recipe might be 2–3 pages). Notes get
-their own trailing page. Recipe rating, source host, and the
-current/total page indicator render in the top button row.
+their own trailing page. The header carries `Title from Source —
+page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
+for en/de/fr/it), followed by total time, servings, and the rating
+stars on the meta line. The source is omitted entirely for image
+uploads and JSON-LD recipes without a URL.
 
 ### Editing recipes
 
@@ -266,15 +282,31 @@ rating; an image push is never persisted.
 
 Schema:
 
-- `recipes(id, url, title, parsed_json, lang, rating, saved_at, created_at, deleted_at)`
+- `recipes(id, url, title, parsed_json, lang, rating, saved_at, created_at, deleted_at, source)`
 - `comments(id, recipe_id, body, created_at)`
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, notes).
 
-URLs are canonicalized (lowercase host, dropped tracking params,
-trimmed trailing slash, fragment stripped) before they hit the
-unique index, so equivalent links dedupe cleanly. URL canonicalization
-and FTS rebuild run idempotently on startup, so a snapshot from any
-prior version restores cleanly.
+The `url` column carries one of three URL shapes, all of which
+participate in the `UNIQUE` index:
+
+- `https://example.com/…` — a normal site URL. Canonicalised
+  (lowercase host, dropped tracking params, trimmed trailing slash,
+  fragment stripped) before insertion so equivalent links dedupe.
+- `cookbook://<name>/<slug>` — a recipe from a paper cookbook. The
+  screenshot prompt asks the LLM to fill the `name` part from any
+  visible branding in the photo and the `slug` from the title;
+  e.g. `cookbook://nos-recettes-preferees/crepes-bretonnes`. The
+  `<name>` part doubles as the displayed source name (`from
+  Nos-recettes-preferees`).
+- `jsonld:<12-hex-digits>` — a content-hash fallback for JSON-LD
+  uploads that arrived without a `url` field.
+
+`source` mirrors the displayed source name in lowercase
+(`fooby`, `nos-recettes-preferees`, …) and is what the library page's
+source-filter dropdown matches against. It's backfilled from existing
+URLs on startup by `_migrate_add_source`. URL canonicalisation,
+source backfill, and FTS rebuild all run idempotently, so a snapshot
+from any prior version restores cleanly.
 
 ### Anniversary scheduler
 

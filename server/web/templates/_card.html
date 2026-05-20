@@ -1,0 +1,29 @@
+{# Library list card. Expects:
+   r             — the recipe row dict
+   stars         — _stars filter (passed via list context)
+   fmt_saved     — _fmt_saved filter
+   source_name   — status_helpers.source_name
+   current_recipe_id — id of the recipe currently on the panel, or None
+#}
+{% from "_icons.html" import icon %}
+<li>
+  <a href="/app/recipes/{{ r.id }}" class="card">
+    <div class="card-title">
+      <span>{{ r.title }}</span>
+      {% set src = source_name(r.url) %}
+      {% if src %}
+        <span class="card-source iconbtn-label">from {{ src }}</span>
+      {% endif %}
+    </div>
+    <div class="card-meta">
+      <span class="stars">{{ stars(r.rating) }}</span>
+      <span class="muted">saved {{ fmt_saved(r.saved_at) }}</span>
+      {% if r.id == current_recipe_id %}
+        <span class="card-badge" title="Currently on display">
+          {{ icon("monitor", 14) }}
+          <span class="iconbtn-label">on display</span>
+        </span>
+      {% endif %}
+    </div>
+  </a>
+</li>

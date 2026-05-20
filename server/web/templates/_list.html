@@ -1,31 +1,8 @@
-{% from "_icons.html" import icon %}
 {% if not recipes %}
   <p class="muted empty">{% if q %}No matches for “{{ q }}”.{% else %}Nothing saved yet.{% endif %}</p>
 {% else %}
   <ul class="recipes">
-    {% for r in recipes %}
-      <li>
-        <a href="/app/recipes/{{ r.id }}" class="card">
-          <div class="card-title">
-            <span>{{ r.title }}</span>
-            {% set src = source_name(r.url) %}
-            {% if src %}
-              <span class="card-source iconbtn-label">from {{ src }}</span>
-            {% endif %}
-          </div>
-          <div class="card-meta">
-            <span class="stars">{{ stars(r.rating) }}</span>
-            <span class="muted">saved {{ fmt_saved(r.saved_at) }}</span>
-            {% if r.id == current_recipe_id %}
-              <span class="card-badge" title="Currently on display">
-                {{ icon("monitor", 14) }}
-                <span class="iconbtn-label">on display</span>
-              </span>
-            {% endif %}
-          </div>
-        </a>
-      </li>
-    {% endfor %}
+    {% for r in recipes %}{% include "_card.html" %}{% endfor %}
     {% if has_more %}
       <li class="loader"
           hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&min_rating={{ (min_rating or '')|string|urlencode }}&source={{ source|urlencode }}&offset={{ next_offset }}"
