@@ -30,7 +30,7 @@ from status_helpers import battery_pct, humanize_ago, rssi_quality
 log = logging.getLogger(__name__)
 
 # Hard cap on uploaded files. Schema.org Recipe payloads are typically a few
-# KB; photos uploaded for the panel max out around 1–2 MB after browser-side
+# KB; images uploaded for the display max out around 1–2 MB after browser-side
 # JPEG re-encode. 8 MB leaves headroom while still rejecting accidental drops.
 _JSON_MAX_BYTES = 256 * 1024
 _PHOTO_MAX_BYTES = 8 * 1024 * 1024
@@ -249,10 +249,20 @@ def _hx_redirect(url: str) -> Response:
 
 
 def _add_error(request: Request, message: str) -> HTMLResponse:
-    """Render a small error fragment back into the add page's #add-result."""
+    """Render a small error fragment back into the add page's #add-result.
+
+    Backtick-delimited tokens in `message` (e.g. `` `.json` ``) become
+    <code> spans. Everything else is HTML-escaped first, so the message
+    can't smuggle in markup — only the bounded backtick rewrite is
+    promoted to safe HTML.
+    """
+    import re
+    from html import escape
+    from markupsafe import Markup
+    rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", escape(message))
     return templates.TemplateResponse(
         request, "_add_error.html",
-        {"request": request, "message": message},
+        {"request": request, "message": Markup(rendered)},
         status_code=400,
     )
 
@@ -276,7 +286,7 @@ async def add_url(request: Request, url: str = Form(...)):
     _require_auth(request)
     url = url.strip()
     if not (url.startswith("http://") or url.startswith("https://")):
-        return _add_error(request, "Please paste a full http(s):// URL.")
+        return _add_error(request, "Not a `http(s)://` URL.")
 
     existing = library.find_by_url(url)
     if existing is not None:
@@ -286,12 +296,7 @@ async def add_url(request: Request, url: str = Form(...)):
 
     recipe = await process_recipe_url(url)
     if recipe is None:
-        return _add_error(
-            request,
-            "Couldn't parse a recipe from that URL. If the site isn't "
-            "supported, run /prompt_url in the bot, hand the prompt to an "
-            "LLM, and upload the resulting JSON-LD file below.",
-        )
+        return _add_error(request, "Couldn't parse a recipe from that URL.")
     recipe_id = library.upsert_recipe(url, recipe)
     push_recipe_to_display(library.get_recipe(recipe_id))
     log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
@@ -302,9 +307,10 @@ async def add_url(request: Request, url: str = Form(...)):
 async def add_file(request: Request, file: UploadFile = File(...)):
     """Single upload endpoint — dispatches by content type / extension.
 
-    Images go through process_photo (resize + dither → panel-only, not
-    saved). JSON files go through parse_recipe_jsonld (upserted into the
-    library, same dedup-by-URL behaviour as the URL ingest path).
+    Images go through process_photo (resize + dither → display-only,
+    not saved). JSON files go through parse_recipe_jsonld (upserted
+    into the library, same dedup-by-URL behaviour as the URL ingest
+    path).
     """
     _require_auth(request)
     ct = (file.content_type or "").lower()
@@ -318,11 +324,7 @@ async def add_file(request: Request, file: UploadFile = File(...)):
         return await _add_photo_bytes(request, file)
     if is_json:
         return await _add_jsonld_bytes(request, file)
-    return _add_error(
-        request,
-        "Unsupported file. Pick an image (photo for the panel) or a "
-        "<code>.json</code> file (schema.org Recipe JSON-LD).",
-    )
+    return _add_error(request, "Pick an image or a `.json` file.")
 
 
 async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
@@ -336,14 +338,10 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
         img = process_photo(raw)
     except Exception:
         log.exception("Web photo processing failed")
-        return _add_error(
-            request,
-            "Couldn't process that image. Try a JPEG or PNG under "
-            f"{_PHOTO_MAX_BYTES // (1024 * 1024)} MB.",
-        )
+        return _add_error(request, "Couldn't read that image.")
     display_state.set_image(img, content_type="photo")
     log.info("Web add (photo): %d bytes", len(raw))
-    return _hx_redirect("/app/status?pushed=photo")
+    return _hx_redirect("/app/status?pushed=image")
 
 
 async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
@@ -356,15 +354,10 @@ async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     try:
         data = json.loads(raw.decode("utf-8"))
     except (ValueError, UnicodeDecodeError):
-        return _add_error(request, "Couldn't parse the file as JSON.")
+        return _add_error(request, "Not valid JSON.")
     parsed = parse_recipe_jsonld(data)
     if parsed is None:
-        return _add_error(
-            request,
-            "No schema.org Recipe found. The JSON must have @type \"Recipe\" "
-            "with at least a name and one of recipeIngredient or "
-            "recipeInstructions.",
-        )
+        return _add_error(request, "No schema.org `Recipe` in that `.json`.")
     recipe, source_url = parsed
     url = source_url or synthetic_url(recipe)
     existing = library.find_by_url(url)
@@ -429,14 +422,14 @@ async def status_page(request: Request):
 @router.get("/_status", response_class=HTMLResponse)
 async def status_partial(request: Request):
     """HTMX partial — re-rendered every 30s by the status page to keep the
-    live device readings + panel preview fresh without a full reload."""
+    live device readings + display preview fresh without a full reload."""
     _require_auth(request)
     return templates.TemplateResponse(request, "_status_body.html", _status_ctx(request))
 
 
 @router.post("/display/clear", response_class=HTMLResponse)
 async def web_display_clear(request: Request):
-    """Clear the panel from the status page — same effect as the bot's /clear."""
+    """Clear the display from the status page — same effect as the bot's /clear."""
     _require_auth(request)
     display_state.clear()
     log.info("Web cleared display")
@@ -509,7 +502,7 @@ async def delete_comment(request: Request, recipe_id: int, comment_id: int):
     return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
 
 
-# --- Push to panel ---------------------------------------------------------
+# --- Push to display -------------------------------------------------------
 
 
 @router.post("/recipes/{recipe_id}/push", response_class=HTMLResponse)
@@ -519,10 +512,10 @@ async def push_recipe(request: Request, recipe_id: int):
     if row is None:
         raise HTTPException(404)
     push_recipe_to_display(row)
-    log.info("Web push to panel: id=%d title=%r", row["id"], row["title"])
+    log.info("Web push to display: id=%d title=%r", row["id"], row["title"])
     return templates.TemplateResponse(
         request, "_toast.html",
-        {"message": f"Pushed “{row['title']}” to the panel."},
+        {"message": f"Pushed “{row['title']}” to the display."},
     )
 
 

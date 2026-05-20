@@ -4,6 +4,10 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
+  {# HTMX 2.0 doesn't swap 4xx responses by default. Our /app/add/*
+     handlers return 400 with an inline error fragment for the user;
+     opt 4xx (and 5xx) back in so those errors land in #add-result. #}
+  <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
   {# Mobile browser chrome (URL bar / status bar) follows the active theme. #}
   <meta name="theme-color" content="#faf8f4" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)">
@@ -69,10 +73,9 @@
   {% endblock %}
 
   <main>
+    <div id="toast"></div>
     {% block content %}{% endblock %}
   </main>
-
-  <div id="toast"></div>
 
   <script>
     function toggleTheme() {

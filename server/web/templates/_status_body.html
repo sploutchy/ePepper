@@ -12,27 +12,31 @@
   </div>
 {% endif %}
 
-{# Live preview of the panel — full-bleed hero so the 800×480 frame reads
-   at a useful size. /image is cookie-authed for the browser; the hash
-   query param doubles as a cache buster so the 30 s refresh always pulls
-   the current frame. #}
+{# Live preview of the display — full-bleed hero so the 800×480 frame
+   reads at a useful size. /image is cookie-authed for the browser; the
+   hash query param doubles as a cache buster so the 30 s refresh
+   always pulls the current frame. #}
 {% if display.hash %}
-  <div class="panel-preview">
-    <img src="/image?v={{ display.hash }}" alt="Current panel">
+  <div class="display-preview">
+    <img src="/image?v={{ display.hash }}" alt="Current display">
   </div>
 {% endif %}
 
 <section class="status-card">
-  <h2>{{ icon("monitor", 18) }} Panel</h2>
+  <h2>{{ icon("monitor", 18) }} Display</h2>
   {% if display.type == "recipe" %}
     <p class="status-line">
-      <strong>{{ display.title }}</strong>
+      {% if display.recipe_id %}
+        <strong><a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a></strong>
+      {% else %}
+        <strong>{{ display.title }}</strong>
+      {% endif %}
       {% if display.total_pages > 1 %}
         <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
       {% endif %}
     </p>
   {% elif display.type == "photo" %}
-    <p class="status-line"><strong>Photo</strong></p>
+    <p class="status-line"><strong>Image</strong></p>
   {% else %}
     <p class="status-line muted">Idle.</p>
   {% endif %}
@@ -41,8 +45,8 @@
   {% if display.type != "idle" %}
     <form class="status-actions"
           hx-post="/app/display/clear"
-          hx-confirm="Clear the panel?">
-      <button class="danger" type="submit">{{ icon("trash", 18) }} Clear panel</button>
+          hx-confirm="Clear the display?">
+      <button class="danger" type="submit">{{ icon("trash", 18) }} Clear</button>
     </form>
   {% endif %}
 </section>

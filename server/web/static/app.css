@@ -363,19 +363,19 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   margin-top: 6px;
 }
 
-/* Toast container is invisible; only actual .toast children show. */
-#toast { position: static; }
+/* Toast / notice — same inline pill shape as .add-error, success-coloured.
+   Used by the recipe page "pushed to display" confirmation, the index
+   undo-after-delete bar, and the status page action confirmations. The
+   container is at the top of <main> so each notification appears above
+   the page's content, like form errors do on the add page. */
+#toast:empty { display: none; }
 .toast {
-  position: fixed;
-  left: 50%;
-  transform: translateX(-50%);
-  bottom: 20px;
-  background: var(--fg);
-  color: var(--bg);
-  padding: 10px 16px;
+  background: var(--primary-soft);
+  border: 1px solid var(--primary);
+  color: var(--fg);
+  padding: 10px 14px;
   border-radius: var(--radius);
-  box-shadow: 0 8px 24px rgba(0,0,0,0.18);
-  z-index: 100;
+  margin: 0 0 12px;
   display: flex;
   gap: 12px;
   align-items: center;
@@ -590,6 +590,17 @@ input[type=file]::file-selector-button {
   border-radius: var(--radius);
   margin: 10px 0;
 }
+.add-error code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+:root[data-theme="dark"] .add-error code { background: rgba(255,255,255,0.08); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .add-error code { background: rgba(255,255,255,0.08); }
+}
 :root[data-theme="dark"] .add-error { color: var(--fg); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .add-error { color: var(--fg); }
@@ -658,12 +669,13 @@ input[type=file]::file-selector-button {
   gap: 4px;
 }
 
-/* Panel preview — full-bleed escape from main's max-width so the 800×480
-   e-ink frame fills the viewport (it's the page's hero). The negative
-   margin trick computes the gap between this element's left edge and the
-   viewport edge. The BMP stays on a light card even in dark mode so the
-   1-bit render reads correctly (the panel itself is white-on-black-ink). */
-.panel-preview {
+/* Display preview — full-bleed escape from main's max-width so the
+   800×480 e-ink frame fills the viewport (it's the page's hero). The
+   negative margin trick computes the gap between this element's left
+   edge and the viewport edge. The BMP stays on a light card even in
+   dark mode so the 1-bit render reads correctly (the display itself
+   is white-on-black-ink). */
+.display-preview {
   margin-left: calc(50% - 50vw);
   margin-right: calc(50% - 50vw);
   width: 100vw;
@@ -677,7 +689,7 @@ input[type=file]::file-selector-button {
   display: flex;
   justify-content: center;
 }
-.panel-preview img {
+.display-preview img {
   width: 100%;
   max-width: 100%;
   height: auto;
