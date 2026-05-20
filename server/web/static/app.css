@@ -321,11 +321,11 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   gap: 8px;
   flex-wrap: wrap;
 }
-/* "from X" chip next to the recipe title. Uses .iconbtn-label for the
-   ≥ 640 px-only show — on phones the row collapses to just the title. */
+/* "from X" chip next to the recipe title — styled like .muted so it
+   matches the "saved …" line below the title visually. */
 .card-source {
-  font-size: 0.9em;
-  font-weight: 400;
+  font-size: 0.92em;
+  font-weight: normal;
   color: var(--muted);
 }
 .card-meta {
