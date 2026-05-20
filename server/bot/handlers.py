@@ -125,6 +125,7 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("surprise", cmd_surprise))
     app.add_handler(CommandHandler("prompt_screenshot", cmd_prompt_screenshot))
     app.add_handler(CommandHandler("prompt_url", cmd_prompt_url))
+    app.add_handler(CommandHandler("prompt_croqumenus", cmd_prompt_croqumenus))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(
         filters.Document.FileExtension("json") | filters.Document.MimeType("application/json"),
@@ -204,7 +205,8 @@ _HELP_TEXT = (
     "Send a photo, a URL, or a .json (schema.org Recipe).\n"
     "/recipe &lt;url&gt; — force-parse a specific URL\n"
     "/prompt_screenshot — LLM prompt to OCR a photo → JSON-LD\n"
-    "/prompt_url &lt;url&gt; — LLM prompt to fetch a URL → JSON-LD\n\n"
+    "/prompt_url &lt;url&gt; — LLM prompt to fetch a URL → JSON-LD\n"
+    "/prompt_croqumenus &lt;url&gt; — JSON-LD prompt tuned for croqumenus.ch / meintiptopf.ch\n\n"
     "<b>📚 Library</b>\n"
     "Tap 💾 Save under a pushed recipe (rate 1–5 to confirm).\n"
     "/search &lt;query&gt; — find a saved recipe\n"
@@ -324,6 +326,82 @@ def _build_url_prompt(url: str | None) -> str:
     return f"{intro}{template}\n\n{_PROMPT_RULES}"
 
 
+def _build_croqumenus_prompt(url: str | None) -> str:
+    """Site-specific prompt for croqumenus.ch / meintiptopf.ch.
+
+    These two sites share a backend (api.meintiptopf.ch) and embed the recipe
+    as a `recipeDetails` JSON blob in the page HTML. A generic LLM that scrapes
+    the rendered text mangles French grammar (missing partitive `de`, ingredient
+    qualifiers injected mid-sentence). Pointing the LLM at the structured blob
+    plus the transformer quirks gives clean output without an in-tree scraper.
+    See [[project_croqumenus_import_flow]] memory for the rationale.
+    """
+    url_line = url if url else "<paste the croqumenus.ch URL here>"
+    template_url = url if url else "<source URL>"
+    template = _PROMPT_JSON_TEMPLATE.replace(
+        '"@type": "Recipe",',
+        f'"@type": "Recipe",\n  "url": "{template_url}",',
+    )
+    return (
+        f"Fetch this croqumenus.ch (or meintiptopf.ch) URL and convert it to "
+        f"schema.org Recipe JSON-LD:\n  {url_line}\n\n"
+        "These two sites embed the recipe as a JSON blob in the HTML — DO NOT "
+        "scrape the rendered text, use the blob (the rendered prose has "
+        "ambiguous quantities and the LLM-flattening produces broken French).\n\n"
+        "1. Fetch with `curl -sL -A \"Mozilla/5.0 (X11; Linux x86_64) "
+        "AppleWebKit/537.36\"` — a default User-Agent returns a stripped page.\n"
+        "2. Locate `\"recipeDetails\":{...}` in the HTML and extract the object "
+        "by brace-matching (response is ~1.5 MB, with strings escaped).\n"
+        "3. Field map:\n"
+        "   - `rezept_titel` → `name`\n"
+        "   - `zubereitungszeit` (minutes, already the total) → `totalTime` "
+        "as ISO 8601 (e.g. 75 → PT1H15M)\n"
+        "   - `anzahl_portionen_big` → `recipeYield` as `\"N portions\"`; "
+        "fallback to HTML-stripped `portionsgroesse` (e.g. `plaque de cuisson`)\n"
+        "   - `inLanguage`: `\"fr\"` for croqumenus.ch, `\"de\"` for meintiptopf.ch\n"
+        "4. Iterate `steps_portion_big`. Each entry has `step_titel`, "
+        "`step_beschreibung` (HTML `<ul><li>...</li></ul>` — strip `<a "
+        "class=\"glossary-term\">` keeping inner text, treat each `<li>` as one "
+        "action phrase), and `step_zutaten` (ingredients used in that step).\n"
+        "5. Build the master `recipeIngredient` list by concatenating all "
+        "`step_zutaten` IN ORDER, with these filters:\n"
+        "   - SKIP entries whose `zutat_namen` ends in "
+        "`préparé/préparée/préparés/préparées` — back-references to a prior step.\n"
+        "   - An entry with `zutat_id: 0` and only `step_zutat_freitext` "
+        "populated is an annotation — fold it as ` (note)` onto the PREVIOUS "
+        "ingredient.\n"
+        "   - Format each ingredient:\n"
+        "     • menge > 0: `{menge} {abkuerzung} {name}` (e.g. "
+        "`400 g pommes de terre`)\n"
+        "     • menge = 0 AND abkuerzung set: `{abkuerzung} {name}` (e.g. "
+        "`un peu poivre`)\n"
+        "     • else: just `{name}` (e.g. `eau`)\n"
+        "6. For each step's text, write a natural French sentence (NOT raw "
+        "bullets):\n"
+        "   - Capitalize the first action verb; integrate the step's "
+        "ingredients into that first phrase, joined with `, ` and a final ` et `"
+        " (e.g. `Verser dans la poêle 2 cs huile, chauffer à feu très vif`).\n"
+        "   - SKIP \"ghost\" ingredients from the step's subject list — menge=0 "
+        "AND no unit AND no freitext AND not a back-ref. They're already "
+        "implied by the action (e.g. don't repeat `eau` when the action says "
+        "`Remplir la casserole d'eau`). They DO stay in the master "
+        "`recipeIngredient` list.\n"
+        "   - Back-refs (`préparé...`) DO appear in the step's subject — they "
+        "tell the reader what to re-add.\n"
+        "   - Subsequent bullets become separate sentences, each capitalized, "
+        "joined with `. `.\n"
+        "   - Prepend `[step_titel] ` if non-empty.\n\n"
+        "Output exactly this shape:\n\n"
+        f"{template}\n\n"
+        "Rules:\n"
+        "- Don't invent or extrapolate any field — omit if not in the source.\n"
+        "- Preserve ingredient quantities and order exactly.\n"
+        "- Output ONE single JSON object inside ONE code block — no "
+        "surrounding prose, no commentary.\n"
+        "- Also offer the JSON as a downloadable file named `recipe.json`."
+    )
+
+
 _PROMPT_OUTRO = (
     "Then send me the <code>recipe.json</code> file — either the one the "
     "assistant offers as a download, or save the code block to a file "
@@ -357,6 +435,31 @@ async def cmd_prompt_url(update: Update, context) -> None:
         else "Pass it to an LLM that can browse (Claude with web tools, "
         "ChatGPT with browsing, Perplexity, …) — or use it as a template "
         "and paste the URL inline.\n\n"
+    )
+    await update.message.reply_text(
+        f"{intro_extra}Tap-and-hold to copy:\n\n"
+        f"<pre>{html.escape(prompt)}</pre>\n\n"
+        f"{_PROMPT_OUTRO}",
+        parse_mode="HTML",
+    )
+
+
+async def cmd_prompt_croqumenus(update: Update, context) -> None:
+    """Emit a croqumenus.ch / meintiptopf.ch-specific JSON-LD prompt.
+
+    Exploits the embedded `recipeDetails` blob so the LLM doesn't have to
+    re-derive ingredient/step alignment from rendered prose (which produces
+    broken French — see [[project_croqumenus_import_flow]]).
+    """
+    if not _is_allowed(update.effective_user.id):
+        return
+    url = context.args[0].strip() if context.args else None
+    prompt = _build_croqumenus_prompt(url)
+    intro_extra = (
+        ""
+        if url
+        else "Best run in an LLM with code execution (Claude Code, ChatGPT "
+        "with code interpreter) so it can curl + brace-match the JSON blob.\n\n"
     )
     await update.message.reply_text(
         f"{intro_extra}Tap-and-hold to copy:\n\n"
