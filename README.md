@@ -247,6 +247,7 @@ Three physical buttons:
 | `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the library hasn't changed since the previous one. Unset = backups disabled. |
 | `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
 | `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
+| `DEVICE_WAKE_HOUR_LOCAL` | *Optional, default `6`.* Wall-clock hour (0–23) the e-ink panel aligns its daily timer wake to — so the panel is fresh when you walk into the kitchen at breakfast instead of drifting via a flat 24 h offset from the last button press. The server returns the seconds-until-next-hit as `next_wake_in_s` on every `/version` query. |
 
 ### Web app (`/app/`)
 
@@ -410,7 +411,7 @@ it leaked the key into container logs.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/version` | Current image hash + page info. ESP32 hits this on every wake to decide whether to refetch. |
+| `GET` | `/version` | Current image hash, page info, and `next_wake_in_s` (seconds until the device's next aligned wake at `DEVICE_WAKE_HOUR_LOCAL`). ESP32 hits this on every wake. |
 | `GET` | `/image` | Current page as a 1-bit BMP. Defaults to the active page. |
 | `GET` | `/image?page=N` | Specific page as BMP. |
 | `POST` | `/page/next` | Advance to next page (wraps at the end). |
@@ -520,6 +521,12 @@ pio device monitor -b 115200
   polling).
 - On wake: pings `/version`, compares the hash; if changed, refetches
   the current page's BMP and redraws.
+- The `/version` response carries `next_wake_in_s` — the firmware
+  uses it to land its next timer wake at `DEVICE_WAKE_HOUR_LOCAL`
+  local time (default `06:00`) instead of drifting 24 h from the
+  last button press. Server is the source of truth for when, so
+  there's no UTC↔local conversion on the device. Falls back to a
+  flat 24 h on /version failure or out-of-range values.
 - Posts a `/device/status` report on every wake — battery mV, RSSI,
   SHT40 temp + humidity (if present).
 - Keeps approximate wall-clock time from the HTTP `Date:` header on
