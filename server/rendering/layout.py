@@ -97,10 +97,10 @@ def render_idle() -> Image.Image:
 
 # Localized column headings and page label
 _L10N = {
-    "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen", "notes": "Notizen"},
-    "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page", "servings": "portions", "notes": "Notes"},
-    "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina", "servings": "porzioni", "notes": "Note"},
-    "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page", "servings": "servings", "notes": "Notes"},
+    "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen", "notes": "Notizen", "from": "aus"},
+    "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page", "servings": "portions", "notes": "Notes", "from": "de"},
+    "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina", "servings": "porzioni", "notes": "Note", "from": "da"},
+    "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page", "servings": "servings", "notes": "Notes", "from": "from"},
 }
 
 
@@ -154,7 +154,7 @@ def render_recipe(
     if source:
         try:
             last_w = font_title.getlength(title_lines[-1])
-            src_w = font_meta.getlength(f"  from {source}")
+            src_w = font_meta.getlength(f"  {strings['from']} {source}")
             usable = DISPLAY_WIDTH - 2 * MARGIN
             source_inline = last_w + src_w <= usable
         except AttributeError:
@@ -349,12 +349,12 @@ def render_recipe(
                 src_y = y + (font_title.size - font_meta.size) - 2
                 draw.text(
                     (MARGIN + last_w + 8, src_y),
-                    f"from {source}",
+                    f"{strings['from']} {source}",
                     font=font_meta, fill=0,
                 )
             y += font_title.size + 4
         if source and not source_inline:
-            draw.text((MARGIN, y), f"from {source}", font=font_meta, fill=0)
+            draw.text((MARGIN, y), f"{strings['from']} {source}", font=font_meta, fill=0)
             y += font_meta.size + 4
         y += 4
 
