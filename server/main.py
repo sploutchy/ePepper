@@ -12,7 +12,7 @@ import uvicorn
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
-from scheduler import anniversary_loop, heartbeat_loop
+from scheduler import midnight_loop, heartbeat_loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -38,8 +38,8 @@ async def main() -> None:
     await bot.updater.start_polling(drop_pending_updates=True)
     log.info("Telegram bot started")
 
-    # Background schedulers: midnight anniversary swap + hourly heartbeat check
-    anniversary_task = asyncio.create_task(anniversary_loop(), name="anniversary_loop")
+    # Background schedulers: midnight daily-chores tick + hourly heartbeat check
+    midnight_task = asyncio.create_task(midnight_loop(), name="midnight_loop")
     heartbeat_task = asyncio.create_task(heartbeat_loop(), name="heartbeat_loop")
 
     # Start FastAPI server
@@ -56,7 +56,7 @@ async def main() -> None:
         await server.serve()
     finally:
         log.info("Shutting down...")
-        for task in (anniversary_task, heartbeat_task):
+        for task in (midnight_task, heartbeat_task):
             task.cancel()
             try:
                 await task

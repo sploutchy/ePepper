@@ -1,11 +1,16 @@
 """Background schedulers.
 
-`anniversary_loop` runs at every local midnight. It first pushes a
-recipe to the display — a saved recipe whose calendar day matches
-today (any past year), falling back to one of Fooby's "Inspiration
-de la semaine" recipes (French), rotated by ISO weekday. It then
-triggers a daily DB backup (only if the library was written to since
-the previous upload), folding both midnight jobs into one task.
+`midnight_loop` is the daily multipurpose tick. At every local midnight
+it runs the day's chores in order:
+
+  1. Push a recipe to the display — a saved recipe whose calendar day
+     matches today (any past year), falling back to one of Fooby's
+     "Inspiration de la semaine" recipes (French), rotated by ISO
+     weekday so the seven slots cycle deterministically through the
+     week.
+  2. Trigger a daily DB backup, which uploads a gzipped snapshot to
+     the configured Telegram chat only if the library was written to
+     since the previous upload.
 
 Manual Telegram pushes during the day are preserved — they win until
 the next midnight tick.
@@ -111,9 +116,11 @@ async def _push_fooby_inspiration_for(today: datetime) -> None:
     )
 
 
-async def anniversary_loop() -> None:
-    """Run forever: sleep until next local midnight, then push an anniversary
-    (or Fooby fallback) and run the daily backup if the DB has changed."""
+async def midnight_loop() -> None:
+    """Run forever: sleep until next local midnight, run each day's chores
+    in order (anniversary push, then DB backup), survive failures in any
+    one so the others still execute. Each chore handles its own no-op
+    case (e.g. backup skips the upload when nothing changed)."""
     while True:
         now = datetime.now(TZ)
         sleep_s = _seconds_until_next_local_midnight(now)
@@ -133,8 +140,6 @@ async def anniversary_loop() -> None:
                 await _push_fooby_inspiration_for(today)
         except Exception:
             log.exception("Midnight push failed; backup will still run")
-        # Daily DB snapshot — runs unconditionally each tick; backup itself
-        # skips the upload when nothing has changed.
         try:
             await backup.flush_if_dirty()
         except Exception:
