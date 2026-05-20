@@ -620,6 +620,7 @@ async def cmd_search(update: Update, context) -> None:
     buttons = []
     for i, r in enumerate(results, start=1):
         title = html.escape(r["title"])
+        src_html = _format_source_html(r.get("url"))
         if r.get("last_displayed_at"):
             last = datetime.fromtimestamp(r["last_displayed_at"]).strftime("%d.%m.%Y")
             count = r.get("displayed_count") or 0
@@ -628,7 +629,10 @@ async def cmd_search(update: Update, context) -> None:
             )
         else:
             cooked_label = "never cooked"
-        lines.append(f"<b>{i}.</b> {title}")
+        header = f"<b>{i}.</b> {title}"
+        if src_html:
+            header += f" {src_html}"
+        lines.append(header)
         lines.append(f"<i>   {cooked_label}</i>")
         lines.append("")
         buttons.append(InlineKeyboardButton(str(i), callback_data=f"push:{r['id']}"))
@@ -636,6 +640,7 @@ async def cmd_search(update: Update, context) -> None:
     await update.message.reply_text(
         "\n".join(lines).rstrip(),
         parse_mode="HTML",
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup([buttons]),
     )
 
@@ -658,8 +663,9 @@ async def cmd_surprise(update: Update, context) -> None:
     total = display_state.get()["total_pages"]
     log.info("Surprise push: id=%d title=%r", row["id"], row["title"])
     await update.message.reply_text(
-        "🎲 " + _format_push_reply(row["title"], total),
+        "🎲 " + _format_push_reply(row["title"], row.get("url"), total),
         parse_mode="HTML",
+        disable_web_page_preview=True,
     )
 
 
@@ -764,8 +770,9 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
             return
         total = display_state.get()["total_pages"]
         await msg.edit_text(
-            _format_push_reply(existing["title"], total),
+            _format_push_reply(existing["title"], existing.get("url"), total),
             parse_mode="HTML",
+            disable_web_page_preview=True,
         )
         return
 
@@ -779,17 +786,38 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
 
     token = _stash_pending(url, recipe)
     await msg.edit_text(
-        _format_push_reply(recipe["title"], total_pages),
+        _format_push_reply(recipe["title"], url, total_pages),
         parse_mode="HTML",
+        disable_web_page_preview=True,
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("💾 Save", callback_data=f"save:{token}")
         ]]),
     )
 
 
-def _format_push_reply(title: str, total_pages: int) -> str:
+def _format_source_html(url: str | None) -> str:
+    """Render '<i>from Source</i>' (linkified for http(s) URLs) or '' if no source.
+
+    Mirrors the style used by cmd_status so the bot's push confirmations,
+    search results, and status panel all describe a recipe's origin the
+    same way.
+    """
+    src = source_name(url) if url else None
+    if not src:
+        return ""
+    if url and (url.startswith("http://") or url.startswith("https://")):
+        src_html = f"<a href=\"{html.escape(url)}\">{html.escape(src)}</a>"
+    else:
+        src_html = html.escape(src)
+    return f"<i>from {src_html}</i>"
+
+
+def _format_push_reply(title: str, url: str | None, total_pages: int) -> str:
     """Two-line confirmation for a pushed recipe (HTML, matches /status style)."""
     body = f"✅ <b>{html.escape(title)}</b>"
+    src_html = _format_source_html(url)
+    if src_html:
+        body += f" {src_html}"
     if total_pages > 1:
         body += f"\n📄 {total_pages} pages"
     return body
