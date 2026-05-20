@@ -295,20 +295,27 @@ Schema:
 `saved_at` is the canonical "first rated" timestamp — never moves once
 set. `last_displayed_at` is bumped every time the row is pushed to the
 panel (web *Display* button, bot `/surprise`, `/search` push, anniversary
-scheduler, …) and drives the library's "recently shown" sort + the
-anniversary picker. NULL is a first-class state ("never shown") — rows in
-a library upgraded from before this column existed start NULL and only
+scheduler, …) and drives the library's "recently cooked" sort + the
+anniversary picker. NULL is a first-class state ("never cooked") — rows
+in a library upgraded from before this column existed start NULL and only
 get populated when something pushes them, so existing recipes show up as
-**never shown** in the library list and on the detail page until you
-display one. In the "recently shown" sort they sink to the bottom; in
-the "least recently shown" sort they float to the top (nothing is more
-stale than a recipe you've never displayed).
+**never cooked** in the library list and on the detail page until you
+display one. In the "recently cooked" sort they sink to the bottom; in
+the "least recently cooked" sort they float to the top (nothing is more
+stale than a recipe you've never cooked).
 
 `displayed_count` is incremented alongside `last_displayed_at`, so the
-library knows how many times you've cooked each recipe. It surfaces as
-a `· 5×` chip on the library cards, a "cooked N×" line on the detail
-page, and a **Most cooked** sort option in the library header. Counts
-start at 0 for everything on upgrade; only future pushes accumulate.
+library knows how many times you've cooked each recipe. The library card
+and detail page render `cooked N×, last DD.MM.YYYY` (or just `cooked
+DD.MM.YYYY` after a single cook), and there's a **Most cooked** sort
+option in the library header. Counts start at 0 for everything on
+upgrade; only future pushes accumulate.
+
+Note: pushing a recipe to the panel is the only thing that bumps these
+columns. Adding a recipe via the web `/app/add` page just lands it in
+the library; the panel doesn't change until you click **Display** on
+its detail page. The bot's URL-paste flow is the exception — that's a
+"send to display" command by design.
 
 The `url` column carries one of three URL shapes, all of which
 participate in the `UNIQUE` index:

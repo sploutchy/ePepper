@@ -65,7 +65,7 @@ def _push_anniversary_for(today: datetime) -> bool:
         return True
     push_recipe_to_display(row)
     log.info(
-        "Pushed anniversary recipe id=%d title=%r (last shown %s)",
+        "Pushed anniversary recipe id=%d title=%r (last cooked %s)",
         row["id"], row["title"],
         datetime.fromtimestamp(row["last_displayed_at"]).date().isoformat(),
     )
