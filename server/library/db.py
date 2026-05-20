@@ -1,20 +1,19 @@
 """SQLite-backed recipe library.
 
 Schema:
-    recipes  (id, url, title, parsed_json, lang, rating, saved_at,
+    recipes  (id, url, title, parsed_json, lang, saved_at,
               last_displayed_at, displayed_count, created_at,
               deleted_at, source)
     comments (id, recipe_id, body, created_at)
     sessions (token_hash, created_at, expires_at)
 
-`saved_at` is NULL until the user explicitly saves the recipe via the
-inline button; until then the row is just a cached copy of the parsed
-recipe so we can re-render it on demand. `last_displayed_at` is bumped
-every time a saved row gets pushed to the panel (see `touch_displayed`),
-and drives the "recently shown" sort + the anniversary scheduler.
-`displayed_count` is incremented alongside it so the library can show
-"cooked N×" and offer a "most cooked" sort. `created_at` is set on
-first upsert.
+`saved_at` is NULL until the user explicitly saves the recipe; until then
+the row is just a cached copy of the parsed recipe so we can re-render it
+on demand. `last_displayed_at` is bumped every time a saved row gets
+pushed to the panel (see `touch_displayed`), and drives the "recently
+cooked" sort + the anniversary scheduler. `displayed_count` is
+incremented alongside it so the library can show "cooked N×" and offer
+a "most cooked" sort. `created_at` is set on first upsert.
 
 All timestamps are Unix seconds (integer).
 """
@@ -43,7 +42,6 @@ CREATE TABLE IF NOT EXISTS recipes (
     title             TEXT NOT NULL,
     parsed_json       TEXT NOT NULL,
     lang              TEXT NOT NULL,
-    rating            INTEGER,
     saved_at          INTEGER,
     created_at        INTEGER NOT NULL,
     deleted_at        INTEGER,
@@ -132,6 +130,7 @@ def init_db() -> None:
         _migrate_add_source(conn)
         _migrate_add_last_displayed(conn)
         _migrate_add_displayed_count(conn)
+        _migrate_drop_rating(conn)
         _migrate_normalize_urls(conn)
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
@@ -205,6 +204,19 @@ def _migrate_add_displayed_count(conn: sqlite3.Connection) -> None:
             "ALTER TABLE recipes ADD COLUMN displayed_count INTEGER NOT NULL DEFAULT 0"
         )
         log.info("Migration: added recipes.displayed_count column")
+
+
+def _migrate_drop_rating(conn: sqlite3.Connection) -> None:
+    """Drop the legacy `rating` column. Idempotent.
+
+    Ratings were removed in favour of `displayed_count` as the implicit
+    "favourite" signal — what you actually cook is a better proxy than
+    a self-report. Requires SQLite ≥ 3.35 (CPython 3.12 bundles 3.40+).
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
+    if "rating" in cols:
+        conn.execute("ALTER TABLE recipes DROP COLUMN rating")
+        log.info("Migration: dropped recipes.rating column")
 
 
 def _ingredients_text(parsed_json: str) -> str:
@@ -281,7 +293,8 @@ def upsert_recipe(url: str, recipe: dict) -> int:
     """Insert or update a recipe by URL. Returns the recipe id.
 
     Always overwrites title / parsed_json / lang so a re-fetched recipe
-    picks up corrected parsing. Leaves rating / saved_at untouched. Clears
+    picks up corrected parsing. Leaves saved_at / last_displayed_at /
+    displayed_count untouched. Clears
     `deleted_at` on conflict — re-pushing a URL is an explicit user signal
     that they want the recipe back (caller would also crash on the get_recipe
     that follows, since that filter excludes soft-deleted rows).
@@ -323,7 +336,6 @@ def _row_to_dict(row) -> dict:
         "title": row["title"],
         "recipe": json.loads(row["parsed_json"]),
         "lang": row["lang"],
-        "rating": row["rating"],
         "saved_at": row["saved_at"],
         "last_displayed_at": row["last_displayed_at"],
         "displayed_count": row["displayed_count"],
@@ -335,7 +347,7 @@ def get_recipe(recipe_id: int) -> dict | None:
     """Fetch a non-deleted recipe row + parsed dict. None if not found."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at "
             "FROM recipes WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
@@ -347,25 +359,19 @@ def find_by_url(url: str) -> dict | None:
     canonical = normalize_url(url)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at "
             "FROM recipes WHERE url = ? AND deleted_at IS NULL",
             (canonical,),
         ).fetchone()
     return _row_to_dict(row) if row else None
 
 
-def save_unrated(recipe_id: int) -> bool:
-    """Mark a recipe as saved without setting a rating. Returns True if a
-    row was updated.
+def save_recipe(recipe_id: int) -> bool:
+    """Mark a recipe as saved. Returns True if a row was updated.
 
     Idempotent — `saved_at` is set via COALESCE, so re-calling on an
     already-saved row doesn't move the original save date. Also clears
     `deleted_at` so re-adding a previously-deleted URL restores the row.
-
-    Used by the web "Add" flow (URL paste / JSON-LD upload) so a fresh
-    paste lands in the library immediately and the user can rate it
-    later. The bot's Save → rating button flow keeps its explicit
-    save-via-`mark_saved` step.
     """
     now = int(time.time())
     with _connect() as conn:
@@ -374,32 +380,6 @@ def save_unrated(recipe_id: int) -> bool:
             "SET saved_at = COALESCE(saved_at, ?), deleted_at = NULL "
             "WHERE id = ?",
             (now, recipe_id),
-        )
-    return cur.rowcount > 0
-
-
-def mark_saved(recipe_id: int, rating: int) -> bool:
-    """Set rating + saved_at on a recipe. Returns True if the row was updated.
-
-    Returns False on either an out-of-range rating or a missing row, matching
-    the "rows-affected" convention used by the rest of the module.
-
-    Also clears `deleted_at` — re-saving a previously-deleted URL restores
-    the row, matching user intent (the Save button is the only way to keep
-    something in the library). Doesn't touch `last_displayed_at`: rating a
-    recipe isn't displaying it. A row that has never been pushed (e.g.
-    rated via the web widget without a push) stays "never shown" until a
-    real display.
-    """
-    if not 1 <= rating <= 5:
-        return False
-    now = int(time.time())
-    with _connect() as conn:
-        cur = conn.execute(
-            "UPDATE recipes "
-            "SET rating = ?, saved_at = COALESCE(saved_at, ?), deleted_at = NULL "
-            "WHERE id = ?",
-            (rating, now, recipe_id),
         )
     return cur.rowcount > 0
 
@@ -517,7 +497,7 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at
+            SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at
             FROM recipes
             WHERE saved_at IS NOT NULL
               AND deleted_at IS NULL
@@ -536,14 +516,12 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
 # spliced into SQL, so the dict is the trust boundary — never accept
 # free-form sort strings. "recent" / "oldest" key off `last_displayed_at`
 # so the library surfaces "what have I cooked lately?" instead of "when
-# did I first save this?". NULL `last_displayed_at` = "never shown":
-#   - "recent" puts never-shown at the bottom (nothing recent to surface)
-#   - "oldest" puts never-shown at the top (nothing's more stale than that)
+# did I first save this?". NULL `last_displayed_at` = "never cooked":
+#   - "recent" puts never-cooked at the bottom (nothing recent to surface)
+#   - "oldest" puts never-cooked at the top (nothing's more stale than that)
 # `saved_at` is the secondary tie-break so deploy-day libraries (all-NULL
 # `last_displayed_at`) match the prior newest-saved / oldest-saved ordering.
 _SORT_ORDERS: dict[str, str] = {
-    "rated": "r.rating DESC NULLS LAST, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "rated_low": "r.rating ASC NULLS LAST, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
     "oldest": "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
     "recent": "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
     "most_cooked": "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
@@ -555,18 +533,13 @@ def list_recipes(
     limit: int = 20,
     query: str | None = None,
     sort: str | None = None,
-    min_rating: int | None = None,
     source: str | None = None,
 ) -> list[dict]:
     """Paginated list of saved, non-deleted recipes.
 
     sort: one of the keys in _SORT_ORDERS, or None. When None and a
     query is given, results come from FTS5 ordered by relevance; with no
-    query and no sort, newest-saved first.
-
-    min_rating: hides recipes rated below this value (1–5). NULL ratings
-    are always filtered out when min_rating is set, since "≥ N" is
-    meaningless for an unrated row.
+    query and no sort, most-recently-cooked first.
 
     source: lowercase source key (matching `source_name(url).lower()`).
     Filters to recipes whose stored `source` column equals this value.
@@ -574,9 +547,6 @@ def list_recipes(
     order_by = _SORT_ORDERS.get(sort) if sort else None
     where_extra = ""
     extra_params: list = []
-    if min_rating is not None and 1 <= min_rating <= 5:
-        where_extra += " AND r.rating >= ? "
-        extra_params.append(min_rating)
     if source:
         where_extra += " AND r.source = ? "
         extra_params.append(source.lower())
@@ -590,7 +560,7 @@ def list_recipes(
         with _connect() as conn:
             rows = conn.execute(
                 f"""
-                SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
+                SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
                        r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
                 FROM recipes_fts f
                 JOIN recipes r ON r.id = f.rowid
@@ -608,7 +578,7 @@ def list_recipes(
         with _connect() as conn:
             rows = conn.execute(
                 f"""
-                SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
+                SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
                        r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
                 FROM recipes r
                 WHERE r.saved_at IS NOT NULL AND r.deleted_at IS NULL
@@ -626,7 +596,7 @@ def random_recipe() -> dict | None:
     the library is empty. Used by the bot's /surprise command."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at "
             "FROM recipes "
             "WHERE saved_at IS NOT NULL AND deleted_at IS NULL "
             "ORDER BY RANDOM() LIMIT 1"
@@ -655,8 +625,9 @@ _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 def search(query: str, limit: int = 5) -> list[dict]:
     """Full-text search over saved recipes (title + ingredients + comments).
 
-    Only returns recipes the user explicitly saved (rating set). Most relevant
-    first. The query is tokenized into quoted phrases so FTS5 operators in user
+    Only returns recipes the user explicitly saved (saved_at set). Most
+    relevant first. The query is tokenized into quoted phrases so FTS5
+    operators in user
     input (AND/OR/NOT/quotes) can't break the parser.
     """
     tokens = _FTS_TOKEN_RE.findall(query)
@@ -666,7 +637,7 @@ def search(query: str, limit: int = 5) -> list[dict]:
     with _connect() as conn:
         rows = conn.execute(
             """
-            SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
+            SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
                    r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
             FROM recipes_fts f
             JOIN recipes r ON r.id = f.rowid

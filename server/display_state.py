@@ -34,13 +34,11 @@ _state: dict[str, Any] = {
 _pages: dict[int, Image.Image] = {}
 
 # Cached render inputs so push_recipe_to_display callers don't have to
-# resupply comments / rating on small mutations (cmd_comment, cmd_rate
-# both re-fetch the row and re-set_recipe). Only populated for recipe
+# resupply comments on small mutations. Only populated for recipe
 # content; photos render once and never reflow.
 _recipe_inputs: dict[str, Any] = {
     "recipe": None,
     "comments": [],
-    "rating": None,
     "url": None,
 }
 
@@ -58,7 +56,7 @@ _device: dict[str, Any] = {
 def set_image(img: Image.Image, content_type: str = "photo", title: str = "", lang: str = "en") -> None:
     """Set a single-page image as the current display content."""
     _pages.clear()
-    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None, "url": None})
+    _recipe_inputs.update({"recipe": None, "comments": [], "url": None})
     _pages[1] = img
     _update_state(content_type=content_type, title=title, total_pages=1, lang=lang, recipe_id=None, url=None)
 
@@ -66,7 +64,6 @@ def set_image(img: Image.Image, content_type: str = "photo", title: str = "", la
 def set_recipe(
     recipe: dict,
     comments: list[str],
-    rating: int | None = None,
     recipe_id: int | None = None,
     url: str | None = None,
 ) -> None:
@@ -79,7 +76,6 @@ def set_recipe(
     inputs = {
         "recipe": recipe,
         "comments": list(comments),
-        "rating": rating,
         "url": url,
     }
     # Render first (may raise — exception propagates to the caller). The
@@ -117,19 +113,18 @@ def _render_pages(inputs: dict) -> dict[int, Image.Image]:
     if recipe is None:
         return {}
     comments = inputs["comments"]
-    rating = inputs["rating"]
     # Pull the source name off the URL the same way the web + bot do, so
     # the panel header matches what those surfaces show.
     source = source_name(inputs.get("url"))
 
     pages: dict[int, Image.Image] = {}
     first_img, total = render_recipe(
-        recipe, page=1, comments=comments, rating=rating, source=source,
+        recipe, page=1, comments=comments, source=source,
     )
     pages[1] = first_img
     for p in range(2, total + 1):
         page_img, _ = render_recipe(
-            recipe, page=p, comments=comments, rating=rating, source=source,
+            recipe, page=p, comments=comments, source=source,
         )
         pages[p] = page_img
     return pages
@@ -147,7 +142,7 @@ def set_page(page: int) -> bool:
 def clear() -> None:
     """Clear the display (idle state)."""
     _pages.clear()
-    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None, "url": None})
+    _recipe_inputs.update({"recipe": None, "comments": [], "url": None})
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],
         "type": "idle",

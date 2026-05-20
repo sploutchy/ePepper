@@ -82,10 +82,6 @@ def _require_auth(request: Request) -> None:
     raise HTTPException(303, headers={"Location": "/app/login"})
 
 
-def _stars(rating: int | None) -> str:
-    return ("⭐" * rating) if rating else ""
-
-
 def _fmt_saved(ts: int | None) -> str:
     if not ts:
         return "—"
@@ -130,7 +126,6 @@ def _instruction_groups(recipe: dict) -> list[dict]:
 def _context_globals(request: Request) -> dict:
     return {
         "request": request,
-        "stars": _stars,
         "fmt_saved": _fmt_saved,
         "ingredients": _ingredients,
         "instruction_groups": _instruction_groups,
@@ -207,7 +202,7 @@ async def logout(request: Request):
 _PAGE_SIZE = 20
 
 
-_VALID_SORTS = {"rated", "rated_low", "oldest", "recent", "most_cooked"}
+_VALID_SORTS = {"oldest", "recent", "most_cooked"}
 
 
 def _sanitize_sort(sort: str | None) -> str | None:
@@ -215,18 +210,6 @@ def _sanitize_sort(sort: str | None) -> str | None:
     key into SQL via a separate dict, but we still drop garbage here so the
     template's `selected` markers reflect reality."""
     return sort if sort in _VALID_SORTS else None
-
-
-def _sanitize_min_rating(min_rating: str | None) -> int | None:
-    """Tolerate an empty string from the "All ratings" select / pagination
-    template, which FastAPI would otherwise 422 on for an `int | None` param."""
-    if not min_rating:
-        return None
-    try:
-        n = int(min_rating)
-    except ValueError:
-        return None
-    return n if 1 <= n <= 5 else None
 
 
 def _sanitize_source(source: str | None) -> str | None:
@@ -243,7 +226,6 @@ def _list_context(
     q: str,
     offset: int,
     sort: str | None,
-    min_rating: int | None,
     source: str | None,
 ) -> dict:
     rows = library.list_recipes(
@@ -251,7 +233,6 @@ def _list_context(
         limit=_PAGE_SIZE + 1,
         query=q or None,
         sort=sort,
-        min_rating=min_rating,
         source=source,
     )
     has_more = len(rows) > _PAGE_SIZE
@@ -261,13 +242,11 @@ def _list_context(
         "recipes": rows,
         "q": q,
         "sort": sort or "",
-        "min_rating": min_rating,
         "source": source or "",
         "sources": library.list_sources(),
         "offset": offset,
         "next_offset": offset + _PAGE_SIZE,
         "has_more": has_more,
-        "stars": _stars,
         "fmt_saved": _fmt_saved,
         # Helpers for the per-row source chip on the list cards.
         "source_name": source_name,
@@ -283,15 +262,13 @@ async def index(
     q: str = "",
     offset: int = 0,
     sort: str | None = None,
-    min_rating: str | None = None,
     source: str | None = None,
 ):
     _require_auth(request)
     sort = _sanitize_sort(sort)
-    parsed_min_rating = _sanitize_min_rating(min_rating)
     source = _sanitize_source(source)
     ctx = _context_globals(request)
-    ctx.update(_list_context(request, q, offset, sort, parsed_min_rating, source))
+    ctx.update(_list_context(request, q, offset, sort, source))
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -301,16 +278,14 @@ async def search_partial(
     q: str = "",
     offset: int = 0,
     sort: str | None = None,
-    min_rating: str | None = None,
     source: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
-    sort, or rating filter changes, or the Load more button is tapped."""
+    sort, or source filter changes, or the Load more button is tapped."""
     _require_auth(request)
     sort = _sanitize_sort(sort)
-    parsed_min_rating = _sanitize_min_rating(min_rating)
     source = _sanitize_source(source)
-    ctx = _list_context(request, q, offset, sort, parsed_min_rating, source)
+    ctx = _list_context(request, q, offset, sort, source)
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
 
@@ -377,7 +352,7 @@ async def add_url(request: Request, url: str = Form(...)):
     if recipe is None:
         return _add_error(request, "Couldn't parse a recipe from that URL.")
     recipe_id = library.upsert_recipe(url, recipe)
-    library.save_unrated(recipe_id)
+    library.save_recipe(recipe_id)
     log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
     return _hx_redirect(f"/app/recipes/{recipe_id}")
 
@@ -449,7 +424,7 @@ async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
         log.info("Web add (existing JSON-LD): id=%d", existing["id"])
         return _hx_redirect(f"/app/recipes/{existing['id']}")
     recipe_id = library.upsert_recipe(url, recipe)
-    library.save_unrated(recipe_id)
+    library.save_recipe(recipe_id)
     log.info("Web add (JSON-LD): id=%d title=%r", recipe_id, recipe.get("title"))
     return _hx_redirect(f"/app/recipes/{recipe_id}")
 
@@ -540,22 +515,6 @@ async def recipe_detail(request: Request, recipe_id: int):
         "comments": library.get_comments(recipe_id),
     })
     return templates.TemplateResponse(request, "recipe.html", ctx)
-
-
-def _rating_ctx(request: Request, recipe_id: int, rating: int | None) -> dict:
-    return {"request": request, "r_id": recipe_id, "rating": rating, "stars": _stars}
-
-
-@router.post("/recipes/{recipe_id}/rating", response_class=HTMLResponse)
-async def update_rating(request: Request, recipe_id: int, rating: int = Form(...)):
-    _require_auth(request)
-    if not 1 <= rating <= 5:
-        raise HTTPException(400, detail="rating must be 1..5")
-    if not library.mark_saved(recipe_id, rating):
-        raise HTTPException(404)
-    return templates.TemplateResponse(
-        request, "_rating.html", _rating_ctx(request, recipe_id, rating)
-    )
 
 
 def _comments_ctx(request: Request, recipe_id: int) -> dict:

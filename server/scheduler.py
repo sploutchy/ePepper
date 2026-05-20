@@ -106,7 +106,6 @@ async def _push_fooby_inspiration_for(today: datetime) -> None:
     display_state.set_recipe(
         recipe,
         comments=[],
-        rating=None,
         recipe_id=None,
         url=url,
     )
