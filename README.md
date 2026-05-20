@@ -63,10 +63,10 @@ on their anniversary.
   visible branding in the photo). The source surfaces on the library
   cards, the recipe detail page, the bot's `/status`, and inline on
   the e-ink panel (with the "from" word localised).
-- **Anniversary scheduler.** At local midnight, picks a recipe whose
-  saved-at calendar day matches today (any past year) and pushes it.
-  Falls back to Fooby's weekly-inspiration block when no anniversary
-  exists.
+- **Anniversary scheduler.** At local midnight, picks a recipe you
+  displayed on this calendar day in any past year and pushes it again
+  — so a meal you cooked this time last year resurfaces. Falls back to
+  Fooby's weekly-inspiration block when no anniversary exists.
 - **Device monitoring.** Battery %, Wi-Fi RSSI, ambient temp +
   humidity (SHT40), last-seen freshness — visible on the web status
   page and in `/status` on the bot. One-shot alerts go out when
@@ -287,10 +287,28 @@ rating; an image push is never persisted.
 
 Schema:
 
-- `recipes(id, url, title, parsed_json, lang, rating, saved_at, created_at, deleted_at, source)`
+- `recipes(id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at, deleted_at, source)`
 - `comments(id, recipe_id, body, created_at)`
 - `sessions(token_hash, created_at, expires_at)` — web-app session tokens. Only the sha256 hash is stored.
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, notes).
+
+`saved_at` is the canonical "first rated" timestamp — never moves once
+set. `last_displayed_at` is bumped every time the row is pushed to the
+panel (web *Display* button, bot `/surprise`, `/search` push, anniversary
+scheduler, …) and drives the library's "recently shown" sort + the
+anniversary picker. NULL is a first-class state ("never shown") — rows in
+a library upgraded from before this column existed start NULL and only
+get populated when something pushes them, so existing recipes show up as
+**never shown** in the library list and on the detail page until you
+display one. In the "recently shown" sort they sink to the bottom; in
+the "least recently shown" sort they float to the top (nothing is more
+stale than a recipe you've never displayed).
+
+`displayed_count` is incremented alongside `last_displayed_at`, so the
+library knows how many times you've cooked each recipe. It surfaces as
+a `· 5×` chip on the library cards, a "cooked N×" line on the detail
+page, and a **Most cooked** sort option in the library header. Counts
+start at 0 for everything on upgrade; only future pushes accumulate.
 
 The `url` column carries one of three URL shapes, all of which
 participate in the `UNIQUE` index:
@@ -316,12 +334,15 @@ from any prior version restores cleanly.
 
 ### Anniversary scheduler
 
-An `asyncio` task in `server/scheduler.py` sleeps until the next
-local midnight, then picks the most recently-saved recipe whose
-`saved_at` (local time) lands on today's MM-DD in any past year and
-pushes it to the panel. DST-aware — fall-back nights run ~25 h,
-spring-forward nights ~23 h, without drifting away from local
-midnight.
+An `asyncio` task in `server/scheduler.py` sleeps until the next local
+midnight, then picks the most recently-displayed saved recipe whose
+`last_displayed_at` (local time) lands on today's MM-DD in any past
+year and pushes it to the panel. The anniversary tracks your actual
+cooking cadence: a recipe shown on 2025-05-20 resurfaces on 2026-05-20,
+regardless of when it was first saved. Re-displaying a recipe later in
+the year moves its anniversary to the new date. DST-aware — fall-back
+nights run ~25 h, spring-forward nights ~23 h, without drifting away
+from local midnight.
 
 Manual pushes during the day win until the next tick.
 

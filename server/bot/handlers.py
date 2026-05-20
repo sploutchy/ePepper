@@ -669,12 +669,17 @@ async def cmd_search(update: Update, context) -> None:
     for i, r in enumerate(results, start=1):
         stars = ("⭐" * r["rating"]) if r["rating"] else ""
         title = html.escape(r["title"])
-        saved_date = (
-            datetime.fromtimestamp(r["saved_at"]).strftime("%Y-%m-%d")
-            if r["saved_at"] else "—"
-        )
+        if r.get("last_displayed_at"):
+            shown_label = "shown " + datetime.fromtimestamp(
+                r["last_displayed_at"]
+            ).strftime("%Y-%m-%d")
+            count = r.get("displayed_count") or 0
+            if count > 1:
+                shown_label += f" · {count}×"
+        else:
+            shown_label = "never shown"
         lines.append(f"<b>{i}.</b> {title} {stars}".rstrip())
-        lines.append(f"<i>   saved {saved_date}</i>")
+        lines.append(f"<i>   {shown_label}</i>")
         lines.append("")
         buttons.append(InlineKeyboardButton(str(i), callback_data=f"push:{r['id']}"))
 

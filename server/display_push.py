@@ -16,7 +16,11 @@ def push_recipe_to_display(row: dict) -> bool:
     """Render the recipe in `row` with its current comments + rating and push
     to the panel. Returns True on success, False if rendering raised — the
     previous display content is preserved in the failure case (atomic commit
-    inside `display_state.set_recipe`)."""
+    inside `display_state.set_recipe`).
+
+    On success, bumps `last_displayed_at` on the library row so the
+    "recently shown" sort and anniversary scheduler track actual usage.
+    """
     comments = [c["body"] for c in library.get_comments(row["id"])]
     try:
         display_state.set_recipe(
@@ -29,4 +33,5 @@ def push_recipe_to_display(row: dict) -> bool:
     except Exception:
         log.exception("Failed to render recipe id=%s to display", row.get("id"))
         return False
+    library.touch_displayed(row["id"])
     return True

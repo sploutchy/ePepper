@@ -19,6 +19,12 @@
       ·
     {% endif %}
     saved {{ fmt_saved(r.saved_at) }}
+    · {% if r.last_displayed_at -%}
+        last shown {{ fmt_saved(r.last_displayed_at) }}
+        {%- if r.displayed_count and r.displayed_count > 1 %} · cooked {{ r.displayed_count }}×{% endif %}
+      {%- else -%}
+        never shown
+      {%- endif %}
   </p>
 
   <div class="actions">
