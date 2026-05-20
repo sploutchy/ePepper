@@ -493,6 +493,19 @@ def list_recipes(
     return [_row_to_dict(r) for r in rows]
 
 
+def random_recipe() -> dict | None:
+    """Return one randomly-picked saved, non-deleted recipe, or None if
+    the library is empty. Used by the bot's /surprise command."""
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at "
+            "FROM recipes "
+            "WHERE saved_at IS NOT NULL AND deleted_at IS NULL "
+            "ORDER BY RANDOM() LIMIT 1"
+        ).fetchone()
+    return _row_to_dict(row) if row else None
+
+
 def list_sources() -> list[str]:
     """Distinct lowercase source keys from saved, non-deleted recipes,
     sorted alphabetically. Used to populate the library page's source
