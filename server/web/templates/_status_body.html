@@ -56,6 +56,16 @@
   <p class="status-line">
     <strong>{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
   </p>
+  {% if backup_enabled %}
+    <p class="status-line muted">
+      Last backup:
+      {% if last_backup_at %}
+        {{ humanize_ago(last_backup_at) }}
+      {% else %}
+        never
+      {% endif %}
+    </p>
+  {% endif %}
 </section>
 
 <section class="status-card">

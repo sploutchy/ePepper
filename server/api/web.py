@@ -408,6 +408,8 @@ def _status_ctx(request: Request) -> dict:
             datetime.fromtimestamp(display["updated_at"]).strftime("%Y-%m-%d %H:%M")
             if display.get("updated_at") else "—"
         ),
+        "backup_enabled": backup.is_enabled(),
+        "last_backup_at": backup.get_last_backup_at(),
     }
 
 
