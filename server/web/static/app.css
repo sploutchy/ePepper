@@ -32,7 +32,6 @@
   --gap:          14px;
   --shadow:       0 1px 2px rgba(0,0,0,0.04);
 
-  --preview-bg:   #ffffff;
 }
 
 /* Lock the UA color-scheme to the active theme when the user has overridden
@@ -73,7 +72,6 @@
     --warn-border:  #6a5424;
 
     --shadow:       0 1px 2px rgba(0,0,0,0.4);
-    --preview-bg:   #eee9dc;
   }
 }
 :root[data-theme="dark"] {
@@ -102,7 +100,6 @@
   --warn-border:  #6a5424;
 
   --shadow:       0 1px 2px rgba(0,0,0,0.4);
-  --preview-bg:   #eee9dc;
 }
 
 * { box-sizing: border-box; }
@@ -689,34 +686,21 @@ input[type=file]::file-selector-button {
   gap: 4px;
 }
 
-/* Display preview — full-bleed escape from main's max-width so the
-   800×480 e-ink frame fills the viewport (it's the page's hero). The
-   negative margin trick computes the gap between this element's left
-   edge and the viewport edge. The BMP stays on a light card even in
-   dark mode so the 1-bit render reads correctly (the display itself
-   is white-on-black-ink). */
+/* Display preview — sits inline inside <main>, capped by its 760 px
+   column. A thin border + radius frames the BMP without imposing a
+   distinct background (which previously broke the page's colour
+   continuity, especially in dark mode). The image's own white pixels
+   carry the look of the e-ink panel. */
 .display-preview {
-  margin-left: calc(50% - 50vw);
-  margin-right: calc(50% - 50vw);
-  width: 100vw;
-  max-width: 100vw;
-  margin-top: 10px;
-  margin-bottom: 14px;
-  background: var(--preview-bg);
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
-  padding: 6px 0;
+  margin: 10px 0 14px;
   display: flex;
   justify-content: center;
 }
 .display-preview img {
-  width: 100%;
-  /* Cap at the panel's native 800 px so we don't upscale on wide
-     desktops — pixelated rendering at 3× looks unintentionally chunky.
-     The flex centering on the parent keeps it middle of the page above
-     that width. */
-  max-width: 800px;
+  max-width: 100%;
   height: auto;
   display: block;
   image-rendering: pixelated;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
 }
