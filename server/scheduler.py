@@ -12,10 +12,11 @@ the next midnight tick.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import display_state
 import library
+from config import TZ
 from display_push import push_recipe_to_display
 from processing.fooby_inspiration import fetch_weekly_inspiration_urls
 from processing.recipes import process_recipe_url
@@ -24,9 +25,17 @@ log = logging.getLogger(__name__)
 
 
 def _seconds_until_next_local_midnight(now: datetime) -> float:
-    tomorrow = (now + timedelta(days=1)).date()
-    next_midnight = datetime.combine(tomorrow, datetime.min.time())
-    return (next_midnight - now).total_seconds()
+    """Real-time seconds until the next 00:00 in the configured TZ.
+
+    `now` must be timezone-aware. The next midnight is built by advancing
+    the calendar date (so DST never produces a non-midnight result), then
+    both sides are normalised to UTC before subtracting — aware-datetime
+    subtraction in CPython preserves the wall-clock interval when the
+    offsets differ, which would hide the DST hour we're trying to honour.
+    """
+    tomorrow = now.date() + timedelta(days=1)
+    next_midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=now.tzinfo)
+    return (next_midnight.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
 
 
 def _push_anniversary_for(today: datetime) -> bool:
@@ -102,7 +111,7 @@ async def anniversary_loop() -> None:
     """Run forever: sleep until next local midnight, then push an anniversary
     or, failing that, a Fooby weekly-inspiration recipe."""
     while True:
-        now = datetime.now()
+        now = datetime.now(TZ)
         sleep_s = _seconds_until_next_local_midnight(now)
         log.info("Anniversary scheduler sleeping %.0fs until next local midnight", sleep_s)
         try:
@@ -111,7 +120,7 @@ async def anniversary_loop() -> None:
             log.info("Anniversary scheduler cancelled")
             raise
         try:
-            today = datetime.now()
+            today = datetime.now(TZ)
             if not _push_anniversary_for(today):
                 log.info(
                     "No anniversary recipe for %s; falling back to Fooby weekly inspiration",

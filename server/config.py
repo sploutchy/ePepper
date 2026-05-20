@@ -1,6 +1,7 @@
 """ePepper configuration — all from env vars."""
 
 import os
+from zoneinfo import ZoneInfo
 
 # Telegram
 TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
@@ -16,9 +17,21 @@ RECIPE_HEIGHT: int = DISPLAY_HEIGHT  # full panel — renderer owns every row
 # API
 API_HOST: str = os.environ.get("API_HOST", "0.0.0.0")
 API_PORT: int = int(os.environ.get("API_PORT", "8080"))
+API_KEY: str = os.environ.get("API_KEY", "").strip()
+if not API_KEY:
+    raise RuntimeError(
+        "API_KEY env var is required and must not be empty. "
+        "Generate one with: "
+        "python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
+    )
 
 # Data directory (docker volume)
 DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
+
+# Local timezone. Drives the anniversary midnight tick and the saved_at
+# MM-DD comparison so they line up with the user's wall clock across DST.
+TZ_NAME: str = os.environ.get("TZ", "Europe/Zurich")
+TZ: ZoneInfo = ZoneInfo(TZ_NAME)
 
 # Backup — when BACKUP_CHAT_ID is set, library mutations trigger a gzipped
 # DB snapshot sent to that chat. Rapid mutations are coalesced so a

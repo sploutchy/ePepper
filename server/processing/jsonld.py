@@ -194,7 +194,7 @@ def _parse_lang(value: Any) -> str:
     if not s:
         return ""
     primary = s.split("-")[0]
-    if primary in ("de", "fr", "it", "en", "es", "nl", "pt"):
+    if primary in ("de", "fr", "it", "en"):
         return primary
     return ""
 

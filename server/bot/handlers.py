@@ -207,7 +207,7 @@ _PROMPT_JSON_TEMPLATE = """{
   "@context": "https://schema.org/",
   "@type": "Recipe",
   "name": "<recipe title>",
-  "inLanguage": "<en|de|fr|it|es|nl|pt>",
+  "inLanguage": "<en|de|fr|it>",
   "totalTime": "PT45M",
   "recipeYield": "<servings, e.g. 4 servings>",
   "recipeIngredient": [
@@ -222,7 +222,7 @@ _PROMPT_JSON_TEMPLATE = """{
 
 _PROMPT_RULES = """Rules:
 - Don't invent or extrapolate any field — omit it if unclear.
-- inLanguage: pick one of en/de/fr/it/es/nl/pt matching the recipe text.
+- inLanguage: pick one of en/de/fr/it matching the recipe text.
 - totalTime: ISO 8601 (PT45M, PT1H30M). Omit if the recipe doesn't say.
 - recipeYield: numeric where possible ("4 servings", "12 cookies").
 - Preserve ingredient quantities and order exactly as written.
@@ -448,7 +448,12 @@ async def cmd_rate(update: Update, context) -> None:
         await update.message.reply_text("Usage: <code>/rate &lt;1-5&gt;</code>", parse_mode="HTML")
         return
 
-    library.mark_saved(recipe_id, rating)
+    if not library.mark_saved(recipe_id, rating):
+        # Soft-deleted between push and /rate, or the row vanished.
+        await update.message.reply_text(
+            "⚠️ That recipe is gone — push a saved one to the display first."
+        )
+        return
     log.info("Rating updated for recipe %d → %d", recipe_id, rating)
     backup.schedule()
 
@@ -683,7 +688,12 @@ async def on_document(update: Update, context) -> None:
 async def on_save_button(update: Update, context) -> None:
     """User tapped 💾 Save — show 1-5 star rating buttons."""
     query = update.callback_query
-    _, token = query.data.split(":")
+    try:
+        _, token = query.data.split(":", 1)
+    except ValueError:
+        log.warning("on_save_button: malformed callback data %r", query.data)
+        await query.answer("Bad callback.", show_alert=True)
+        return
 
     if token not in _pending:
         await query.answer("Session expired — repush the URL to save.", show_alert=True)
@@ -705,8 +715,16 @@ async def on_save_button(update: Update, context) -> None:
 async def on_rate_button(update: Update, context) -> None:
     """User tapped a star — persist recipe + rating, confirm in chat."""
     query = update.callback_query
-    _, token, rating_str = query.data.split(":")
-    rating = int(rating_str)
+    try:
+        _, token, rating_str = query.data.split(":", 2)
+        rating = int(rating_str)
+    except (ValueError, AttributeError):
+        log.warning("on_rate_button: malformed callback data %r", query.data)
+        await query.answer("Bad callback.", show_alert=True)
+        return
+    if not 1 <= rating <= 5:
+        await query.answer("Bad rating.", show_alert=True)
+        return
 
     pending = _pending.pop(token, None)
     if pending is None:

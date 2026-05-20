@@ -100,8 +100,6 @@ _L10N = {
     "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen", "notes": "Notizen"},
     "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page", "servings": "portions", "notes": "Notes"},
     "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina", "servings": "porzioni", "notes": "Note"},
-    "es": {"ingredients": "Ingredientes", "instructions": "Preparación", "page": "página", "servings": "porciones", "notes": "Notas"},
-    "nl": {"ingredients": "Ingrediënten", "instructions": "Bereiding", "page": "pagina", "servings": "porties", "notes": "Notities"},
     "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page", "servings": "servings", "notes": "Notes"},
 }
 

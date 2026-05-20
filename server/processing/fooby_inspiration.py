@@ -71,6 +71,9 @@ async def fetch_weekly_inspiration_urls(homepage_url: str = FOOBY_FR_HOMEPAGE) -
     return fallback
 
 
+_MAX_HTML_BYTES = 5 * 1024 * 1024
+
+
 async def _fetch_html(url: str) -> str:
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ePepper/1.0; recipe display)",
@@ -79,7 +82,19 @@ async def _fetch_html(url: str) -> str:
     async with aiohttp.ClientSession() as session:
         async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
             resp.raise_for_status()
-            return await resp.text()
+            declared = resp.content_length
+            if declared is not None and declared > _MAX_HTML_BYTES:
+                raise ValueError(
+                    f"{url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
+                )
+            buf = bytearray()
+            async for chunk in resp.content.iter_chunked(64 * 1024):
+                buf.extend(chunk)
+                if len(buf) > _MAX_HTML_BYTES:
+                    raise ValueError(
+                        f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
+                    )
+            return buf.decode(resp.charset or "utf-8", errors="replace")
 
 
 def _extract_from_section(soup: BeautifulSoup, base_url: str) -> list[str]:
