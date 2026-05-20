@@ -1,12 +1,11 @@
-"""Recipe library: persistent storage for pushed recipes, ratings, comments."""
+"""Recipe library: persistent storage for pushed recipes, comments."""
 
 from library.db import (
     init_db,
     upsert_recipe,
     get_recipe,
     find_by_url,
-    mark_saved,
-    save_unrated,
+    save_recipe,
     touch_displayed,
     add_comment,
     get_comments,
@@ -29,8 +28,7 @@ __all__ = [
     "upsert_recipe",
     "get_recipe",
     "find_by_url",
-    "mark_saved",
-    "save_unrated",
+    "save_recipe",
     "touch_displayed",
     "add_comment",
     "get_comments",

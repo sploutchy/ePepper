@@ -120,7 +120,6 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("comment", cmd_comment))
-    app.add_handler(CommandHandler("rate", cmd_rate))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("surprise", cmd_surprise))
     app.add_handler(CommandHandler("prompt_screenshot", cmd_prompt_screenshot))
@@ -133,7 +132,6 @@ def create_bot() -> Application:
     ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
-    app.add_handler(CallbackQueryHandler(on_rate_button, pattern=r"^rate:"))
     app.add_handler(CallbackQueryHandler(on_push_button, pattern=r"^push:"))
     # Catch-all for unknown /commands — must register after every named
     # CommandHandler so known commands match first.
@@ -179,9 +177,9 @@ _START_TEXT = (
     "• A photo of a recipe\n"
     "• A recipe URL (just paste the link)\n"
     "• A .json file with a schema.org Recipe (for OCR / unsupported sites)\n\n"
-    "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your library "
-    "(rate 1–5 stars to confirm). Use the device's <b>physical buttons</b> "
-    "to cycle between recipe pages.\n\n"
+    "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your library. "
+    "Use the device's <b>physical buttons</b> to cycle between recipe "
+    "pages.\n\n"
     "💡 <b>Tip:</b> for unsupported sites, /prompt_url or /prompt_screenshot "
     "give you an LLM prompt that produces a JSON-LD file you can upload here.\n\n"
     "{web_line}\n\n"
@@ -208,10 +206,9 @@ _HELP_TEXT = (
     "/prompt_url &lt;url&gt; — LLM prompt to fetch a URL → JSON-LD\n"
     "/prompt_croqumenus &lt;url&gt; — JSON-LD prompt tuned for croqumenus.ch / meintiptopf.ch\n\n"
     "<b>📚 Library</b>\n"
-    "Tap 💾 Save under a pushed recipe (rate 1–5 to confirm).\n"
+    "Tap 💾 Save under a pushed recipe to keep it.\n"
     "/search &lt;query&gt; — find a saved recipe\n"
     "/surprise — push a random saved recipe to the display\n"
-    "/rate &lt;1-5&gt; — update rating of the displayed recipe\n"
     "/comment &lt;text&gt; — add a note to the displayed recipe\n\n"
     "<b>📺 Display</b>\n"
     "The device's physical buttons cycle pages.\n"
@@ -584,64 +581,19 @@ async def cmd_comment(update: Update, context) -> None:
         )
         return
 
-    library.add_comment(recipe_id, text)
-    log.info("Comment added to recipe %d (%d chars)", recipe_id, len(text))
-
-    row = library.get_recipe(recipe_id)
-    if row is None:
-        await update.message.reply_text("⚠️ Couldn't reload the recipe.")
-        return
-
-    if push_recipe_to_display(row):
-        await update.message.reply_text("📝 Note added.")
-    else:
-        await update.message.reply_text(
-            "📝 Note added — but the display refresh failed (see logs)."
-        )
-
-
-async def cmd_rate(update: Update, context) -> None:
-    """Change the rating of the currently-displayed saved recipe."""
-    if not _is_allowed(update.effective_user.id):
-        return
-
-    state = display_state.get()
-    recipe_id = state.get("recipe_id")
-
-    if state["type"] != "recipe" or recipe_id is None:
-        await update.message.reply_text(
-            "Push a saved recipe to the display first, then use /rate to change its rating.",
-        )
-        return
-
-    arg = context.args[0] if context.args else ""
-    try:
-        rating = int(arg)
-    except ValueError:
-        rating = 0
-    if not 1 <= rating <= 5:
-        await update.message.reply_text("Usage: <code>/rate &lt;1-5&gt;</code>", parse_mode="HTML")
-        return
-
-    if not library.mark_saved(recipe_id, rating):
-        # Soft-deleted between push and /rate, or the row vanished.
+    if library.add_comment(recipe_id, text) is None:
+        # Recipe vanished or was soft-deleted between push and /comment.
         await update.message.reply_text(
             "⚠️ That recipe is gone — push a saved one to the display first."
         )
         return
-    log.info("Rating updated for recipe %d → %d", recipe_id, rating)
-
-    row = library.get_recipe(recipe_id)
-    if row is None:
-        await update.message.reply_text("⚠️ Couldn't reload the recipe.")
-        return
-
-    if push_recipe_to_display(row):
-        await update.message.reply_text(f"{'⭐' * rating} Rating updated.")
-    else:
-        await update.message.reply_text(
-            f"{'⭐' * rating} Rating updated — but the display refresh failed."
-        )
+    log.info("Comment added to recipe %d (%d chars)", recipe_id, len(text))
+    # Deliberately do NOT re-push: adding a note shouldn't count as a cook
+    # event, so last_displayed_at / displayed_count stay put. The note
+    # will land on the panel on the next real push.
+    await update.message.reply_text(
+        "📝 Note added. It'll show on the panel next time you display this recipe."
+    )
 
 
 async def cmd_search(update: Update, context) -> None:
@@ -662,12 +614,11 @@ async def cmd_search(update: Update, context) -> None:
         return
 
     # Render results as a readable numbered list above the keyboard, then
-    # let the user pick by number — avoids cramming title + stars + date
-    # into the 64-byte inline button label.
+    # let the user pick by number — avoids cramming title + date into the
+    # 64-byte inline button label.
     lines = [f"🔍 <b>Matches for \"{html.escape(query)}\"</b>", ""]
     buttons = []
     for i, r in enumerate(results, start=1):
-        stars = ("⭐" * r["rating"]) if r["rating"] else ""
         title = html.escape(r["title"])
         if r.get("last_displayed_at"):
             last = datetime.fromtimestamp(r["last_displayed_at"]).strftime("%d.%m.%Y")
@@ -677,7 +628,7 @@ async def cmd_search(update: Update, context) -> None:
             )
         else:
             cooked_label = "never cooked"
-        lines.append(f"<b>{i}.</b> {title} {stars}".rstrip())
+        lines.append(f"<b>{i}.</b> {title}")
         lines.append(f"<i>   {cooked_label}</i>")
         lines.append("")
         buttons.append(InlineKeyboardButton(str(i), callback_data=f"push:{r['id']}"))
@@ -707,7 +658,7 @@ async def cmd_surprise(update: Update, context) -> None:
     total = display_state.get()["total_pages"]
     log.info("Surprise push: id=%d title=%r", row["id"], row["title"])
     await update.message.reply_text(
-        "🎲 " + _format_push_reply(row["title"], row.get("rating"), total),
+        "🎲 " + _format_push_reply(row["title"], total),
         parse_mode="HTML",
     )
 
@@ -733,8 +684,7 @@ async def on_push_button(update: Update, context) -> None:
     if not push_recipe_to_display(row):
         await query.answer("Couldn't render that recipe.", show_alert=True)
         return
-    stars = ("⭐" * row["rating"]) if row["rating"] else ""
-    await query.answer(f"Pushed: {row['title']} {stars}".strip())
+    await query.answer(f"Pushed: {row['title']}")
 
 
 async def on_photo(update: Update, context) -> None:
@@ -803,9 +753,9 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
 async def _present_recipe(url: str, recipe: dict, msg) -> None:
     """Push a parsed recipe to the display.
 
-    If `url` matches an already-saved row, restore its rating + comments
-    and skip the Save prompt. Otherwise stash in the pending map and offer
-    a 💾 Save button — the DB row is only created when the user rates.
+    If `url` matches an already-saved row, restore its comments and skip
+    the Save prompt. Otherwise stash in the pending map and offer a
+    💾 Save button — the DB row is only created when the user taps Save.
     """
     existing = library.find_by_url(url)
     if existing is not None:
@@ -814,7 +764,7 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
             return
         total = display_state.get()["total_pages"]
         await msg.edit_text(
-            _format_push_reply(existing["title"], existing["rating"], total),
+            _format_push_reply(existing["title"], total),
             parse_mode="HTML",
         )
         return
@@ -829,7 +779,7 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
 
     token = _stash_pending(url, recipe)
     await msg.edit_text(
-        _format_push_reply(recipe["title"], rating=None, total_pages=total_pages),
+        _format_push_reply(recipe["title"], total_pages),
         parse_mode="HTML",
         reply_markup=InlineKeyboardMarkup([[
             InlineKeyboardButton("💾 Save", callback_data=f"save:{token}")
@@ -837,16 +787,11 @@ async def _present_recipe(url: str, recipe: dict, msg) -> None:
     )
 
 
-def _format_push_reply(title: str, rating: int | None, total_pages: int) -> str:
+def _format_push_reply(title: str, total_pages: int) -> str:
     """Two-line confirmation for a pushed recipe (HTML, matches /status style)."""
-    meta_parts = []
-    if rating:
-        meta_parts.append("⭐" * rating)
-    if total_pages > 1:
-        meta_parts.append(f"📄 {total_pages} pages")
     body = f"✅ <b>{html.escape(title)}</b>"
-    if meta_parts:
-        body += "\n" + " · ".join(meta_parts)
+    if total_pages > 1:
+        body += f"\n📄 {total_pages} pages"
     return body
 
 
@@ -916,7 +861,7 @@ async def on_document(update: Update, context) -> None:
 
 
 async def on_save_button(update: Update, context) -> None:
-    """User tapped 💾 Save — show 1-5 star rating buttons."""
+    """User tapped 💾 Save — persist the recipe to the library."""
     query = update.callback_query
     if not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
@@ -926,40 +871,6 @@ async def on_save_button(update: Update, context) -> None:
     except ValueError:
         log.warning("on_save_button: malformed callback data %r", query.data)
         await query.answer("Bad callback.", show_alert=True)
-        return
-
-    if token not in _pending:
-        await query.answer("Session expired — repush the URL to save.", show_alert=True)
-        try:
-            await query.edit_message_reply_markup(reply_markup=None)
-        except Exception:
-            pass
-        return
-
-    await query.answer("Rate 1–5 stars to confirm")
-    await query.edit_message_reply_markup(
-        reply_markup=InlineKeyboardMarkup([[
-            InlineKeyboardButton(f"{n}⭐", callback_data=f"rate:{token}:{n}")
-            for n in range(1, 6)
-        ]])
-    )
-
-
-async def on_rate_button(update: Update, context) -> None:
-    """User tapped a star — persist recipe + rating, confirm in chat."""
-    query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
-        await query.answer("Not authorized.", show_alert=True)
-        return
-    try:
-        _, token, rating_str = query.data.split(":", 2)
-        rating = int(rating_str)
-    except (ValueError, AttributeError):
-        log.warning("on_rate_button: malformed callback data %r", query.data)
-        await query.answer("Bad callback.", show_alert=True)
-        return
-    if not 1 <= rating <= 5:
-        await query.answer("Bad rating.", show_alert=True)
         return
 
     pending = _pending.pop(token, None)
@@ -973,19 +884,13 @@ async def on_rate_button(update: Update, context) -> None:
 
     url, recipe = pending
     recipe_id = library.upsert_recipe(url, recipe)
-    library.mark_saved(recipe_id, rating)
+    library.save_recipe(recipe_id)
+    log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
 
-    # If this recipe is still on the display, re-render so the rating
-    # stars appear on the panel. Compare by URL — title alone can collide.
-    state = display_state.get()
-    if state["type"] == "recipe" and state["url"] == url:
-        push_recipe_to_display(library.get_recipe(recipe_id))
-
-    stars = "⭐" * rating
-    await query.answer(f"{stars} Saved")
+    await query.answer("💾 Saved")
     try:
         await query.edit_message_reply_markup(reply_markup=None)
     except Exception:
         pass
     if query.message is not None:
-        await query.message.reply_text(f"💾 Saved {stars}")
+        await query.message.reply_text("💾 Saved to library.")

@@ -10,7 +10,7 @@ on their anniversary.
    ┌──────────────┐                              ┌──────────────────────────┐
    │  Web app     │  URL / image / JSON-LD       │  Python server           │
    │  (PWA)       │ ───────────────────────────► │  (FastAPI +              │
-   │              │  browse, sort, rate, push    │   python-telegram-bot)   │
+   │              │  browse, sort, push          │   python-telegram-bot)   │
    ├──────────────┤                              │                          │
    │  Telegram    │  URL / photo / .json         │  ▸ display state         │
    │  bot         │ ───────────────────────────► │  ▸ recipe library        │
@@ -38,7 +38,7 @@ on their anniversary.
 - **`server/`** — Python backend. Parses recipe URLs via
   [recipe-scrapers](https://github.com/hhursev/recipe-scrapers), accepts
   schema.org Recipe JSON-LD uploads, renders the panel image
-  server-side, persists ratings + notes to SQLite, runs the anniversary
+  server-side, persists saved recipes + notes to SQLite, runs the anniversary
   scheduler, and exposes the BMP frames + page navigation to the
   firmware.
 - **`esp32/`** — PlatformIO firmware for the XIAO ESP32-S3 module on
@@ -50,13 +50,14 @@ on their anniversary.
 
 - **Two control surfaces.** A PWA-installable web app at `/app/` and a
   Telegram bot — pick whichever fits the moment. Both can add recipes
-  (URL / image / JSON-LD), search the library, change ratings, add
-  notes, and push to the display.
+  (URL / image / JSON-LD), search the library, add notes, and push to
+  the display.
 - **Library.** Saved recipes persist in SQLite with FTS5 full-text
-  search over title + ingredients + notes. Sort by recency or rating,
-  filter by minimum rating or source (a website, a named cookbook),
-  paginate via infinite scroll. A live "on display" badge marks the
-  recipe currently rendered on the panel.
+  search over title + ingredients + notes. Sort by "recently cooked"
+  (default), "most cooked", or "least recently cooked", filter by
+  source (a website, a named cookbook), paginate via infinite scroll.
+  A live "on display" badge marks the recipe currently rendered on
+  the panel.
 - **Source provenance.** Each recipe carries a source — a website
   host or a named cookbook (`cookbook://<name>/<slug>` URLs, produced
   by the screenshot prompt with the LLM inferring `<name>` from
@@ -157,18 +158,19 @@ Three input formats, both surfaces accept all three:
 **From Telegram:** paste a URL into the chat, send a photo, or upload
 a `.json` document.
 
-A URL-or-JSON push lands the recipe in the library *unrated*; it
-appears in `/app/recipes/<id>` (and in `/status`) but stays out of the
-library list until you give it a 1–5 star rating.
+Adding via the web lands the recipe in the library immediately. Adding
+via the Telegram bot pushes to the panel right away; tap 💾 **Save** on
+the resulting message to keep it in the library.
 
 ### Browsing the library
 
 The web app's home page (`/app/`) is the main browse surface:
 
 - **Search** by title, ingredients, or notes (FTS5, accent-insensitive).
-- **Sort** by recency (default), highest rated, lowest rated, or oldest.
-- **Filter** to a minimum rating (2★+, 3★+, …) or to a specific source
-  (Fooby, BBC, a named cookbook, …).
+- **Sort** by **Recently cooked** (default), **Most cooked**, or
+  **Least recently cooked** — the library tracks every push so what
+  surfaces is what you actually cook, not what you once meant to.
+- **Filter** to a specific source (Fooby, BBC, a named cookbook, …).
 - **Currently-on-display badge.** The recipe live on the panel is
   flagged with a monitor icon next to its row.
 - **Source attribution.** Each card carries a `from <Source>` chip
@@ -189,21 +191,22 @@ The panel renders title + ingredients + numbered steps across as
 many pages as fit (a tall recipe might be 2–3 pages). Notes get
 their own trailing page. The header carries `Title from Source —
 page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
-for en/de/fr/it), followed by total time, servings, and the rating
-stars on the meta line. The source is omitted entirely for image
-uploads and JSON-LD recipes without a URL.
+for en/de/fr/it), followed by total time and servings on the meta
+line. The source is omitted entirely for image uploads and JSON-LD
+recipes without a URL.
 
 ### Editing recipes
 
-From the web app's recipe page: change the rating with the star
-buttons, add or remove notes, push to the display, or delete.
+From the web app's recipe page: add or remove notes, push to the
+display, or delete.
 
 From the bot, after the recipe is on the display:
 
-- `/rate <1–5>` updates the rating.
-- `/comment <text>` adds a note.
-- *Push* a saved recipe via `/search` to make it active so the above
-  commands target it.
+- `/comment <text>` adds a note. The note doesn't re-push to the panel
+  — it'll show up the next time you display the recipe. So adding a
+  note doesn't count as cooking it.
+- *Push* a saved recipe via `/search` to make it active so `/comment`
+  targets it.
 
 Deletes are soft (the row is hidden via `deleted_at` with no UI
 restore). If you genuinely need a deleted recipe back, pull it from
@@ -224,11 +227,12 @@ Three physical buttons:
 
 - Tap a recipe URL into the web app or the bot; it lands on the panel.
 - Cook from the panel — buttons cycle pages.
-- After cooking, give it a rating (web stars or `/rate` in the bot).
-  That moves it into the library proper.
+- The recipe goes into the library automatically (web Add) or as soon
+  as you tap 💾 Save on the bot's push message. Every push to the
+  panel bumps its cook count.
 - A year later, the anniversary scheduler resurfaces it at midnight.
-  Or it shows up again because you ranked it 5★ and now sort by
-  rating.
+  Or it surfaces sooner via the **Most cooked** sort once you've made
+  it a few times.
 
 ## Server
 
@@ -257,11 +261,10 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   days idle and you re-authenticate. `Secure` means you must serve
   `/app/` over HTTPS or the login won't stick.
 - **Pages:**
-  - `/app/` — library list (search, sort, min-rating filter,
-    infinite scroll, on-display badge).
+  - `/app/` — library list (search, sort, source filter, infinite
+    scroll, on-display badge).
   - `/app/add` — URL paste, image upload, or JSON-LD upload.
-  - `/app/recipes/<id>` — recipe detail (rating, notes, push,
-    delete).
+  - `/app/recipes/<id>` — recipe detail (notes, push, delete).
   - `/app/status` — live panel preview, panel state, library
     stats + last backup, device readings.
 - **Dark mode.** Follows OS preference automatically; a `☀/☾`
@@ -281,18 +284,20 @@ signing in.
 ### Recipe library (SQLite)
 
 Recipes persist to `data/recipes.db` (stdlib `sqlite3`, no extra
-dependency) **only when you explicitly save them**. A pushed but
-unrated URL/JSON-LD recipe sits in the DB invisibly until you pick a
-rating; an image push is never persisted.
+dependency) **only when you explicitly save them**. The bot's URL/JSON
+paste pushes the recipe to the panel and stashes it in memory; tapping
+💾 Save commits it to the library. The web Add flow saves the recipe
+to the library immediately and leaves the panel alone (click *Display*
+to push). An image push is never persisted.
 
 Schema:
 
-- `recipes(id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at, deleted_at, source)`
+- `recipes(id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at, deleted_at, source)`
 - `comments(id, recipe_id, body, created_at)`
 - `sessions(token_hash, created_at, expires_at)` — web-app session tokens. Only the sha256 hash is stored.
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, notes).
 
-`saved_at` is the canonical "first rated" timestamp — never moves once
+`saved_at` is the canonical "first saved" timestamp — never moves once
 set. `last_displayed_at` is bumped every time the row is pushed to the
 panel (web *Display* button, bot `/surprise`, `/search` push, anniversary
 scheduler, …) and drives the library's "recently cooked" sort + the
@@ -433,8 +438,7 @@ and *(b)* receiving the device-health alerts.
 | Command | What it does |
 |---|---|
 | `/recipe <url>` | Force-parse a URL even if the on_text fallback misreads it. |
-| `/comment <text>` | Add a note to the currently-displayed *saved* recipe. |
-| `/rate <1-5>` | Change the rating of the currently-displayed saved recipe. |
+| `/comment <text>` | Add a note to the currently-displayed saved recipe. Doesn't re-push to the panel — the note shows on the next display. |
 | `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
 | `/surprise` | Push a random saved recipe to the display. |
 | `/clear` | Clear the panel (renders a blank white frame). |

@@ -1,6 +1,5 @@
 {# Library list card. Expects:
    r             — the recipe row dict
-   stars         — _stars filter (passed via list context)
    fmt_saved     — _fmt_saved filter
    source_name   — status_helpers.source_name
    current_recipe_id — id of the recipe currently on the panel, or None
@@ -16,7 +15,6 @@
       {% endif %}
     </div>
     <div class="card-meta">
-      <span class="stars">{{ stars(r.rating) }}</span>
       <span class="muted">
         {%- if r.last_displayed_at -%}
           {%- if r.displayed_count and r.displayed_count > 1 -%}

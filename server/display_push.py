@@ -13,20 +13,20 @@ log = logging.getLogger(__name__)
 
 
 def push_recipe_to_display(row: dict) -> bool:
-    """Render the recipe in `row` with its current comments + rating and push
-    to the panel. Returns True on success, False if rendering raised — the
+    """Render the recipe in `row` with its current comments and push to the
+    panel. Returns True on success, False if rendering raised — the
     previous display content is preserved in the failure case (atomic commit
     inside `display_state.set_recipe`).
 
-    On success, bumps `last_displayed_at` on the library row so the
-    "recently shown" sort and anniversary scheduler track actual usage.
+    On success, bumps `last_displayed_at` + `displayed_count` on the
+    library row so the "recently cooked" sort and anniversary scheduler
+    track actual usage.
     """
     comments = [c["body"] for c in library.get_comments(row["id"])]
     try:
         display_state.set_recipe(
             row["recipe"],
             comments=comments,
-            rating=row.get("rating"),
             recipe_id=row["id"],
             url=row["url"],
         )
