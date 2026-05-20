@@ -94,7 +94,11 @@ async def _fetch_html(url: str) -> str:
                     raise ValueError(
                         f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
                     )
-            return buf.decode(resp.charset or "utf-8", errors="replace")
+            charset = resp.charset or "utf-8"
+            try:
+                return buf.decode(charset, errors="replace")
+            except LookupError:
+                return buf.decode("utf-8", errors="replace")
 
 
 def _extract_from_section(soup: BeautifulSoup, base_url: str) -> list[str]:

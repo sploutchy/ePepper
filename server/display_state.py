@@ -70,50 +70,70 @@ def set_recipe(
     recipe_id: int | None = None,
     url: str | None = None,
 ) -> None:
-    """Render and install a recipe as the active display content."""
-    _recipe_inputs["recipe"] = recipe
-    _recipe_inputs["comments"] = list(comments)
-    _recipe_inputs["rating"] = rating
-    _recipe_inputs["url"] = url
+    """Render and install a recipe as the active display content.
 
-    total = _render_pages_from_inputs()
+    Renders into a local buffer first and only commits to `_pages` /
+    `_recipe_inputs` on success — a render failure leaves the previous
+    display content intact rather than half-replacing it.
+    """
+    inputs = {
+        "recipe": recipe,
+        "comments": list(comments),
+        "rating": rating,
+        "url": url,
+    }
+    try:
+        new_pages = _render_pages(inputs)
+    except Exception:
+        log.exception("set_recipe: render failed; leaving display unchanged")
+        return
+    if not new_pages:
+        return
+
+    _recipe_inputs.update(inputs)
+    _pages.clear()
+    _pages.update(new_pages)
     _update_state(
         content_type="recipe",
         title=recipe.get("title", ""),
-        total_pages=total,
+        total_pages=len(new_pages),
         lang=recipe.get("lang", "en"),
         recipe_id=recipe_id,
         url=url,
     )
 
 
-def _render_pages_from_inputs() -> int:
-    """Render every page from the cached recipe inputs into `_pages`. Returns total pages."""
+def _render_pages(inputs: dict) -> dict[int, Image.Image]:
+    """Render every page from `inputs` into a fresh dict, with no side effects.
+
+    Returning a new dict (instead of mutating `_pages`) lets `set_recipe`
+    commit atomically.
+    """
     # Imported lazily so display_state stays import-cheap (and avoids any chance
     # of a cycle if rendering grows server-side imports).
     from rendering.layout import render_recipe
     from status_helpers import source_name
 
-    recipe = _recipe_inputs["recipe"]
+    recipe = inputs["recipe"]
     if recipe is None:
-        return 0
-    comments = _recipe_inputs["comments"]
-    rating = _recipe_inputs["rating"]
+        return {}
+    comments = inputs["comments"]
+    rating = inputs["rating"]
     # Pull the source name off the URL the same way the web + bot do, so
     # the panel header matches what those surfaces show.
-    source = source_name(_recipe_inputs.get("url"))
+    source = source_name(inputs.get("url"))
 
+    pages: dict[int, Image.Image] = {}
     first_img, total = render_recipe(
         recipe, page=1, comments=comments, rating=rating, source=source,
     )
-    _pages.clear()
-    _pages[1] = first_img
+    pages[1] = first_img
     for p in range(2, total + 1):
         page_img, _ = render_recipe(
             recipe, page=p, comments=comments, rating=rating, source=source,
         )
-        _pages[p] = page_img
-    return total
+        pages[p] = page_img
+    return pages
 
 
 def set_page(page: int) -> bool:
