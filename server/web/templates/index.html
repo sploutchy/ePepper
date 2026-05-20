@@ -15,10 +15,10 @@
          placeholder="Search title, ingredients, notes…"
          autofocus>
   <select name="sort" class="list-select" aria-label="Sort">
-    <option value=""           {% if not sort %}selected{% endif %}>Newest</option>
+    <option value=""           {% if not sort %}selected{% endif %}>Recently shown</option>
     <option value="rated"      {% if sort == 'rated' %}selected{% endif %}>Highest rated</option>
     <option value="rated_low"  {% if sort == 'rated_low' %}selected{% endif %}>Lowest rated</option>
-    <option value="oldest"     {% if sort == 'oldest' %}selected{% endif %}>Oldest</option>
+    <option value="oldest"     {% if sort == 'oldest' %}selected{% endif %}>Least recently shown</option>
   </select>
   <select name="min_rating" class="list-select" aria-label="Minimum rating">
     <option value=""  {% if min_rating is none %}selected{% endif %}>All ratings</option>

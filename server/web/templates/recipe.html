@@ -19,6 +19,7 @@
       ·
     {% endif %}
     saved {{ fmt_saved(r.saved_at) }}
+    · {% if r.last_displayed_at %}last shown {{ fmt_saved(r.last_displayed_at) }}{% else %}never shown{% endif %}
   </p>
 
   <div class="actions">
