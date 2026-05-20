@@ -673,6 +673,9 @@ async def cmd_search(update: Update, context) -> None:
             shown_label = "shown " + datetime.fromtimestamp(
                 r["last_displayed_at"]
             ).strftime("%Y-%m-%d")
+            count = r.get("displayed_count") or 0
+            if count > 1:
+                shown_label += f" · {count}×"
         else:
             shown_label = "never shown"
         lines.append(f"<b>{i}.</b> {title} {stars}".rstrip())

@@ -17,7 +17,14 @@
     </div>
     <div class="card-meta">
       <span class="stars">{{ stars(r.rating) }}</span>
-      <span class="muted">{% if r.last_displayed_at %}shown {{ fmt_saved(r.last_displayed_at) }}{% else %}never shown{% endif %}</span>
+      <span class="muted">
+        {%- if r.last_displayed_at -%}
+          shown {{ fmt_saved(r.last_displayed_at) }}
+          {%- if r.displayed_count and r.displayed_count > 1 %} · {{ r.displayed_count }}×{% endif -%}
+        {%- else -%}
+          never shown
+        {%- endif -%}
+      </span>
       {% if r.id == current_recipe_id %}
         <span class="card-badge" title="Currently on display">
           {{ icon("monitor", 14) }}

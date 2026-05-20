@@ -2,7 +2,8 @@
 
 Schema:
     recipes  (id, url, title, parsed_json, lang, rating, saved_at,
-              last_displayed_at, created_at, deleted_at, source)
+              last_displayed_at, displayed_count, created_at,
+              deleted_at, source)
     comments (id, recipe_id, body, created_at)
     sessions (token_hash, created_at, expires_at)
 
@@ -11,7 +12,9 @@ inline button; until then the row is just a cached copy of the parsed
 recipe so we can re-render it on demand. `last_displayed_at` is bumped
 every time a saved row gets pushed to the panel (see `touch_displayed`),
 and drives the "recently shown" sort + the anniversary scheduler.
-`created_at` is set on first upsert.
+`displayed_count` is incremented alongside it so the library can show
+"cooked N×" and offer a "most cooked" sort. `created_at` is set on
+first upsert.
 
 All timestamps are Unix seconds (integer).
 """
@@ -45,7 +48,8 @@ CREATE TABLE IF NOT EXISTS recipes (
     created_at        INTEGER NOT NULL,
     deleted_at        INTEGER,
     source            TEXT,          -- lowercase source name (from URL); NULL if unsourced
-    last_displayed_at INTEGER        -- updated on every successful push_recipe_to_display
+    last_displayed_at INTEGER,       -- updated on every successful push_recipe_to_display
+    displayed_count   INTEGER NOT NULL DEFAULT 0  -- incremented alongside last_displayed_at
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipes_saved_at ON recipes(saved_at);
@@ -127,6 +131,7 @@ def init_db() -> None:
         _migrate_add_deleted_at(conn)
         _migrate_add_source(conn)
         _migrate_add_last_displayed(conn)
+        _migrate_add_displayed_count(conn)
         _migrate_normalize_urls(conn)
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
@@ -185,6 +190,21 @@ def _migrate_add_last_displayed(conn: sqlite3.Connection) -> None:
         "CREATE INDEX IF NOT EXISTS idx_recipes_last_displayed_at "
         "ON recipes(last_displayed_at)"
     )
+
+
+def _migrate_add_displayed_count(conn: sqlite3.Connection) -> None:
+    """Add `displayed_count` defaulting to 0. Idempotent.
+
+    SQLite's ALTER TABLE ADD COLUMN propagates the literal DEFAULT to
+    existing rows, so no manual backfill is needed. Incremented alongside
+    `last_displayed_at` by `touch_displayed`.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
+    if "displayed_count" not in cols:
+        conn.execute(
+            "ALTER TABLE recipes ADD COLUMN displayed_count INTEGER NOT NULL DEFAULT 0"
+        )
+        log.info("Migration: added recipes.displayed_count column")
 
 
 def _ingredients_text(parsed_json: str) -> str:
@@ -306,6 +326,7 @@ def _row_to_dict(row) -> dict:
         "rating": row["rating"],
         "saved_at": row["saved_at"],
         "last_displayed_at": row["last_displayed_at"],
+        "displayed_count": row["displayed_count"],
         "created_at": row["created_at"],
     }
 
@@ -314,7 +335,7 @@ def get_recipe(recipe_id: int) -> dict | None:
     """Fetch a non-deleted recipe row + parsed dict. None if not found."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, created_at "
+            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at "
             "FROM recipes WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
@@ -326,7 +347,7 @@ def find_by_url(url: str) -> dict | None:
     canonical = normalize_url(url)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, created_at "
+            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at "
             "FROM recipes WHERE url = ? AND deleted_at IS NULL",
             (canonical,),
         ).fetchone()
@@ -362,14 +383,18 @@ def mark_saved(recipe_id: int, rating: int) -> bool:
 def touch_displayed(recipe_id: int) -> None:
     """Mark a library row as displayed *right now*.
 
-    Called after every successful `push_recipe_to_display`. No-op if the
-    row doesn't exist or is soft-deleted — pushing a deleted row shouldn't
-    revive it, and pushing a row that vanished isn't worth complaining about.
+    Called after every successful `push_recipe_to_display`. Bumps both
+    `last_displayed_at` (used by the "recently shown" sort and the
+    anniversary scheduler) and `displayed_count` (drives the "cooked N×"
+    badge and the "most cooked" sort). No-op if the row doesn't exist or
+    is soft-deleted — pushing a deleted row shouldn't revive it, and
+    pushing a row that vanished isn't worth complaining about.
     """
     now = int(time.time())
     with _connect() as conn:
         conn.execute(
-            "UPDATE recipes SET last_displayed_at = ? "
+            "UPDATE recipes "
+            "SET last_displayed_at = ?, displayed_count = displayed_count + 1 "
             "WHERE id = ? AND deleted_at IS NULL",
             (now, recipe_id),
         )
@@ -468,7 +493,7 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, created_at
+            SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at
             FROM recipes
             WHERE saved_at IS NOT NULL
               AND deleted_at IS NULL
@@ -497,6 +522,7 @@ _SORT_ORDERS: dict[str, str] = {
     "rated_low": "r.rating ASC NULLS LAST, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
     "oldest": "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
     "recent": "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "most_cooked": "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
 }
 
 
@@ -541,7 +567,7 @@ def list_recipes(
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
-                       r.saved_at, r.last_displayed_at, r.created_at
+                       r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
                 FROM recipes_fts f
                 JOIN recipes r ON r.id = f.rowid
                 WHERE recipes_fts MATCH ?
@@ -559,7 +585,7 @@ def list_recipes(
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
-                       r.saved_at, r.last_displayed_at, r.created_at
+                       r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
                 FROM recipes r
                 WHERE r.saved_at IS NOT NULL AND r.deleted_at IS NULL
                   {where_extra}
@@ -576,7 +602,7 @@ def random_recipe() -> dict | None:
     the library is empty. Used by the bot's /surprise command."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, created_at "
+            "SELECT id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at "
             "FROM recipes "
             "WHERE saved_at IS NOT NULL AND deleted_at IS NULL "
             "ORDER BY RANDOM() LIMIT 1"
@@ -617,7 +643,7 @@ def search(query: str, limit: int = 5) -> list[dict]:
         rows = conn.execute(
             """
             SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
-                   r.saved_at, r.last_displayed_at, r.created_at
+                   r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
             FROM recipes_fts f
             JOIN recipes r ON r.id = f.rowid
             WHERE recipes_fts MATCH ?

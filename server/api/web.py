@@ -207,7 +207,7 @@ async def logout(request: Request):
 _PAGE_SIZE = 20
 
 
-_VALID_SORTS = {"rated", "rated_low", "oldest", "recent"}
+_VALID_SORTS = {"rated", "rated_low", "oldest", "recent", "most_cooked"}
 
 
 def _sanitize_sort(sort: str | None) -> str | None:

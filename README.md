@@ -287,7 +287,7 @@ rating; an image push is never persisted.
 
 Schema:
 
-- `recipes(id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, created_at, deleted_at, source)`
+- `recipes(id, url, title, parsed_json, lang, rating, saved_at, last_displayed_at, displayed_count, created_at, deleted_at, source)`
 - `comments(id, recipe_id, body, created_at)`
 - `sessions(token_hash, created_at, expires_at)` — web-app session tokens. Only the sha256 hash is stored.
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, notes).
@@ -303,6 +303,12 @@ get populated when something pushes them, so existing recipes show up as
 display one. In the "recently shown" sort they sink to the bottom; in
 the "least recently shown" sort they float to the top (nothing is more
 stale than a recipe you've never displayed).
+
+`displayed_count` is incremented alongside `last_displayed_at`, so the
+library knows how many times you've cooked each recipe. It surfaces as
+a `· 5×` chip on the library cards, a "cooked N×" line on the detail
+page, and a **Most cooked** sort option in the library header. Counts
+start at 0 for everything on upgrade; only future pushes accumulate.
 
 The `url` column carries one of three URL shapes, all of which
 participate in the `UNIQUE` index:
