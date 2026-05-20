@@ -250,8 +250,11 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
 + HTMX partials, no build step, ~50 KB JS bundled locally.
 
 - **Sign in** with the same `API_KEY` the device uses. The login form
-  sets an `epepper_auth` cookie (`HttpOnly`, `Secure`,
-  `SameSite=Lax`, 365-day max-age) — `Secure` means you must serve
+  mints a random session token (stored sha256-hashed in the DB, so a
+  read of `recipes.db` can't impersonate a session) and sets it in an
+  `epepper_auth` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`).
+  Sessions slide on every request: active use keeps you signed in, 30
+  days idle and you re-authenticate. `Secure` means you must serve
   `/app/` over HTTPS or the login won't stick.
 - **Pages:**
   - `/app/` — library list (search, sort, min-rating filter,
@@ -286,6 +289,7 @@ Schema:
 
 - `recipes(id, url, title, parsed_json, lang, rating, saved_at, created_at, deleted_at, source)`
 - `comments(id, recipe_id, body, created_at)`
+- `sessions(token_hash, created_at, expires_at)` — web-app session tokens. Only the sha256 hash is stored.
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, notes).
 
 The `url` column carries one of three URL shapes, all of which
@@ -363,9 +367,13 @@ docker compose start epepper
 All endpoints require one of:
 
 - `Authorization: Bearer <API_KEY>` header (the firmware uses this).
-- `?key=<API_KEY>` query param (handy in the browser, but the key
-  ends up in proxy logs / browser history / Referer — use sparingly).
-- `epepper_auth` cookie set by the `/app/login` flow.
+- `epepper_auth` session cookie set by the `/app/login` flow (the
+  browser path — convenient for poking at `/version` / `/image` after
+  signing in).
+
+The previous `?key=<API_KEY>` query-param fallback was removed: uvicorn
+records the full path+query in its access log, so any request that used
+it leaked the key into container logs.
 
 | Method | Path | Description |
 |---|---|---|
