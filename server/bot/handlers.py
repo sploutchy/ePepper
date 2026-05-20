@@ -24,9 +24,9 @@ import display_state
 import library
 from display_push import push_recipe_to_display
 from processing.images import process_photo
-from processing.jsonld import parse_recipe_jsonld, synthetic_url
+from processing.jsonld import parse_recipe_jsonld, resolve_url
 from processing.recipes import process_recipe_url
-from status_helpers import battery_pct, humanize_ago, rssi_quality
+from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 # Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
 # a few KB; anything larger is almost certainly not a recipe.
@@ -236,12 +236,35 @@ _PROMPT_RULES = """Rules:
   attached directly without copy-pasting."""
 
 
+# Screenshot-specific URL rule: ask the LLM to identify the cookbook /
+# magazine / source from the photo and put it into the cookbook:// URL,
+# with a kebab-case title slug for the path. The server preserves these
+# URLs as-is; on the panel + status surfaces the netloc renders as
+# "from Nos-recettes-preferees" (no link — cookbook:// isn't browseable).
+# If the LLM truly can't guess the source, it falls back to "cookbook"
+# as a generic netloc.
+_PROMPT_SCREENSHOT_URL_RULE = (
+    "- `url`: build it as `cookbook://<source-slug>/<title-slug>`. The "
+    "source-slug is a kebab-case identifier you infer from any visible "
+    "branding in the photo — the cookbook title on the cover/spine, a "
+    "magazine name, a restaurant — lowercase ASCII, dashes for spaces. "
+    "If you really can't tell, use `cookbook` as the source-slug. The "
+    "title-slug is the recipe title in the same kebab-case form. "
+    "Example: `cookbook://nos-recettes-preferees/crepes-bretonnes`."
+)
+
+
 def _build_screenshot_prompt() -> str:
+    template = _PROMPT_JSON_TEMPLATE.replace(
+        '"@type": "Recipe",',
+        '"@type": "Recipe",\n  "url": "cookbook://<source-slug>/<title-slug>",',
+    )
     return (
         "I'm attaching a photo of a recipe. Convert it to schema.org Recipe "
         "JSON-LD with this exact shape:\n\n"
-        f"{_PROMPT_JSON_TEMPLATE}\n\n"
-        f"{_PROMPT_RULES}"
+        f"{template}\n\n"
+        f"{_PROMPT_RULES}\n"
+        f"{_PROMPT_SCREENSHOT_URL_RULE}"
     )
 
 
@@ -351,6 +374,17 @@ async def cmd_status(update: Update, context) -> None:
         if state["total_pages"] > 1:
             line += f" — page {state['page']}/{state['total_pages']}"
         display_lines.append(line)
+        src = source_name(state.get("url"))
+        if src:
+            url = state.get("url") or ""
+            if url.startswith("http://") or url.startswith("https://"):
+                src_html = (
+                    f"<a href=\"{html.escape(url)}\">{html.escape(src)}</a>"
+                )
+            else:
+                # Named cookbook URL: no link, just the human label.
+                src_html = html.escape(src)
+            display_lines.append(f"<i>from {src_html}</i>")
     else:
         display_lines.append(html.escape(state["type"]))
     sections.append("\n".join(display_lines))
@@ -685,7 +719,7 @@ async def on_document(update: Update, context) -> None:
         return
 
     recipe, source_url = parsed
-    url = source_url or synthetic_url(recipe)
+    url = resolve_url(source_url, recipe)
     log.info("JSON-LD recipe ingested: title=%r url=%s", recipe.get("title"), url)
     await _present_recipe(url, recipe, msg)
 

@@ -38,6 +38,17 @@
         <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
       {% endif %}
     </p>
+    {% set src = source_name(display.url) %}
+    {% if src %}
+      <p class="muted display-source">
+        from
+        {% if display.url.startswith("http") %}
+          <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
+        {% else %}
+          {{ src }}
+        {% endif %}
+      </p>
+    {% endif %}
   {% elif display.type == "photo" %}
     <p class="display-title"><strong>Image</strong></p>
   {% else %}

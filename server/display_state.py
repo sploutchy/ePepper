@@ -41,6 +41,7 @@ _recipe_inputs: dict[str, Any] = {
     "recipe": None,
     "comments": [],
     "rating": None,
+    "url": None,
 }
 
 # Device status (reported by ESP32 on every wake — button press or
@@ -57,7 +58,7 @@ _device: dict[str, Any] = {
 def set_image(img: Image.Image, content_type: str = "photo", title: str = "", lang: str = "en") -> None:
     """Set a single-page image as the current display content."""
     _pages.clear()
-    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None})
+    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None, "url": None})
     _pages[1] = img
     _update_state(content_type=content_type, title=title, total_pages=1, lang=lang, recipe_id=None, url=None)
 
@@ -73,6 +74,7 @@ def set_recipe(
     _recipe_inputs["recipe"] = recipe
     _recipe_inputs["comments"] = list(comments)
     _recipe_inputs["rating"] = rating
+    _recipe_inputs["url"] = url
 
     total = _render_pages_from_inputs()
     _update_state(
@@ -90,21 +92,25 @@ def _render_pages_from_inputs() -> int:
     # Imported lazily so display_state stays import-cheap (and avoids any chance
     # of a cycle if rendering grows server-side imports).
     from rendering.layout import render_recipe
+    from status_helpers import source_name
 
     recipe = _recipe_inputs["recipe"]
     if recipe is None:
         return 0
     comments = _recipe_inputs["comments"]
     rating = _recipe_inputs["rating"]
+    # Pull the source name off the URL the same way the web + bot do, so
+    # the panel header matches what those surfaces show.
+    source = source_name(_recipe_inputs.get("url"))
 
     first_img, total = render_recipe(
-        recipe, page=1, comments=comments, rating=rating,
+        recipe, page=1, comments=comments, rating=rating, source=source,
     )
     _pages.clear()
     _pages[1] = first_img
     for p in range(2, total + 1):
         page_img, _ = render_recipe(
-            recipe, page=p, comments=comments, rating=rating,
+            recipe, page=p, comments=comments, rating=rating, source=source,
         )
         _pages[p] = page_img
     return total
@@ -122,7 +128,7 @@ def set_page(page: int) -> bool:
 def clear() -> None:
     """Clear the display (idle state)."""
     _pages.clear()
-    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None})
+    _recipe_inputs.update({"recipe": None, "comments": [], "rating": None, "url": None})
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],
         "type": "idle",
