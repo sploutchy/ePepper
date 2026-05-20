@@ -28,9 +28,15 @@
 
 // ----- Timing -----
 // Daily wake to pull whatever ambient content the server scheduled (e.g.
-// an anniversary recipe at midnight). Server is the source of truth for
-// when to swap; the device just pulls on the daily ping.
-#define DAILY_REFRESH_INTERVAL_S  86400   // 24 h
+// an anniversary recipe at midnight). The server is the source of
+// truth for when to swap; the device just pulls on the next aligned
+// wake. /version returns next_wake_in_s so the device can land its
+// timer at DEVICE_WAKE_HOUR_LOCAL (default 06:00 local) instead of
+// drifting 24 h from the last press. The constants below are
+// fallbacks for when /version is unreachable or returns no value.
+#define DAILY_REFRESH_INTERVAL_S  86400   // 24 h fallback
+#define MIN_SLEEP_S               60      // 1 min — anything shorter likely indicates a clock-skew bug
+#define MAX_SLEEP_S               172800  // 48 h — anything longer falls back to DAILY_REFRESH_INTERVAL_S
 #define WARM_WINDOW_MS            15000   // stay awake after a button press to skip cold-start next time
 // Held this long → long-press: refresh = force full redraw, next/prev = jump
 // to last/first. Measured AFTER boot, so cold-start adds ~200 ms of overhead;

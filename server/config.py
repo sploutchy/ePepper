@@ -38,6 +38,17 @@ DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
 TZ_NAME: str = os.environ.get("TZ", "Europe/Zurich")
 TZ: ZoneInfo = ZoneInfo(TZ_NAME)
 
+# Target wall-clock hour (local time) for the e-ink panel's daily wake.
+# On every successful /version query, the firmware aligns its next
+# timer-driven wake to the next occurrence of this hour, so the panel
+# is ready when you walk into the kitchen instead of drifting via a
+# flat 24-h offset from the last button press. 0..23. Default 6 (06:00).
+DEVICE_WAKE_HOUR_LOCAL: int = int(os.environ.get("DEVICE_WAKE_HOUR_LOCAL", "6"))
+if not 0 <= DEVICE_WAKE_HOUR_LOCAL <= 23:
+    raise RuntimeError(
+        f"DEVICE_WAKE_HOUR_LOCAL must be 0..23, got {DEVICE_WAKE_HOUR_LOCAL}"
+    )
+
 # Backup — when BACKUP_CHAT_ID is set, the midnight scheduler tick
 # uploads a gzipped DB snapshot to that chat *if the library has
 # changed since the previous upload*. Quiet days produce no message.

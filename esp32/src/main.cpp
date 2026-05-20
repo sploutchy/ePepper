@@ -60,6 +60,7 @@ void goToSleep(uint64_t seconds);
 WakeAction detectWakeAction();
 void collectDateHeader(HTTPClient& http);
 void applyDateHeader(HTTPClient& http);
+uint64_t computeSleepSeconds();
 
 // ---- RTC-persistent state (survives deep sleep) ----
 RTC_DATA_ATTR char lastHash[16] = "";
@@ -70,6 +71,13 @@ RTC_DATA_ATTR int wakeCount = 0;
 // ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
 size_t imageSize = 0;
+
+// Seconds the server told us to sleep on this wake cycle (from
+// /version → next_wake_in_s). -1 = not yet known; the sleep helper
+// falls back to DAILY_REFRESH_INTERVAL_S in that case. Transient so
+// a stale value from a previous wake (taken minutes/hours ago) can't
+// land us at the wrong time after a network blip.
+int32_t nextWakeInS = -1;
 
 
 void setup() {
@@ -146,7 +154,7 @@ void setup() {
         warmWindow();
     }
 
-    goToSleep(DAILY_REFRESH_INTERVAL_S);
+    goToSleep(computeSleepSeconds());
 }
 
 
@@ -355,6 +363,9 @@ bool pollServer() {
     const char* hash = doc["hash"];
     totalPages = doc["total_pages"] | 1;
     currentPage = doc["page"] | 1;
+    // Server tells us when to next wake. Missing on old servers → -1
+    // → fallback to DAILY_REFRESH_INTERVAL_S in computeSleepSeconds.
+    nextWakeInS = doc["next_wake_in_s"] | -1;
 
     if (hash && strcmp(hash, lastHash) != 0) {
         strncpy(lastHash, hash, sizeof(lastHash) - 1);
@@ -704,6 +715,18 @@ bool waitForLongPress(int btnPin, int thresholdMs) {
 
 
 // ---- Sleep ----
+
+// Pick the sleep duration: server-provided next_wake_in_s when present
+// and sane, otherwise the 24-h fallback. The bounds are a sanity check
+// against a clock-skewed server (e.g. a value of 1 s would burn the
+// battery; a value of 30 days would silently kill the device).
+uint64_t computeSleepSeconds() {
+    if (nextWakeInS < (int32_t)MIN_SLEEP_S || nextWakeInS > (int32_t)MAX_SLEEP_S) {
+        return DAILY_REFRESH_INTERVAL_S;
+    }
+    return (uint64_t)nextWakeInS;
+}
+
 
 void goToSleep(uint64_t seconds) {
     Serial.printf("[ePepper] Sleeping for %llu seconds...\n\n", seconds);

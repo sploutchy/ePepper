@@ -3,6 +3,7 @@
 import asyncio
 import logging
 import secrets
+from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, Response
@@ -12,7 +13,8 @@ from fastapi.staticfiles import StaticFiles
 import display_state
 import library
 from api.web import router as web_router
-from config import API_KEY
+from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
+from scheduler import seconds_until_next_local_hour
 
 log = logging.getLogger(__name__)
 app = FastAPI(title="ePepper", version="0.1.0")
@@ -51,6 +53,13 @@ async def version(request: Request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     state = display_state.get()
+    # Tell the firmware how many seconds to sleep so its next timer wake
+    # lands at DEVICE_WAKE_HOUR_LOCAL local time. Recomputed on every
+    # request so the value is always fresh; the device just trusts it
+    # and avoids needing to know UTC ↔ local conversion or DST.
+    next_wake = int(seconds_until_next_local_hour(
+        datetime.now(TZ), DEVICE_WAKE_HOUR_LOCAL,
+    ))
     return {
         "hash": state["hash"],
         "page": state["page"],
@@ -58,6 +67,7 @@ async def version(request: Request):
         "updated_at": state["updated_at"],
         "type": state["type"],
         "lang": state["lang"],
+        "next_wake_in_s": next_wake,
     }
 
 

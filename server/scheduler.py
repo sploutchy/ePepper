@@ -20,7 +20,7 @@ the next midnight tick.
 
 import asyncio
 import logging
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 
 import backup
 import display_state
@@ -45,6 +45,28 @@ def _seconds_until_next_local_midnight(now: datetime) -> float:
     tomorrow = now.date() + timedelta(days=1)
     next_midnight = datetime.combine(tomorrow, datetime.min.time(), tzinfo=now.tzinfo)
     return (next_midnight.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+
+
+def seconds_until_next_local_hour(now: datetime, target_hour: int) -> float:
+    """Real-time seconds until the next HH:00 wall-clock time in `now.tzinfo`.
+
+    Used by `/version` so the e-ink firmware can align its daily timer
+    wake to a fixed local hour instead of drifting by 24 h from the
+    last button press. DST-aware: target time is built as a wall-clock
+    value, then both sides are normalised to UTC before subtracting.
+    Spring-forward nights that skip the target hour return ~23 h until
+    the next one; fall-back duplicates resolve to the earlier of the
+    two.
+    """
+    target_t = time(target_hour, 0)
+    today_target = datetime.combine(now.date(), target_t, tzinfo=now.tzinfo)
+    if today_target > now:
+        target = today_target
+    else:
+        target = datetime.combine(
+            now.date() + timedelta(days=1), target_t, tzinfo=now.tzinfo,
+        )
+    return (target.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
 
 
 def _push_anniversary_for(today: datetime) -> bool:
