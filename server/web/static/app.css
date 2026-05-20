@@ -319,10 +319,15 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   flex-wrap: wrap;
 }
 /* "from X" chip next to the recipe title — styled like .muted so it
-   matches the "saved …" line below the title visually. */
-.card-source {
+   matches the "saved …" line below the title visually. Selector is
+   .card-title-scoped so it outranks the parent's font-weight: 600 even
+   on Firefox Android, which otherwise synthesizes a fake bold from the
+   inherited weight. font-synthesis-weight: none belt-and-braces blocks
+   the synthesis path even when the explicit weight is ignored. */
+.card-title .card-source {
   font-size: 0.92em;
-  font-weight: normal;
+  font-weight: 400;
+  font-synthesis-weight: none;
   color: var(--muted);
 }
 .card-meta {
