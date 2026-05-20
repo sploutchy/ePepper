@@ -34,6 +34,29 @@ jobs:
             git fetch origin main
             git checkout main
             git pull --ff-only origin main
+
+            # Pre-deploy smoke: build the new image and exercise its import
+            # graph + init_db against a copy of the live DB. Catches the
+            # "schema migration crashes on existing DB" / "broken import"
+            # class of bugs *before* we swap the running container.
+            SMOKE_DB=/tmp/epepper-smoke-db
+            SMOKE_TAG=epepper:smoke
+            trap 'sudo rm -rf "$SMOKE_DB"; sudo docker rmi -f "$SMOKE_TAG" >/dev/null 2>&1 || true' EXIT
+
+            sudo rm -rf "$SMOKE_DB"
+            sudo mkdir -p "$SMOKE_DB"
+            sudo cp /home/debian/epepper/data/recipes.db "$SMOKE_DB/recipes.db"
+
+            sudo docker build -q -t "$SMOKE_TAG" ./server >/dev/null
+            sudo docker run --rm \
+                --env-file /home/debian/epepper/server/.env \
+                -e TELEGRAM_BOT_TOKEN=stub-smoke \
+                -v "$SMOKE_DB":/app/data \
+                "$SMOKE_TAG" \
+                python3 -c "import main; import library; library.init_db(); print('smoke ok')"
+
+            # Smoke passed — go live. Trap still cleans up the smoke DB
+            # + image after the swap completes (or fails).
             sudo docker compose up -d --build
 
       - name: Healthcheck
