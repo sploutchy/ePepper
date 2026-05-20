@@ -2,18 +2,32 @@
 {% block title %}ePepper · Library{% endblock %}
 
 {% block content %}
-<div class="search">
-  <input type="search"
-         name="q"
+{# One form holds the search input + sort + rating filter. HTMX fires on
+   text input (debounced) and select changes, including all named fields
+   so any control's change replays the full query. #}
+<form class="list-controls"
+      hx-get="/app/_search"
+      hx-target="#list"
+      hx-swap="innerHTML"
+      hx-trigger="input changed delay:200ms from:input[type=search], change from:select, search">
+  <input class="list-search" type="search" name="q"
          value="{{ q }}"
          placeholder="Search title, ingredients, notes…"
-         hx-get="/app/_search"
-         hx-trigger="input changed delay:200ms, search"
-         hx-target="#list"
-         hx-swap="innerHTML"
-         hx-include="this"
          autofocus>
-</div>
+  <select name="sort" class="list-select" aria-label="Sort">
+    <option value=""           {% if not sort %}selected{% endif %}>Newest</option>
+    <option value="rated"      {% if sort == 'rated' %}selected{% endif %}>Highest rated</option>
+    <option value="rated_low"  {% if sort == 'rated_low' %}selected{% endif %}>Lowest rated</option>
+    <option value="oldest"     {% if sort == 'oldest' %}selected{% endif %}>Oldest</option>
+  </select>
+  <select name="min_rating" class="list-select" aria-label="Minimum rating">
+    <option value=""  {% if min_rating is none %}selected{% endif %}>All ratings</option>
+    <option value="5" {% if min_rating == 5 %}selected{% endif %}>5★</option>
+    <option value="4" {% if min_rating == 4 %}selected{% endif %}>4★+</option>
+    <option value="3" {% if min_rating == 3 %}selected{% endif %}>3★+</option>
+    <option value="2" {% if min_rating == 2 %}selected{% endif %}>2★+</option>
+  </select>
+</form>
 
 <div id="list">
   {% include "_list.html" %}

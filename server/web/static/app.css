@@ -255,6 +255,43 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
 /* Search */
 .search { margin-bottom: var(--gap); }
 
+/* Library list controls — search input plus two sort/filter selects on
+   one row. The search input grows to fill, the selects keep their
+   natural width. Wraps to a new row on phones if the three controls
+   can't fit; everything stays usable. */
+.list-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: var(--gap);
+}
+.list-search { flex: 1 1 220px; }
+.list-select {
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--card-bg);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.list-select:focus {
+  outline: 2px solid var(--primary-soft);
+  outline-offset: 1px;
+  border-color: var(--primary);
+}
+
+/* "Currently on display" badge on the matching library card. */
+.card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+  font-size: 0.85em;
+  color: var(--primary);
+  font-weight: 600;
+}
+
 /* Recipe list */
 .recipes {
   list-style: none;

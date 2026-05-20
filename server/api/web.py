@@ -159,6 +159,26 @@ def _context_globals(request: Request) -> dict:
 router = APIRouter(prefix="/app", tags=["web"])
 
 
+# --- PWA --------------------------------------------------------------------
+
+
+@router.get("/sw.js", include_in_schema=False)
+async def service_worker():
+    """Serve the service worker at /app/sw.js so its default registration
+    scope is /app/ — couldn't be served from /app/static/ without
+    Service-Worker-Allowed header gymnastics. No auth gate: the SW is
+    static asset code and the file itself caches only public shell URLs.
+    """
+    sw_path = _WEB_DIR / "static" / "sw.js"
+    return Response(
+        content=sw_path.read_bytes(),
+        media_type="application/javascript",
+        # Disable HTTP caching so SW updates roll out promptly; the
+        # browser still re-checks the script on every navigation anyway.
+        headers={"Cache-Control": "no-cache"},
+    )
+
+
 # --- Auth -------------------------------------------------------------------
 
 
@@ -200,36 +220,85 @@ async def logout(request: Request):
 _PAGE_SIZE = 20
 
 
-def _list_context(request: Request, q: str, offset: int) -> dict:
-    rows = library.list_recipes(offset=offset, limit=_PAGE_SIZE + 1, query=q or None)
+_VALID_SORTS = {"rated", "rated_low", "oldest", "recent"}
+
+
+def _sanitize_sort(sort: str | None) -> str | None:
+    """Ignore anything not in the whitelist — list_recipes splices the sort
+    key into SQL via a separate dict, but we still drop garbage here so the
+    template's `selected` markers reflect reality."""
+    return sort if sort in _VALID_SORTS else None
+
+
+def _sanitize_min_rating(min_rating: int | None) -> int | None:
+    if min_rating is None:
+        return None
+    return min_rating if 1 <= min_rating <= 5 else None
+
+
+def _list_context(
+    request: Request,
+    q: str,
+    offset: int,
+    sort: str | None,
+    min_rating: int | None,
+) -> dict:
+    rows = library.list_recipes(
+        offset=offset,
+        limit=_PAGE_SIZE + 1,
+        query=q or None,
+        sort=sort,
+        min_rating=min_rating,
+    )
     has_more = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]
     return {
         "request": request,
         "recipes": rows,
         "q": q,
+        "sort": sort or "",
+        "min_rating": min_rating,
         "offset": offset,
         "next_offset": offset + _PAGE_SIZE,
         "has_more": has_more,
         "stars": _stars,
         "fmt_saved": _fmt_saved,
+        # Marks the recipe currently rendered on the e-ink display so the
+        # list can flag it. None if the display isn't showing a saved recipe.
+        "current_recipe_id": display_state.get().get("recipe_id"),
     }
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request, q: str = "", offset: int = 0):
+async def index(
+    request: Request,
+    q: str = "",
+    offset: int = 0,
+    sort: str | None = None,
+    min_rating: int | None = None,
+):
     _require_auth(request)
+    sort = _sanitize_sort(sort)
+    min_rating = _sanitize_min_rating(min_rating)
     ctx = _context_globals(request)
-    ctx.update(_list_context(request, q, offset))
+    ctx.update(_list_context(request, q, offset, sort, min_rating))
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
 @router.get("/_search", response_class=HTMLResponse)
-async def search_partial(request: Request, q: str = "", offset: int = 0):
-    """HTMX partial — re-renders only the result list as the search box changes
-    or the Load more button is tapped."""
+async def search_partial(
+    request: Request,
+    q: str = "",
+    offset: int = 0,
+    sort: str | None = None,
+    min_rating: int | None = None,
+):
+    """HTMX partial — re-renders only the result list as the search box,
+    sort, or rating filter changes, or the Load more button is tapped."""
     _require_auth(request)
-    ctx = _list_context(request, q, offset)
+    sort = _sanitize_sort(sort)
+    min_rating = _sanitize_min_rating(min_rating)
+    ctx = _list_context(request, q, offset, sort, min_rating)
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
 
