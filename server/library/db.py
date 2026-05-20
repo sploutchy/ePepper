@@ -12,10 +12,12 @@ upsert.
 All timestamps are Unix seconds (integer).
 """
 
+import hashlib
 import json
 import logging
 import os
 import re
+import secrets
 import sqlite3
 import time
 from typing import Any
@@ -55,6 +57,16 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_recipe_id ON comments(recipe_id);
+
+-- Web-app session tokens. The token itself is never stored; only its
+-- sha256 hash, so a DB read alone can't impersonate a session.
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
 -- FTS5 index for /search. rowid mirrors recipes.id so we can JOIN cheaply.
 -- We manage inserts/updates/deletes manually rather than via triggers
@@ -359,26 +371,31 @@ def remove_comment(comment_id: int) -> int | None:
     return recipe_id
 
 
-def add_comment(recipe_id: int, body: str) -> int:
-    """Append a comment to a recipe. Returns the comment id."""
+def add_comment(recipe_id: int, body: str) -> int | None:
+    """Append a comment to a recipe. Returns the comment id, or None if the
+    recipe doesn't exist or has been soft-deleted (so callers can't end up
+    with orphan comments on a deleted row)."""
     now = int(time.time())
     with _connect() as conn:
+        row = conn.execute(
+            "SELECT title, parsed_json FROM recipes "
+            "WHERE id = ? AND deleted_at IS NULL",
+            (recipe_id,),
+        ).fetchone()
+        if row is None:
+            return None
         cur = conn.execute(
             "INSERT INTO comments (recipe_id, body, created_at) VALUES (?, ?, ?)",
             (recipe_id, body, now),
         )
         comment_id = int(cur.lastrowid)
-        row = conn.execute(
-            "SELECT title, parsed_json FROM recipes WHERE id = ?", (recipe_id,)
-        ).fetchone()
-        if row is not None:
-            _fts_upsert(
-                conn,
-                recipe_id,
-                row["title"],
-                _ingredients_text(row["parsed_json"]),
-                _comments_text(conn, recipe_id),
-            )
+        _fts_upsert(
+            conn,
+            recipe_id,
+            row["title"],
+            _ingredients_text(row["parsed_json"]),
+            _comments_text(conn, recipe_id),
+        )
     return comment_id
 
 
@@ -566,3 +583,65 @@ def get_comments(recipe_id: int) -> list[dict[str, Any]]:
             (recipe_id,),
         ).fetchall()
     return [{"id": r["id"], "body": r["body"], "created_at": r["created_at"]} for r in rows]
+
+
+# --- Web-app sessions ------------------------------------------------------
+
+# Sliding window: a session that's actively used gets renewed for another
+# 30 days on each request; one untouched for 30 days expires.
+SESSION_DURATION_S = 30 * 24 * 3600
+# Only rewrite the expiry when it's drifted by more than a day, to avoid
+# a write on every single request.
+_SESSION_SLIDE_THRESHOLD_S = 24 * 3600
+
+
+def _hash_session_token(token: str) -> str:
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def create_session() -> str:
+    """Mint a new session token (returned in plaintext) and store its hash."""
+    token = secrets.token_urlsafe(32)
+    now = int(time.time())
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)",
+            (_hash_session_token(token), now, now + SESSION_DURATION_S),
+        )
+    return token
+
+
+def validate_session(token: str) -> bool:
+    """Return True iff the token matches a non-expired session row. Slides
+    the expiry forward on a valid hit and opportunistically GCs expired rows."""
+    if not token:
+        return False
+    h = _hash_session_token(token)
+    now = int(time.time())
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT expires_at FROM sessions WHERE token_hash = ?",
+            (h,),
+        ).fetchone()
+        if row is None or row["expires_at"] < now:
+            return False
+        new_expires = now + SESSION_DURATION_S
+        if new_expires - row["expires_at"] > _SESSION_SLIDE_THRESHOLD_S:
+            conn.execute(
+                "UPDATE sessions SET expires_at = ? WHERE token_hash = ?",
+                (new_expires, h),
+            )
+        # Drive-by cleanup of stale rows. Cheap thanks to idx_sessions_expires_at.
+        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
+    return True
+
+
+def delete_session(token: str) -> None:
+    """Invalidate a session (logout). No-op if the token isn't known."""
+    if not token:
+        return
+    with _connect() as conn:
+        conn.execute(
+            "DELETE FROM sessions WHERE token_hash = ?",
+            (_hash_session_token(token),),
+        )

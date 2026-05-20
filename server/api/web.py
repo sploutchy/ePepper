@@ -18,6 +18,7 @@ from fastapi.templating import Jinja2Templates
 import backup
 import display_state
 import library
+from library.db import SESSION_DURATION_S
 from config import API_KEY
 from display_push import push_recipe_to_display
 from processing.images import process_photo
@@ -56,15 +57,16 @@ async def _read_capped(file: UploadFile, cap: int) -> bytes | None:
     return b"".join(chunks)
 
 COOKIE_NAME = "epepper_auth"
-COOKIE_MAX_AGE = 365 * 24 * 3600  # one year
+# Match the server-side session lifetime — the cookie outliving the session
+# row would just produce silent re-login redirects.
+COOKIE_MAX_AGE = SESSION_DURATION_S
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 
 
 def _is_authed(request: Request) -> bool:
-    cookie = request.cookies.get(COOKIE_NAME, "")
-    return bool(cookie) and secrets.compare_digest(cookie, API_KEY)
+    return library.validate_session(request.cookies.get(COOKIE_NAME, ""))
 
 
 def _require_auth(request: Request) -> None:
@@ -176,10 +178,13 @@ async def login_page(request: Request, error: str | None = None):
 async def login_submit(request: Request, api_key: str = Form(...)):
     if not secrets.compare_digest(api_key, API_KEY):
         return RedirectResponse("/app/login?error=1", status_code=303)
+    # Cookie stores a random session token (not the API key), so a cookie
+    # leak doesn't hand over the device credential.
+    token = library.create_session()
     resp = RedirectResponse("/app/", status_code=303)
     resp.set_cookie(
         COOKIE_NAME,
-        API_KEY,
+        token,
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         secure=True,
@@ -190,6 +195,7 @@ async def login_submit(request: Request, api_key: str = Form(...)):
 
 @router.post("/logout")
 async def logout(request: Request):
+    library.delete_session(request.cookies.get(COOKIE_NAME, ""))
     resp = RedirectResponse("/app/login", status_code=303)
     resp.delete_cookie(COOKIE_NAME)
     return resp
@@ -589,7 +595,12 @@ async def push_recipe(request: Request, recipe_id: int):
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    push_recipe_to_display(row)
+    if not push_recipe_to_display(row):
+        return templates.TemplateResponse(
+            request, "_toast.html",
+            {"message": "Couldn't render that recipe to the display."},
+            status_code=500,
+        )
     log.info("Web push to display: id=%d title=%r", row["id"], row["title"])
     return templates.TemplateResponse(
         request, "_toast.html",

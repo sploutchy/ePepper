@@ -22,6 +22,8 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
 
+from processing.safe_url import assert_url_safe
+
 log = logging.getLogger(__name__)
 
 # Fooby's FR landing page — French is hard-coded per the feature spec.
@@ -75,6 +77,7 @@ _MAX_HTML_BYTES = 5 * 1024 * 1024
 
 
 async def _fetch_html(url: str) -> str:
+    await assert_url_safe(url)
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ePepper/1.0; recipe display)",
         "Accept-Language": "fr-CH,fr;q=0.9",
