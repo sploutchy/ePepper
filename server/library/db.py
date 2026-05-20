@@ -374,20 +374,50 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
-def list_recipes(offset: int = 0, limit: int = 20, query: str | None = None) -> list[dict]:
+# Whitelisted ORDER BY snippets keyed by the `sort` param. Values are
+# spliced into SQL, so the dict is the trust boundary — never accept
+# free-form sort strings.
+_SORT_ORDERS: dict[str, str] = {
+    "rated": "r.rating DESC NULLS LAST, r.saved_at DESC",
+    "rated_low": "r.rating ASC NULLS LAST, r.saved_at DESC",
+    "oldest": "r.saved_at ASC",
+    "recent": "r.saved_at DESC",
+}
+
+
+def list_recipes(
+    offset: int = 0,
+    limit: int = 20,
+    query: str | None = None,
+    sort: str | None = None,
+    min_rating: int | None = None,
+) -> list[dict]:
     """Paginated list of saved, non-deleted recipes.
 
-    If `query` is non-empty, results come from FTS5 ranked by relevance.
-    Otherwise newest-saved first.
+    sort: one of the keys in _SORT_ORDERS, or None. When None and a
+    query is given, results come from FTS5 ordered by relevance; with no
+    query and no sort, newest-saved first.
+
+    min_rating: hides recipes rated below this value (1–5). NULL ratings
+    are always filtered out when min_rating is set, since "≥ N" is
+    meaningless for an unrated row.
     """
+    order_by = _SORT_ORDERS.get(sort) if sort else None
+    where_extra = ""
+    extra_params: list = []
+    if min_rating is not None and 1 <= min_rating <= 5:
+        where_extra = " AND r.rating >= ? "
+        extra_params.append(min_rating)
+
     if query and query.strip():
         tokens = _FTS_TOKEN_RE.findall(query)
         if not tokens:
             return []
         fts_query = " ".join(f'"{t}"' for t in tokens)
+        order_sql = order_by or "rank"
         with _connect() as conn:
             rows = conn.execute(
-                """
+                f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
                        r.saved_at, r.created_at
                 FROM recipes_fts f
@@ -395,22 +425,26 @@ def list_recipes(offset: int = 0, limit: int = 20, query: str | None = None) -> 
                 WHERE recipes_fts MATCH ?
                   AND r.saved_at IS NOT NULL
                   AND r.deleted_at IS NULL
-                ORDER BY rank
+                  {where_extra}
+                ORDER BY {order_sql}
                 LIMIT ? OFFSET ?
                 """,
-                (fts_query, limit, offset),
+                (fts_query, *extra_params, limit, offset),
             ).fetchall()
     else:
+        order_sql = order_by or "r.saved_at DESC"
         with _connect() as conn:
             rows = conn.execute(
-                """
-                SELECT id, url, title, parsed_json, lang, rating, saved_at, created_at
-                FROM recipes
-                WHERE saved_at IS NOT NULL AND deleted_at IS NULL
-                ORDER BY saved_at DESC
+                f"""
+                SELECT r.id, r.url, r.title, r.parsed_json, r.lang, r.rating,
+                       r.saved_at, r.created_at
+                FROM recipes r
+                WHERE r.saved_at IS NOT NULL AND r.deleted_at IS NULL
+                  {where_extra}
+                ORDER BY {order_sql}
                 LIMIT ? OFFSET ?
                 """,
-                (limit, offset),
+                (*extra_params, limit, offset),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
 

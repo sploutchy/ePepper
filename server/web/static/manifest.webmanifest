@@ -1,0 +1,18 @@
+{
+  "name": "ePepper",
+  "short_name": "ePepper",
+  "description": "Kitchen recipe display + library",
+  "start_url": "/app/",
+  "scope": "/app/",
+  "display": "standalone",
+  "background_color": "#faf8f4",
+  "theme_color": "#3d7a4d",
+  "icons": [
+    {
+      "src": "/app/static/pepper.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

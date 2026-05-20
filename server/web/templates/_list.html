@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 {% if not recipes %}
   <p class="muted empty">{% if q %}No matches for “{{ q }}”.{% else %}Nothing saved yet.{% endif %}</p>
 {% else %}
@@ -9,13 +10,16 @@
           <div class="card-meta">
             <span class="stars">{{ stars(r.rating) }}</span>
             <span class="muted">saved {{ fmt_saved(r.saved_at) }}</span>
+            {% if r.id == current_recipe_id %}
+              <span class="card-badge">{{ icon("monitor", 14) }} on display</span>
+            {% endif %}
           </div>
         </a>
       </li>
     {% endfor %}
     {% if has_more %}
       <li class="loader"
-          hx-get="/app/_search?q={{ q|urlencode }}&offset={{ next_offset }}"
+          hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&min_rating={{ (min_rating or '')|string|urlencode }}&offset={{ next_offset }}"
           hx-trigger="revealed"
           hx-swap="outerHTML">Loading…</li>
     {% endif %}

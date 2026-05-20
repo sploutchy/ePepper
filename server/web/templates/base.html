@@ -11,6 +11,9 @@
   {# Mobile browser chrome (URL bar / status bar) follows the active theme. #}
   <meta name="theme-color" content="#faf8f4" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)">
+  <link rel="manifest" href="/app/static/manifest.webmanifest">
+  <link rel="icon" href="/app/static/pepper.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/app/static/pepper.svg">
   <title>{% block title %}ePepper{% endblock %}</title>
   <link rel="stylesheet" href="/app/static/app.css">
   {# Apply a saved manual override before paint. When no choice is saved,
@@ -97,6 +100,15 @@
       var next = current === 'dark' ? 'light' : 'dark';
       html.dataset.theme = next;
       try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+    }
+
+    // Register the PWA service worker. Best-effort — silent on failure so
+    // a SW that disappears can't break the page. The SW only caches the
+    // static shell; dynamic content stays network-first.
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', function() {
+        navigator.serviceWorker.register('/app/sw.js').catch(function() {});
+      });
     }
   </script>
 </body>
