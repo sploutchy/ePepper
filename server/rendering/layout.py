@@ -145,8 +145,23 @@ def render_recipe(
     # --- Compute header height (title + source + meta + divider) ---
     title = recipe.get("title", "Untitled Recipe")
     title_lines = textwrap.wrap(title, width=40)
-    header_h = MARGIN + len(title_lines) * (font_title.size + 4) + 4
+
+    # Inline the source onto the last title line when it fits, otherwise
+    # bump it to its own line below. font.getlength is available on
+    # FreeTypeFont (PIL ≥ 9.2); the fallback default font lacks it, so
+    # play safe and put source on its own line in that case.
+    source_inline = False
     if source:
+        try:
+            last_w = font_title.getlength(title_lines[-1])
+            src_w = font_meta.getlength(f"  from {source}")
+            usable = DISPLAY_WIDTH - 2 * MARGIN
+            source_inline = last_w + src_w <= usable
+        except AttributeError:
+            source_inline = False
+
+    header_h = MARGIN + len(title_lines) * (font_title.size + 4) + 4
+    if source and not source_inline:
         header_h += font_meta.size + 4
 
     meta_parts = []
@@ -324,10 +339,21 @@ def render_recipe(
     else:
         # --- Recipe page: draw title, source, meta+page, divider, two columns ---
         y = MARGIN
-        for line in title_lines:
+        for i, line in enumerate(title_lines):
             draw.text((MARGIN, y), line, font=font_title, fill=0)
+            is_last = i == len(title_lines) - 1
+            if is_last and source and source_inline:
+                # Tuck the source onto the same line as the title,
+                # baseline-aligned with the (larger) title font.
+                last_w = font_title.getlength(line)
+                src_y = y + (font_title.size - font_meta.size) - 2
+                draw.text(
+                    (MARGIN + last_w + 8, src_y),
+                    f"from {source}",
+                    font=font_meta, fill=0,
+                )
             y += font_title.size + 4
-        if source:
+        if source and not source_inline:
             draw.text((MARGIN, y), f"from {source}", font=font_meta, fill=0)
             y += font_meta.size + 4
         y += 4

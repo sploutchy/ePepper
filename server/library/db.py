@@ -37,10 +37,12 @@ CREATE TABLE IF NOT EXISTS recipes (
     rating      INTEGER,
     saved_at    INTEGER,
     created_at  INTEGER NOT NULL,
-    deleted_at  INTEGER
+    deleted_at  INTEGER,
+    source      TEXT          -- lowercase source name (from URL); NULL if unsourced
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipes_saved_at ON recipes(saved_at);
+CREATE INDEX IF NOT EXISTS idx_recipes_source   ON recipes(source);
 
 CREATE TABLE IF NOT EXISTS comments (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -104,6 +106,7 @@ def init_db() -> None:
     with _connect() as conn:
         conn.executescript(_SCHEMA)
         _migrate_add_deleted_at(conn)
+        _migrate_add_source(conn)
         _migrate_normalize_urls(conn)
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
@@ -115,6 +118,31 @@ def _migrate_add_deleted_at(conn: sqlite3.Connection) -> None:
     if "deleted_at" not in cols:
         conn.execute("ALTER TABLE recipes ADD COLUMN deleted_at INTEGER")
         log.info("Migration: added recipes.deleted_at column")
+
+
+def _migrate_add_source(conn: sqlite3.Connection) -> None:
+    """Add `source` column and backfill it from existing URLs. Idempotent."""
+    from status_helpers import source_name
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
+    if "source" not in cols:
+        conn.execute("ALTER TABLE recipes ADD COLUMN source TEXT")
+        log.info("Migration: added recipes.source column")
+    # Backfill anywhere the column is still NULL (covers both fresh-add
+    # and any rows inserted before this migration landed).
+    rows = conn.execute(
+        "SELECT id, url FROM recipes WHERE source IS NULL"
+    ).fetchall()
+    updated = 0
+    for row in rows:
+        src = source_name(row["url"])
+        if src:
+            conn.execute(
+                "UPDATE recipes SET source = ? WHERE id = ?",
+                (src.lower(), row["id"]),
+            )
+            updated += 1
+    if updated:
+        log.info("Migration: backfilled source on %d rows", updated)
 
 
 def _ingredients_text(parsed_json: str) -> str:
@@ -196,26 +224,30 @@ def upsert_recipe(url: str, recipe: dict) -> int:
     that they want the recipe back (caller would also crash on the get_recipe
     that follows, since that filter excludes soft-deleted rows).
     """
+    from status_helpers import source_name
     now = int(time.time())
     payload = json.dumps(recipe, ensure_ascii=False)
     title = recipe.get("title") or "Untitled"
     lang = recipe.get("lang") or "en"
     canonical = normalize_url(url)
     ingredients = _ingredients_text(payload)
+    src = source_name(canonical)
+    source_lower = src.lower() if src else None
 
     with _connect() as conn:
         cur = conn.execute(
             """
-            INSERT INTO recipes (url, title, parsed_json, lang, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO recipes (url, title, parsed_json, lang, source, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             ON CONFLICT(url) DO UPDATE SET
                 title       = excluded.title,
                 parsed_json = excluded.parsed_json,
                 lang        = excluded.lang,
+                source      = excluded.source,
                 deleted_at  = NULL
             RETURNING id
             """,
-            (canonical, title, payload, lang, now),
+            (canonical, title, payload, lang, source_lower, now),
         )
         recipe_id = int(cur.fetchone()["id"])
         _fts_upsert(conn, recipe_id, title, ingredients, _comments_text(conn, recipe_id))
@@ -391,6 +423,7 @@ def list_recipes(
     query: str | None = None,
     sort: str | None = None,
     min_rating: int | None = None,
+    source: str | None = None,
 ) -> list[dict]:
     """Paginated list of saved, non-deleted recipes.
 
@@ -401,13 +434,19 @@ def list_recipes(
     min_rating: hides recipes rated below this value (1–5). NULL ratings
     are always filtered out when min_rating is set, since "≥ N" is
     meaningless for an unrated row.
+
+    source: lowercase source key (matching `source_name(url).lower()`).
+    Filters to recipes whose stored `source` column equals this value.
     """
     order_by = _SORT_ORDERS.get(sort) if sort else None
     where_extra = ""
     extra_params: list = []
     if min_rating is not None and 1 <= min_rating <= 5:
-        where_extra = " AND r.rating >= ? "
+        where_extra += " AND r.rating >= ? "
         extra_params.append(min_rating)
+    if source:
+        where_extra += " AND r.source = ? "
+        extra_params.append(source.lower())
 
     if query and query.strip():
         tokens = _FTS_TOKEN_RE.findall(query)
@@ -447,6 +486,21 @@ def list_recipes(
                 (*extra_params, limit, offset),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
+
+
+def list_sources() -> list[str]:
+    """Distinct lowercase source keys from saved, non-deleted recipes,
+    sorted alphabetically. Used to populate the library page's source
+    filter dropdown."""
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT DISTINCT source FROM recipes "
+            "WHERE source IS NOT NULL "
+            "  AND saved_at IS NOT NULL "
+            "  AND deleted_at IS NULL "
+            "ORDER BY source"
+        ).fetchall()
+    return [r["source"] for r in rows]
 
 
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)

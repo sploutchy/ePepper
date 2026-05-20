@@ -292,6 +292,26 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-weight: 600;
 }
 
+/* Tiny source icon next to the card title (mobile only, where the
+   "from X" text in the meta row is hidden). 16 px favicon for external
+   URLs; a stroked book SVG for cookbook:// recipes. Sizing applies
+   when visible; .mobile-only takes display off above 640 px. */
+.card-favicon {
+  width: 16px;
+  height: 16px;
+  margin-right: 6px;
+  vertical-align: -3px;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.card-favicon img { width: 16px; height: 16px; display: block; }
+
+/* Inverse of .iconbtn-label: visible only below 640 px. */
+.mobile-only { display: inline-flex; align-items: center; }
+@media (min-width: 640px) {
+  .mobile-only { display: none; }
+}
+
 /* Recipe list */
 .recipes {
   list-style: none;
@@ -689,10 +709,10 @@ input[type=file]::file-selector-button {
   gap: 6px;
   flex-wrap: wrap;
 }
-/* Display card's title row uses plain inline flow so the page indicator
-   stays beside the title until the line genuinely overflows. */
+/* Display card's title row uses plain inline flow so title + source +
+   page indicator all stay on the same line until the text genuinely
+   overflows. */
 .display-title { margin: 4px 0; }
-.display-source { margin: 0 0 4px; font-size: 0.9em; }
 .status-icon {
   display: inline-flex;
   align-items: center;
