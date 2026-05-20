@@ -230,10 +230,16 @@ def _sanitize_sort(sort: str | None) -> str | None:
     return sort if sort in _VALID_SORTS else None
 
 
-def _sanitize_min_rating(min_rating: int | None) -> int | None:
-    if min_rating is None:
+def _sanitize_min_rating(min_rating: str | None) -> int | None:
+    """Tolerate an empty string from the "All ratings" select / pagination
+    template, which FastAPI would otherwise 422 on for an `int | None` param."""
+    if not min_rating:
         return None
-    return min_rating if 1 <= min_rating <= 5 else None
+    try:
+        n = int(min_rating)
+    except ValueError:
+        return None
+    return n if 1 <= n <= 5 else None
 
 
 def _list_context(
@@ -275,13 +281,13 @@ async def index(
     q: str = "",
     offset: int = 0,
     sort: str | None = None,
-    min_rating: int | None = None,
+    min_rating: str | None = None,
 ):
     _require_auth(request)
     sort = _sanitize_sort(sort)
-    min_rating = _sanitize_min_rating(min_rating)
+    parsed_min_rating = _sanitize_min_rating(min_rating)
     ctx = _context_globals(request)
-    ctx.update(_list_context(request, q, offset, sort, min_rating))
+    ctx.update(_list_context(request, q, offset, sort, parsed_min_rating))
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -291,14 +297,14 @@ async def search_partial(
     q: str = "",
     offset: int = 0,
     sort: str | None = None,
-    min_rating: int | None = None,
+    min_rating: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
     sort, or rating filter changes, or the Load more button is tapped."""
     _require_auth(request)
     sort = _sanitize_sort(sort)
-    min_rating = _sanitize_min_rating(min_rating)
-    ctx = _list_context(request, q, offset, sort, min_rating)
+    parsed_min_rating = _sanitize_min_rating(min_rating)
+    ctx = _list_context(request, q, offset, sort, parsed_min_rating)
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
 
