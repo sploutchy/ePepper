@@ -141,15 +141,21 @@ a:hover { text-decoration: underline; }
   margin-right: 4px;
 }
 
-/* Top bar */
+/* Top bar — background spans the viewport, but the inner row is capped
+   at the same max-width and side padding as <main> so the brand and the
+   nav buttons line up with the column below. */
 .topbar {
+  background: var(--card-bg);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-inner {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  max-width: 760px;
+  margin: 0 auto;
   padding: 10px var(--gap);
-  background: var(--card-bg);
-  border-bottom: 1px solid var(--border);
 }
 .brand {
   font-weight: 700;
@@ -428,23 +434,22 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   display: block;
 }
 
-/* Theme toggle icon+label swap — shows the wrapper matching the active
-   mode (sun + "Light" in light, moon + "Dark" in dark). Mirrors the
-   dark-mode entry points so OS-dark users without a manual override
-   still see the moon. */
-.theme-toggle .theme-icon-light,
-.theme-toggle .theme-icon-dark {
-  align-items: center;
-  gap: 8px;
-}
+/* Theme toggle: two SVGs sit side-by-side, the inactive one is hidden.
+   The companion label is a single span whose ::before text swaps along
+   with the icon — keeps the markup flat (no wrapper spans) and dodges a
+   Firefox issue where nested inline-flex containers occasionally
+   collapsed the SVG to 0×0. */
 .theme-toggle .theme-icon-dark { display: none; }
-.theme-toggle .theme-icon-light { display: inline-flex; }
+.theme-toggle .theme-icon-light { display: block; }
+.theme-toggle .theme-label::before { content: "Light"; }
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: inline-flex; }
+  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: block; }
   :root:not([data-theme="light"]) .theme-toggle .theme-icon-light { display: none; }
+  :root:not([data-theme="light"]) .theme-toggle .theme-label::before { content: "Dark"; }
 }
-:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: inline-flex; }
+:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: block; }
 :root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
+:root[data-theme="dark"] .theme-toggle .theme-label::before { content: "Dark"; }
 
 /* Labels are hidden in the icon-only mobile layout; the breakpoint
    matches the point where the header has comfortable room. */
