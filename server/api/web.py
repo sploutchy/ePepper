@@ -217,12 +217,37 @@ def _sanitize_min_rating(min_rating: int | None) -> int | None:
     return min_rating if 1 <= min_rating <= 5 else None
 
 
+def _sanitize_source(source: str | None) -> str | None:
+    """Lowercase + strip. Empty/whitespace → None. SQL uses parameter
+    binding so the value can't escape the WHERE clause."""
+    if not source:
+        return None
+    s = source.strip().lower()
+    return s or None
+
+
+def _favicon_url(url: str | None) -> str | None:
+    """Public favicon-service URL for an external http(s) URL, else None.
+
+    Returns Google's S2 favicon endpoint — cached + scaled by Google's
+    CDN. cookbook:// and jsonld: URLs return None so the template can
+    fall back to a book icon (or nothing).
+    """
+    if not url or not (url.startswith("http://") or url.startswith("https://")):
+        return None
+    host = (url.split("/", 3)[2] if "//" in url else "").lower()
+    if not host:
+        return None
+    return f"https://www.google.com/s2/favicons?domain={host}&sz=32"
+
+
 def _list_context(
     request: Request,
     q: str,
     offset: int,
     sort: str | None,
     min_rating: int | None,
+    source: str | None,
 ) -> dict:
     rows = library.list_recipes(
         offset=offset,
@@ -230,6 +255,7 @@ def _list_context(
         query=q or None,
         sort=sort,
         min_rating=min_rating,
+        source=source,
     )
     has_more = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]
@@ -239,11 +265,16 @@ def _list_context(
         "q": q,
         "sort": sort or "",
         "min_rating": min_rating,
+        "source": source or "",
+        "sources": library.list_sources(),
         "offset": offset,
         "next_offset": offset + _PAGE_SIZE,
         "has_more": has_more,
         "stars": _stars,
         "fmt_saved": _fmt_saved,
+        # Helpers for the per-row source chip on the list cards.
+        "source_name": source_name,
+        "favicon_url": _favicon_url,
         # Marks the recipe currently rendered on the e-ink display so the
         # list can flag it. None if the display isn't showing a saved recipe.
         "current_recipe_id": display_state.get().get("recipe_id"),
@@ -257,12 +288,14 @@ async def index(
     offset: int = 0,
     sort: str | None = None,
     min_rating: int | None = None,
+    source: str | None = None,
 ):
     _require_auth(request)
     sort = _sanitize_sort(sort)
     min_rating = _sanitize_min_rating(min_rating)
+    source = _sanitize_source(source)
     ctx = _context_globals(request)
-    ctx.update(_list_context(request, q, offset, sort, min_rating))
+    ctx.update(_list_context(request, q, offset, sort, min_rating, source))
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -273,13 +306,15 @@ async def search_partial(
     offset: int = 0,
     sort: str | None = None,
     min_rating: int | None = None,
+    source: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
     sort, or rating filter changes, or the Load more button is tapped."""
     _require_auth(request)
     sort = _sanitize_sort(sort)
     min_rating = _sanitize_min_rating(min_rating)
-    ctx = _list_context(request, q, offset, sort, min_rating)
+    source = _sanitize_source(source)
+    ctx = _list_context(request, q, offset, sort, min_rating, source)
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
 

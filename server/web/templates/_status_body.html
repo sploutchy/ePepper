@@ -25,30 +25,29 @@
 <section class="status-card">
   <h2>{{ icon("monitor", 18) }} Display</h2>
   {% if display.type == "recipe" %}
-    {# Plain <p> with inline children so the page indicator flows next
-       to the title and only wraps when the actual text overflows.
-       .status-line's flex-wrap was wrapping it prematurely. #}
+    {# Title · from Source · — page X of Y, all on one line. Inline flow
+       (not flex) so the page indicator stays beside the title until the
+       text actually overflows. #}
     <p class="display-title">
       {% if display.recipe_id %}
         <strong><a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a></strong>
       {% else %}
         <strong>{{ display.title }}</strong>
       {% endif %}
+      {% set src = source_name(display.url) %}
+      {% if src %}
+        <span class="muted">from
+          {% if display.url.startswith("http") -%}
+            <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
+          {%- else -%}
+            {{ src }}
+          {%- endif %}
+        </span>
+      {% endif %}
       {% if display.total_pages > 1 %}
         <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
       {% endif %}
     </p>
-    {% set src = source_name(display.url) %}
-    {% if src %}
-      <p class="muted display-source">
-        from
-        {% if display.url.startswith("http") %}
-          <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
-        {% else %}
-          {{ src }}
-        {% endif %}
-      </p>
-    {% endif %}
   {% elif display.type == "photo" %}
     <p class="display-title"><strong>Image</strong></p>
   {% else %}

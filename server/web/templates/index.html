@@ -2,9 +2,9 @@
 {% block title %}ePepper · Library{% endblock %}
 
 {% block content %}
-{# One form holds the search input + sort + rating filter. HTMX fires on
-   text input (debounced) and select changes, including all named fields
-   so any control's change replays the full query. #}
+{# One form holds the search input + sort + rating + source filters.
+   HTMX fires on text input (debounced) and select changes, including
+   all named fields so any control's change replays the full query. #}
 <form class="list-controls"
       hx-get="/app/_search"
       hx-target="#list"
@@ -27,6 +27,14 @@
     <option value="3" {% if min_rating == 3 %}selected{% endif %}>3★+</option>
     <option value="2" {% if min_rating == 2 %}selected{% endif %}>2★+</option>
   </select>
+  {% if sources %}
+    <select name="source" class="list-select" aria-label="Source">
+      <option value="" {% if not source %}selected{% endif %}>All sources</option>
+      {% for s in sources %}
+        <option value="{{ s }}" {% if source == s %}selected{% endif %}>{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+  {% endif %}
 </form>
 
 <div id="list">

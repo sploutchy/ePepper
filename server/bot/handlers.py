@@ -367,13 +367,10 @@ async def cmd_status(update: Update, context) -> None:
 
     sections = ["🫑 <b>ePepper Status</b>"]
 
-    # Display section
+    # Display section — "<b>title</b> from <source> — page X/Y" on one line.
     display_lines = ["<b>📺 Display</b>"]
     if state["title"]:
-        line = html.escape(state["title"])
-        if state["total_pages"] > 1:
-            line += f" — page {state['page']}/{state['total_pages']}"
-        display_lines.append(line)
+        line = f"<b>{html.escape(state['title'])}</b>"
         src = source_name(state.get("url"))
         if src:
             url = state.get("url") or ""
@@ -384,7 +381,10 @@ async def cmd_status(update: Update, context) -> None:
             else:
                 # Named cookbook URL: no link, just the human label.
                 src_html = html.escape(src)
-            display_lines.append(f"<i>from {src_html}</i>")
+            line += f" <i>from {src_html}</i>"
+        if state["total_pages"] > 1:
+            line += f" — page {state['page']}/{state['total_pages']}"
+        display_lines.append(line)
     else:
         display_lines.append(html.escape(state["type"]))
     sections.append("\n".join(display_lines))
