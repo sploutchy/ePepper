@@ -849,10 +849,16 @@ async def on_photo(update: Update, context) -> None:
         await msg.edit_text("❌ Couldn't download the photo. Try again.")
         return
 
+    # Caption travels with the photo to the LLM as a "User context" hint.
+    # Typical use: "Ottolenghi Simple" or "from my mother's recipe book"
+    # — anything that helps the OCR fill source_name when the photo
+    # itself doesn't show the cover.
+    hint = (update.message.caption or "").strip() or None
+
     # OCR is always an LLM call — wrap it in the typing indicator so the
     # 10-30 s wait reads as "bot is working" instead of "did this freeze?".
     async with _typing_indicator(context.bot, msg.chat_id):
-        result = await process_recipe_image(bytes(image_bytes))
+        result = await process_recipe_image(bytes(image_bytes), hint=hint)
     if result is None:
         await msg.edit_text("❌ Couldn't read a recipe from that photo.")
         return

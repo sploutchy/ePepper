@@ -319,6 +319,33 @@ async def search_partial(
 # --- Add recipe -------------------------------------------------------------
 
 
+def _filename_hint(filename: str | None) -> str | None:
+    """Turn an upload filename into a usable LLM context hint, or None.
+
+    Strips the directory prefix and the extension, replaces `_`, `-` and
+    `.` separators with spaces. Generic camera / screenshot patterns
+    ("IMG_1234", "Screenshot 2025-…", "photo (3)") collapse to noise —
+    we keep the cleaned form anyway and let the LLM ignore it, rather
+    than maintain a brittle blocklist. Returns None for empty / fully
+    numeric / single-token names so we don't waste a hint slot on
+    them.
+    """
+    if not filename:
+        return None
+    name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
+    if "." in name:
+        name = name.rsplit(".", 1)[0]
+    cleaned = " ".join(part for part in name.replace("_", " ").replace("-", " ").split())
+    if not cleaned:
+        return None
+    # Skip if it's just digits (camera-style) or one short opaque word.
+    if cleaned.replace(" ", "").isdigit():
+        return None
+    if " " not in cleaned and len(cleaned) < 6:
+        return None
+    return cleaned
+
+
 def _hx_redirect(url: str) -> Response:
     """200 OK with HX-Redirect — HTMX swaps the whole window to `url`.
 
@@ -412,8 +439,9 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
             request,
             f"Image too large (limit {_PHOTO_MAX_BYTES // 1024} KB).",
         )
-    log.info("Web add (photo OCR): %d bytes", len(raw))
-    result = await process_recipe_image(raw)
+    hint = _filename_hint(file.filename)
+    log.info("Web add (photo OCR): %d bytes hint=%r", len(raw), hint or "")
+    result = await process_recipe_image(raw, hint=hint)
     if result is None:
         return _add_error(request, "Couldn't read a recipe from that photo.")
     recipe, url = result
