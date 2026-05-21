@@ -16,6 +16,9 @@
   <link rel="apple-touch-icon" href="/app/static/pepper.svg">
   <title>{% block title %}ePepper{% endblock %}</title>
   <link rel="stylesheet" href="/app/static/app.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   {# Apply a saved manual override before paint. When no choice is saved,
      we leave data-theme unset so the CSS @media (prefers-color-scheme)
      fallback handles OS dark mode automatically. #}
@@ -36,8 +39,7 @@
     <header class="topbar">
       <div class="topbar-inner">
         <a href="/app/" class="brand">
-          <img src="/app/static/pepper.svg" alt="" class="pepper">
-          ePepper
+          <span class="e">e</span>Pepper
         </a>
         {# Inline SVGs (24×24, 2 px stroke, currentColor). Explicit
            width/height attributes belt-and-suspenders the CSS rule —
