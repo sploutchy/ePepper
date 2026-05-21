@@ -154,10 +154,10 @@
 </section>
 
 {# LLM call ledger for the current calendar month. Headline only —
-   one line: total calls + URL/OCR split + estimated CHF. The
-   `chf_partial` flag fires when a model in the period isn't in the
-   pricing table; surface that as a "≥" prefix so the user knows the
-   estimate undercounts. #}
+   one line: total calls + URL/OCR/translate split + estimated CHF.
+   The `chf_partial` flag fires when a model in the period isn't in
+   the pricing table; surface that as a "≥" prefix so the user knows
+   the estimate undercounts. #}
 {% if llm.enabled %}
 <section class="status-card">
   <h2>{{ icon("cpu", 18) }} LLM</h2>
@@ -167,7 +167,7 @@
     <p class="status-line">
       <strong>{{ llm.calls }}</strong> call{{ '' if llm.calls == 1 else 's' }}
       <span class="muted">this month</span>
-      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR)
+      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
       —
       <strong>{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong>
     </p>

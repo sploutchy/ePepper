@@ -403,7 +403,8 @@ def _build_status_text() -> str:
             chf_prefix = "≥ " if llm_stats["chf_partial"] else "~"
             sections.append(
                 f"<b>🧠 LLM</b> — {llm_stats['calls']} calls this month "
-                f"({llm_stats['url_calls']} URL, {llm_stats['ocr_calls']} OCR), "
+                f"({llm_stats['url_calls']} URL, {llm_stats['ocr_calls']} OCR, "
+                f"{llm_stats['translate_calls']} translate), "
                 f"{chf_prefix}CHF {llm_stats['chf']:.2f}"
             )
 
