@@ -68,12 +68,11 @@ BACKUP_CHAT_ID: int | None = (
 # The client appends `/chat/completions`.
 LLM_API_URL: str = os.environ.get("LLM_API_URL", "").rstrip("/")
 LLM_API_KEY: str = os.environ.get("LLM_API_KEY", "").strip()
-# Text path defaults to Ministral-3-14B (Infomaniak): 14B / multilingual
-# (FR/DE/IT/EN), follows the "name the ingredient" prompt rule that
-# gemma3n ignores. Vision stays on gemma3n until OCR is benchmarked.
-# Override via env per-deployment.
+# Default both paths to Ministral-3-14B (Infomaniak): 14B / multilingual
+# (FR/DE/IT/EN) / Image-Text to Text, follows the "name the ingredient"
+# prompt rule that gemma3n ignores. Override via env per-deployment.
 LLM_TEXT_MODEL: str = os.environ.get("LLM_TEXT_MODEL", "mistralai/Ministral-3-14B-Instruct-2512")
-LLM_VISION_MODEL: str = os.environ.get("LLM_VISION_MODEL", "gemma3n")
+LLM_VISION_MODEL: str = os.environ.get("LLM_VISION_MODEL", "mistralai/Ministral-3-14B-Instruct-2512")
 
 
 # Fonts (DejaVu Sans, installed via apt in Docker)
