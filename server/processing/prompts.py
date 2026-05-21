@@ -36,11 +36,19 @@ _RULES = """Rules:
   given). Integer. Null if not specified.
 - lang: detect from the recipe's own text.
 - instructions: each step is {"type":"step","text":"…"}; sections
-  become {"type":"heading","text":"Sauce"}. Steps name the
-  ingredient(s) acted on in cookbook infinitive style — "Mehl und
-  Salz in Schüssel geben", not "Schäle das Mehl" (no imperative) and
-  not "400 g Mehl in Schüssel geben" (no quantity re-stated). DE/FR/IT
-  use infinitive; EN keeps imperative.
+  become {"type":"heading","text":"Sauce"}. Each step text must read
+  as a natural cookbook sentence in the recipe's own language.
+
+  Verb form: FR/IT/DE use the infinitive (NOT direct imperative);
+  EN keeps the imperative.
+
+  If the source presents ingredients and actions in parallel columns
+  or lists (e.g. ingredient names on one side, action verbs on the
+  other), reconstruct a natural sentence in the language's correct
+  style — do NOT concatenate the raw columns.
+
+  Never re-state ingredient quantities in step text (those live in
+  the ingredient list).
 - source_name: only populated from image inputs, from visible
   cookbook / magazine branding. Null for webpage inputs."""
 
