@@ -30,12 +30,18 @@
   </div>
 
   {# Progress strip — revealed by the parent tile's `htmx-request` class
-     while the form is in flight. The URL path falls through to an LLM
-     call on unsupported sites, which can take 20s+; the spinner +
-     message makes it obvious we're working, not frozen. #}
+     while the form is in flight. Two-stage on the URL path: starts as
+     "Fetching recipe…", flips to the LLM stage after a few seconds when
+     the request is clearly past the recipe-scrapers happy path. The
+     bot does the same swap from a real server-side signal; the web has
+     no in-flight channel, so it's a time-based heuristic — but
+     scraper hits typically resolve under 2 s while LLM calls take 10 s+,
+     so the heuristic and the real signal land on the same UI state. #}
   <div class="add-progress" aria-live="polite">
     <span class="spinning">{{ icon("loader", 16) }}</span>
-    <span>Fetching recipe… can take a moment if the site is unusual.</span>
+    <span class="add-progress-text"
+          data-initial="Fetching recipe…"
+          data-llm="🤖 Converting the recipe with an LLM…">Fetching recipe…</span>
   </div>
 </form>
 
@@ -69,9 +75,11 @@
     </label>
   </div>
 
+  {# Photo OCR is always an LLM call, so the progress strip jumps
+     straight to the LLM stage — no two-stage swap needed. #}
   <div class="add-progress" aria-live="polite">
     <span class="spinning">{{ icon("loader", 16) }}</span>
-    <span>Reading the recipe…</span>
+    <span>🤖 Converting the recipe with an LLM…</span>
   </div>
 </form>
 
@@ -88,6 +96,32 @@
       form.requestSubmit();
     } else if (form) {
       form.submit();
+    }
+  });
+
+  // Two-stage progress text on forms that carry an .add-progress-text
+  // with `data-initial` + `data-llm`. The label starts at `data-initial`
+  // on submit, then flips to `data-llm` after _LLM_STAGE_MS — at which
+  // point recipe-scrapers has almost certainly missed and we're in the
+  // LLM tier. Mirrors what the bot does from a real server signal.
+  var _LLM_STAGE_MS = 3000;
+  var _llmTimers = new WeakMap();
+  document.addEventListener('htmx:beforeRequest', function(e) {
+    var form = e.detail.elt;
+    var stageEl = form && form.querySelector && form.querySelector('.add-progress-text');
+    if (!stageEl || !stageEl.dataset.initial || !stageEl.dataset.llm) return;
+    stageEl.textContent = stageEl.dataset.initial;
+    var t = setTimeout(function() {
+      stageEl.textContent = stageEl.dataset.llm;
+    }, _LLM_STAGE_MS);
+    _llmTimers.set(form, t);
+  });
+  document.addEventListener('htmx:afterRequest', function(e) {
+    var form = e.detail.elt;
+    var t = _llmTimers.get(form);
+    if (t) {
+      clearTimeout(t);
+      _llmTimers.delete(form);
     }
   });
 </script>

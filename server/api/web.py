@@ -410,11 +410,7 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     log.info("Web add (photo OCR): %d bytes", len(raw))
     result = await process_recipe_image(raw)
     if result is None:
-        return _add_error(
-            request,
-            "Couldn't read a recipe from that photo — check focus, framing, "
-            "and that the OCR model is configured on the server.",
-        )
+        return _add_error(request, "Couldn't read a recipe from that photo.")
     recipe, url = result
     existing = library.find_by_url(url)
     if existing is not None:
