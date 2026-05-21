@@ -189,6 +189,67 @@ async def _prefetch_fooby_for(target: date) -> None:
     fooby_cache.set_pick(target, url, title)
 
 
+async def backfill_translations() -> None:
+    """One-shot pass to populate `recipes.translated_keywords` for old rows.
+
+    Walks every saved recipe whose `translated_keywords` is NULL, runs it
+    through `translate_for_search`, and writes the result back. Bounded
+    concurrency (3) keeps the LLM endpoint happy and the local DB locked
+    for short bursts only.
+
+    Translation failures are tolerated — the helper logs and skips them;
+    the row simply stays NULL and gets retried on the next container
+    start. This is fire-and-forget, and never raises.
+    """
+    from processing.recipes import translate_for_search
+    from processing import llm
+
+    if not llm.is_enabled():
+        log.info("Translation backfill skipped — LLM not configured")
+        return
+
+    try:
+        pending = library.recipes_needing_translation()
+    except Exception:
+        log.exception("Translation backfill: failed to enumerate rows")
+        return
+    if not pending:
+        log.info("Translation backfill: nothing to do")
+        return
+    log.info("Translation backfill: %d recipes pending", len(pending))
+
+    sem = asyncio.Semaphore(3)
+
+    async def _one(row: dict) -> None:
+        async with sem:
+            try:
+                blob = await translate_for_search({
+                    "title": row["title"],
+                    "ingredients": row["recipe"].get("ingredients") or [],
+                    "lang": row["lang"],
+                })
+            except Exception:
+                log.exception("Translation backfill: LLM call crashed for id=%d", row["id"])
+                return
+            if not blob:
+                # Don't keep retrying a recipe we already failed on. Mark
+                # the row with an empty-string sentinel so the next
+                # restart's enumeration skips it.
+                blob = ""
+            try:
+                library.set_translated_keywords(row["id"], blob)
+            except Exception:
+                log.exception(
+                    "Translation backfill: DB write failed for id=%d", row["id"]
+                )
+
+    try:
+        await asyncio.gather(*(_one(row) for row in pending))
+    except Exception:
+        log.exception("Translation backfill: gather failed")
+    log.info("Translation backfill complete")
+
+
 async def initial_fooby_prefetch() -> None:
     """One-shot prefetch on container start when the cache isn't current.
 

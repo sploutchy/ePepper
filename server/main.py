@@ -12,7 +12,12 @@ import uvicorn
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
-from scheduler import midnight_loop, heartbeat_loop, initial_fooby_prefetch
+from scheduler import (
+    backfill_translations,
+    heartbeat_loop,
+    initial_fooby_prefetch,
+    midnight_loop,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -47,6 +52,11 @@ async def main() -> None:
     prefetch_task = asyncio.create_task(
         initial_fooby_prefetch(), name="initial_fooby_prefetch"
     )
+    # Backfill bilingual FTS keywords for any recipe that pre-dates the
+    # translation pass — no-op once the library is fully indexed.
+    translate_task = asyncio.create_task(
+        backfill_translations(), name="backfill_translations"
+    )
 
     # Start FastAPI server
     config = uvicorn.Config(
@@ -62,7 +72,7 @@ async def main() -> None:
         await server.serve()
     finally:
         log.info("Shutting down...")
-        for task in (midnight_task, heartbeat_task, prefetch_task):
+        for task in (midnight_task, heartbeat_task, prefetch_task, translate_task):
             task.cancel()
             try:
                 await task
