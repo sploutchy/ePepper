@@ -149,6 +149,16 @@ def _try_embedded_jsonld(url: str, html: str) -> dict | None:
     recipe_payload, _ = result
     if recipe_payload is None:
         return None
+    # Same rule as _try_scraper — without steps, ePepper has nothing to
+    # render. Fall through to the LLM. Seen on bio-mio.ch, which ships an
+    # ingredient-only JSON-LD Recipe blob.
+    if not recipe_payload.get("instructions"):
+        log.info(
+            "JSON-LD Recipe had no instructions for %s "
+            "(ingredients=%d) — falling through to LLM",
+            url, len(recipe_payload.get("ingredients") or []),
+        )
+        return None
     # extract() returns (recipe_dict, source_url) when JSON-LD won — we
     # don't need source_url here because we already have the canonical URL.
     return recipe_payload
