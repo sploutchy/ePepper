@@ -60,12 +60,74 @@
     <p class="muted">Updated {{ fmt_updated }}</p>
   {% endif %}
 
+  {% if display.type == "recipe" and display.total_pages > 1 %}
+    {# Page navigation — mirrors the device's physical buttons so you can
+       step through pages from the couch. Each tap re-renders this whole
+       partial via HTMX so the preview + the "page X of Y" line update
+       together. #}
+    <div class="page-nav">
+      <button class="iconbtn"
+              hx-post="/app/display/page/first"
+              hx-target="#status-body"
+              hx-swap="innerHTML"
+              title="First page" aria-label="First page">
+        {{ icon("skip-back", 18) }}
+      </button>
+      <button class="iconbtn"
+              hx-post="/app/display/page/prev"
+              hx-target="#status-body"
+              hx-swap="innerHTML"
+              title="Previous page" aria-label="Previous page">
+        {{ icon("chevron-left", 18) }}
+      </button>
+      <span class="page-nav-indicator muted">{{ display.page }} / {{ display.total_pages }}</span>
+      <button class="iconbtn"
+              hx-post="/app/display/page/next"
+              hx-target="#status-body"
+              hx-swap="innerHTML"
+              title="Next page" aria-label="Next page">
+        {{ icon("chevron-right", 18) }}
+      </button>
+      <button class="iconbtn"
+              hx-post="/app/display/page/last"
+              hx-target="#status-body"
+              hx-swap="innerHTML"
+              title="Last page" aria-label="Last page">
+        {{ icon("skip-forward", 18) }}
+      </button>
+    </div>
+  {% endif %}
+
   {% if display.type != "idle" %}
     <form class="status-actions"
           hx-post="/app/display/clear"
           hx-confirm="Clear the display?">
       <button class="danger" type="submit">{{ icon("trash", 18) }} Clear</button>
     </form>
+  {% endif %}
+</section>
+
+{# Tomorrow's anniversary or Fooby fallback — same logic the midnight
+   scheduler will run, so the user sees what's coming. #}
+<section class="status-card">
+  <h2>{{ icon("calendar", 18) }} Tomorrow ({{ next_anniversary_date }})</h2>
+  {% if next_anniversary %}
+    <p class="status-line">
+      <strong><a href="/app/recipes/{{ next_anniversary.id }}">{{ next_anniversary.title }}</a></strong>
+    </p>
+    <p class="status-line muted">
+      {% if next_anniversary_years_ago and next_anniversary_years_ago > 1 -%}
+        Cooked {{ next_anniversary_years_ago }} years ago today.
+      {%- elif next_anniversary_years_ago == 1 -%}
+        Cooked one year ago today.
+      {%- else -%}
+        Anniversary push.
+      {%- endif %}
+    </p>
+  {% else %}
+    <p class="status-line muted">
+      No past cook lands on this date — a Fooby weekly inspiration will play instead.
+    </p>
   {% endif %}
 </section>
 

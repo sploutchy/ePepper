@@ -9,7 +9,7 @@ import json
 import logging
 import secrets
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
@@ -19,7 +19,7 @@ import backup
 import display_state
 import library
 from library.db import SESSION_DURATION_S
-from config import API_KEY
+from config import API_KEY, TZ
 from display_push import push_recipe_to_display
 from processing.images import process_photo
 from processing.jsonld import parse_recipe_jsonld, resolve_url
@@ -478,6 +478,21 @@ def _status_ctx(request: Request) -> dict:
         device.get("battery_mv", 0) > 0
         and device["battery_mv"] < display_state.LOW_BATTERY_MV
     )
+    # Tomorrow's anniversary candidate — mirrors what the midnight scheduler
+    # would pick. Falls back to a "Fooby inspiration" hint when no past cook
+    # lands on tomorrow's MM-DD (the actual Fooby URL changes by weekday and
+    # would need a network fetch; the hint is enough for the user to know
+    # something will show).
+    tomorrow = datetime.now(TZ) + timedelta(days=1)
+    next_anniv = library.pick_anniversary_recipe(
+        tomorrow.strftime("%m-%d"), tomorrow.year
+    )
+    next_anniv_years_ago: int | None = None
+    if next_anniv and next_anniv.get("last_displayed_at"):
+        cooked_year = datetime.fromtimestamp(
+            next_anniv["last_displayed_at"], TZ
+        ).year
+        next_anniv_years_ago = tomorrow.year - cooked_year
     return {
         "request": request,
         "display": display,
@@ -493,6 +508,9 @@ def _status_ctx(request: Request) -> dict:
         ),
         "backup_enabled": backup.is_enabled(),
         "last_backup_at": backup.get_last_backup_at(),
+        "next_anniversary": next_anniv,
+        "next_anniversary_years_ago": next_anniv_years_ago,
+        "next_anniversary_date": tomorrow.strftime("%d.%m"),
         # _context_globals only fires on the full /status page render; the
         # 30 s HTMX partial calls this directly, so include source_name
         # here too so the Display card can keep rendering "from X".
@@ -523,6 +541,47 @@ async def web_display_clear(request: Request):
     display_state.clear()
     log.info("Web cleared display")
     return _hx_redirect("/app/status?cleared=1")
+
+
+def _change_page(action: str) -> None:
+    """Mutate display_state's current page based on a nav action.
+
+    Mirrors the wrap/clamp behaviour of /page/* in api/server.py so the
+    web buttons feel identical to the device's physical buttons.
+    """
+    state = display_state.get()
+    total = state["total_pages"]
+    current = state["page"]
+    if total <= 1:
+        return
+    if action == "next":
+        new_page = current + 1 if current < total else 1
+    elif action == "prev":
+        new_page = current - 1 if current > 1 else total
+    elif action == "first":
+        new_page = 1
+    elif action == "last":
+        new_page = total
+    else:
+        return
+    display_state.set_page(new_page)
+    log.info("Web page %s: %d → %d (of %d)", action, current, new_page, total)
+
+
+@router.post("/display/page/{action}", response_class=HTMLResponse)
+async def web_page_nav(request: Request, action: str):
+    """Status-page page-navigation controls — mirror the device buttons.
+
+    Returns the freshly-rendered status body so HTMX can swap the preview
+    + the page indicator in one round trip.
+    """
+    _require_auth(request)
+    if action not in ("next", "prev", "first", "last"):
+        raise HTTPException(404)
+    _change_page(action)
+    return templates.TemplateResponse(
+        request, "_status_body.html", _status_ctx(request)
+    )
 
 
 # --- Recipe detail ---------------------------------------------------------

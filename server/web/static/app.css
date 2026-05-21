@@ -727,6 +727,22 @@ input[type=file]::file-selector-button {
 }
 .status-actions { margin-top: 12px; }
 
+/* Page nav — sits under the display preview when the current recipe spans
+   multiple pages. Same icon buttons used in the topbar so the visual
+   vocabulary stays consistent; the page indicator sits in the middle. */
+.page-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  margin: 10px 0 4px;
+}
+.page-nav-indicator {
+  min-width: 56px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .status-banner {
   background: var(--warn-bg);
   color: var(--warn-fg);
