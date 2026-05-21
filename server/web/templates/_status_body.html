@@ -107,22 +107,29 @@
   {% endif %}
 </section>
 
-{# Tomorrow's anniversary or Fooby fallback — same logic the midnight
-   scheduler will run, so the user sees what's coming. #}
+{# Tomorrow's preview — mirrors what the midnight scheduler will push.
+   Format: "<linked title> — <why>" so the recipe name is the reading
+   anchor and the reason lives in a muted suffix:
+     · cooked last year / cooked N years ago    (anniversary)
+     · inspiration from Fooby                   (pre-fetched cache)
+   Falls back to a generic muted hint when the cache hasn't populated
+   yet (typical on a fresh deploy that hasn't seen its first midnight). #}
 <section class="status-card">
   <h2>{{ icon("calendar", 18) }} Tomorrow ({{ next_anniversary_date }})</h2>
   {% if next_anniversary %}
     <p class="status-line">
       <strong><a href="/app/recipes/{{ next_anniversary.id }}">{{ next_anniversary.title }}</a></strong>
+      <span class="muted">—
+        {%- if next_anniversary_years_ago == 1 %} cooked last year
+        {%- elif next_anniversary_years_ago and next_anniversary_years_ago > 1 %} cooked {{ next_anniversary_years_ago }} years ago
+        {%- else %} past anniversary
+        {%- endif %}
+      </span>
     </p>
-    <p class="status-line muted">
-      {% if next_anniversary_years_ago and next_anniversary_years_ago > 1 -%}
-        Cooked {{ next_anniversary_years_ago }} years ago today.
-      {%- elif next_anniversary_years_ago == 1 -%}
-        Cooked one year ago today.
-      {%- else -%}
-        Anniversary push.
-      {%- endif %}
+  {% elif fooby_preview %}
+    <p class="status-line">
+      <strong><a href="{{ fooby_preview.url }}" target="_blank" rel="noopener">{{ fooby_preview.title }}</a></strong>
+      <span class="muted">— inspiration from Fooby</span>
     </p>
   {% else %}
     <p class="status-line muted">

@@ -17,6 +17,7 @@ from fastapi.templating import Jinja2Templates
 
 import backup
 import display_state
+import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
 from config import API_KEY, TZ
@@ -478,11 +479,15 @@ def _status_ctx(request: Request) -> dict:
         device.get("battery_mv", 0) > 0
         and device["battery_mv"] < display_state.LOW_BATTERY_MV
     )
-    # Tomorrow's anniversary candidate — mirrors what the midnight scheduler
-    # would pick. Falls back to a "Fooby inspiration" hint when no past cook
-    # lands on tomorrow's MM-DD (the actual Fooby URL changes by weekday and
-    # would need a network fetch; the hint is enough for the user to know
-    # something will show).
+    # Tomorrow's preview — mirrors what the midnight scheduler will push:
+    #   1. If an anniversary candidate lands on tomorrow's MM-DD, show that.
+    #   2. Else, surface the pre-fetched Fooby pick from fooby_cache (set
+    #      by the previous midnight tick or the startup prefetch). The
+    #      template links the title to the source URL and labels it
+    #      "inspiration from Fooby".
+    #   3. Else, generic "Fooby will play" hint (cache missing / stale —
+    #      a first deploy that hasn't reached its first midnight yet,
+    #      typically).
     tomorrow = datetime.now(TZ) + timedelta(days=1)
     next_anniv = library.pick_anniversary_recipe(
         tomorrow.strftime("%m-%d"), tomorrow.year
@@ -493,6 +498,11 @@ def _status_ctx(request: Request) -> dict:
             next_anniv["last_displayed_at"], TZ
         ).year
         next_anniv_years_ago = tomorrow.year - cooked_year
+    fooby_preview: dict | None = None
+    if next_anniv is None:
+        cached = fooby_cache.get()
+        if cached and cached.get("for_date") == tomorrow.date().isoformat():
+            fooby_preview = cached
     return {
         "request": request,
         "display": display,
@@ -511,6 +521,7 @@ def _status_ctx(request: Request) -> dict:
         "next_anniversary": next_anniv,
         "next_anniversary_years_ago": next_anniv_years_ago,
         "next_anniversary_date": tomorrow.strftime("%d.%m"),
+        "fooby_preview": fooby_preview,
         # _context_globals only fires on the full /status page render; the
         # 30 s HTMX partial calls this directly, so include source_name
         # here too so the Display card can keep rendering "from X".
