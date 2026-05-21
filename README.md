@@ -8,11 +8,11 @@ on their anniversary.
 
 ```
    ┌──────────────┐                              ┌──────────────────────────┐
-   │  Web app     │  URL / image / JSON-LD       │  Python server           │
+   │  Web app     │  URL / image                 │  Python server           │
    │  (PWA)       │ ───────────────────────────► │  (FastAPI +              │
    │              │  browse, sort, push          │   python-telegram-bot)   │
    ├──────────────┤                              │                          │
-   │  Telegram    │  URL / photo / .json         │  ▸ display state         │
+   │  Telegram    │  URL / photo                 │  ▸ display state         │
    │  bot         │ ───────────────────────────► │  ▸ recipe library        │
    │              │  /search /status /comment    │    (SQLite + FTS)        │
    └──────────────┘ ◄── alerts + backup ──────── │  ▸ anniversary +         │
@@ -36,8 +36,8 @@ on their anniversary.
 ```
 
 - **`server/`** — Python backend. Parses recipe URLs via
-  [recipe-scrapers](https://github.com/hhursev/recipe-scrapers), accepts
-  schema.org Recipe JSON-LD uploads, renders the panel image
+  [recipe-scrapers](https://github.com/hhursev/recipe-scrapers), OCRs
+  recipe photos via the configured LLM, renders the panel image
   server-side, persists saved recipes + notes to SQLite, runs the anniversary
   scheduler, and exposes the BMP frames + page navigation to the
   firmware.
@@ -50,8 +50,7 @@ on their anniversary.
 
 - **Two control surfaces.** A PWA-installable web app at `/app/` and a
   Telegram bot — pick whichever fits the moment. Both can add recipes
-  (URL / image / JSON-LD), search the library, add notes, and push to
-  the display.
+  (URL or image), search the library, add notes, and push to the display.
 - **Library.** Saved recipes persist in SQLite with FTS5 full-text
   search over title + ingredients + notes. Sort by "recently cooked"
   (default), "most cooked", or "least recently cooked", filter by
@@ -145,18 +144,17 @@ have anywhere to push the rendered image.
 
 ### Adding a recipe
 
-Three input formats, both surfaces accept all three:
+Two input formats, both surfaces accept both:
 
 | Source | What it does |
 |---|---|
 | **URL** | Fetched + parsed by [recipe-scrapers](https://github.com/hhursev/recipe-scrapers). Tracking params (`utm_*`, `fbclid`, `ref`, `gclid`) are stripped before the URL is canonicalized + deduped. |
-| **Image** | Resized and Floyd–Steinberg-dithered to the panel's 800 × 480 1-bit canvas. **Not saved to the library** — image pushes are ephemeral display content. |
-| **JSON-LD** | A `.json` file containing a `schema.org/Recipe` object. Use this when recipe-scrapers can't handle a site, or to OCR a photo via an LLM (see [LLM prompt workflow](#llm-prompt-workflow)). |
+| **Image** | OCR'd via the configured LLM, then ingested into the same canonical recipe shape as a URL. Telegram caption / web filename rides along as a context hint so the model can fill `source_name` even when the photo doesn't show the cover. |
 
-**From the web app:** open `/app/add`, paste a URL, or pick a file.
+**From the web app:** open `/app/add`, paste a URL, or pick a photo.
 
-**From Telegram:** paste a URL into the chat, send a photo, or upload
-a `.json` document.
+**From Telegram:** paste a URL into the chat, or send a photo (optional
+caption is forwarded to the OCR LLM as a hint).
 
 Adding via the web lands the recipe in the library immediately. Adding
 via the Telegram bot pushes to the panel right away; tap 💾 **Save** on
@@ -192,8 +190,8 @@ many pages as fit (a tall recipe might be 2–3 pages). Notes get
 their own trailing page. The header carries `Title from Source —
 page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
 for en/de/fr/it), followed by total time and servings on the meta
-line. The source is omitted entirely for image uploads and JSON-LD
-recipes without a URL.
+line. The source is omitted entirely for OCR'd photos that yielded
+no `source_name`.
 
 ### Editing recipes
 
@@ -264,7 +262,7 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
 - **Pages:**
   - `/app/` — library list (search, sort, source filter, infinite
     scroll, on-display badge).
-  - `/app/add` — URL paste, image upload, or JSON-LD upload.
+  - `/app/add` — URL paste or recipe-photo upload.
   - `/app/recipes/<id>` — recipe detail (notes, push, delete).
   - `/app/status` — live panel preview, panel state, library
     stats + last backup, device readings.
@@ -330,20 +328,20 @@ participate in the `UNIQUE` index:
   (lowercase host, dropped tracking params, trimmed trailing slash,
   fragment stripped) before insertion so equivalent links dedupe.
 - `cookbook://<name>/<slug>` — a recipe from a paper cookbook. The
-  screenshot prompt asks the LLM to fill the `name` part from any
+  OCR prompt asks the LLM to fill the `name` part from any
   visible branding in the photo and the `slug` from the title;
   e.g. `cookbook://nos-recettes-preferees/crepes-bretonnes`. The
   `<name>` part doubles as the displayed source name (`from
   Nos-recettes-preferees`).
-- `jsonld:<12-hex-digits>` — a content-hash fallback for JSON-LD
-  uploads that arrived without a `url` field.
+- `jsonld:<12-hex-digits>` — a content-hash fallback for OCR'd
+  photos that yielded no usable source name.
 
 `source` mirrors the displayed source name in lowercase
 (`fooby`, `nos-recettes-preferees`, …) and is what the library page's
-source-filter dropdown matches against. It's backfilled from existing
-URLs on startup by `_migrate_add_source`. URL canonicalisation,
-source backfill, and FTS rebuild all run idempotently, so a snapshot
-from any prior version restores cleanly.
+source-filter dropdown matches against. It's derived from the recipe's
+URL/scheme on insert and stored as a regular column on `recipes`. URL
+canonicalisation and FTS rebuild run idempotently, so a snapshot from
+any prior version restores cleanly.
 
 ### Anniversary scheduler
 
@@ -444,22 +442,8 @@ and *(b)* receiving the device-health alerts.
 | `/surprise` | Push a random saved recipe to the display. |
 | `/clear` | Clear the panel (renders a blank white frame). |
 | `/status` | Sectioned device + library snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
-| `/prompt_screenshot` | Copy-paste LLM prompt for converting a photo → JSON-LD. |
-| `/prompt_url [URL]` | Copy-paste LLM prompt for fetching a webpage → JSON-LD; the URL is baked in if you provide one. |
 | `/start` | Brief welcome + how to send recipes. |
 | `/help` | Full command reference. |
-
-### LLM prompt workflow
-
-When recipe-scrapers can't handle a site (or you only have a photo):
-
-1. Run `/prompt_screenshot` or `/prompt_url https://…` in the bot.
-2. Copy the prompt and hand it to an LLM (Claude, ChatGPT, Perplexity,
-   …) with your screenshot or instructing it to fetch the URL.
-3. Upload the resulting `recipe.json` to the bot or the web app's
-   *Add* page. `parse_recipe_jsonld` ingests it into the same shape
-   `process_recipe_url` produces; the library dedupes by source URL
-   (or by a synthetic hash if the JSON-LD has no `url` field).
 
 ### Device health alerts
 

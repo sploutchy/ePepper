@@ -146,8 +146,10 @@ def render_recipe(
     # bump it to its own line below. font.getlength is available on
     # FreeTypeFont (PIL ≥ 9.2); the fallback default font lacks it, so
     # play safe and put source on its own line in that case.
+    # textwrap.wrap returns [] for empty / whitespace-only titles, so
+    # only attempt the inline measurement when we actually have a line.
     source_inline = False
-    if source:
+    if source and title_lines:
         try:
             last_w = font_title.getlength(title_lines[-1])
             src_w = font_meta.getlength(f"  {strings['from']} {source}")
@@ -243,12 +245,24 @@ def render_recipe(
     def _block_h(b: dict) -> int:
         return len(b["lines"]) * b["line_h"] + (10 if b["type"] == "heading" else 6)
 
+    # Each heading is bundled with the first non-heading block that follows
+    # it, so a chain like H1, H2, Step1 keeps all three on the same page
+    # instead of letting H2 orphan at the bottom of a page with Step1 below.
     groups: list[list[int]] = []
     i = 0
     while i < len(all_blocks):
-        if all_blocks[i]["type"] == "heading" and i + 1 < len(all_blocks):
-            groups.append([i, i + 1])
-            i += 2
+        if all_blocks[i]["type"] == "heading":
+            j = i + 1
+            while j < len(all_blocks) and all_blocks[j]["type"] == "heading":
+                j += 1
+            if j < len(all_blocks):
+                groups.append(list(range(i, j + 1)))
+                i = j + 1
+            else:
+                # Trailing headings with no following step — keep them
+                # grouped together so they at least sit next to each other.
+                groups.append(list(range(i, j)))
+                i = j
         else:
             groups.append([i])
             i += 1

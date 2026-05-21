@@ -71,7 +71,10 @@ def seconds_until_next_local_hour(now: datetime, target_hour: int) -> float:
 
 
 def _push_anniversary_for(today: datetime) -> bool:
-    """Push today's anniversary recipe if one exists. Returns True when handled."""
+    """Push today's anniversary recipe if one exists. Returns True when handled
+    (either pushed successfully or already on display); False when no candidate
+    exists or rendering failed — in which case the caller should run the Fooby
+    fallback so the panel doesn't stay frozen on yesterday's content."""
     row = library.pick_anniversary_recipe(today.strftime("%m-%d"), today.year)
     if row is None:
         return False
@@ -86,7 +89,12 @@ def _push_anniversary_for(today: datetime) -> bool:
             row["id"],
         )
         return True
-    push_recipe_to_display(row)
+    if not push_recipe_to_display(row):
+        log.warning(
+            "Anniversary push failed for id=%d; caller should fall back",
+            row["id"],
+        )
+        return False
     log.info(
         "Pushed anniversary recipe id=%d title=%r (last cooked %s)",
         row["id"], row["title"],

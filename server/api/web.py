@@ -437,7 +437,7 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if raw is None:
         return _add_error(
             request,
-            f"Image too large (limit {_PHOTO_MAX_BYTES // 1024} KB).",
+            f"Image too large (limit {_PHOTO_MAX_BYTES // (1024 * 1024)} MB).",
         )
     hint = _filename_hint(file.filename)
     log.info("Web add (photo OCR): %d bytes hint=%r", len(raw), hint or "")
