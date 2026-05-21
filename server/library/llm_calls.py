@@ -35,29 +35,6 @@ _PRICES_CHF: dict[str, tuple[float, float]] = {
 _warned_models: set[str] = set()
 
 
-def migrate(conn: sqlite3.Connection) -> None:
-    """Create the table on first run. Idempotent.
-
-    Called by `library.db.init_db()` alongside the recipe-table
-    migrations so a fresh container, a restored snapshot, or a
-    bit-old DB all converge to the same schema.
-    """
-    conn.execute(
-        """
-        CREATE TABLE IF NOT EXISTS llm_calls (
-            ts INTEGER NOT NULL,
-            kind TEXT NOT NULL,
-            model TEXT NOT NULL,
-            input_tokens INTEGER NOT NULL,
-            output_tokens INTEGER NOT NULL
-        )
-        """
-    )
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_llm_calls_ts ON llm_calls(ts)"
-    )
-
-
 def record(
     conn_factory,
     *,

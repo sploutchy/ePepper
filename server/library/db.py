@@ -1,11 +1,11 @@
 """SQLite-backed recipe library.
 
-Schema:
-    recipes  (id, url, title, parsed_json, lang, saved_at,
-              last_displayed_at, displayed_count, created_at,
-              deleted_at, source)
-    comments (id, recipe_id, body, created_at)
-    sessions (token_hash, created_at, expires_at)
+Tables (full column list in `_SCHEMA` below):
+    recipes      — one row per known URL
+    comments     — free-text notes attached to a recipe
+    sessions     — web-app session tokens (sha256 hashes, never raw)
+    recipes_fts  — FTS5 index for /search
+    llm_calls    — per-call accounting for the monthly cost surface
 
 `saved_at` is NULL until the user explicitly saves the recipe; until then
 the row is just a cached copy of the parsed recipe so we can re-render it
@@ -37,23 +37,23 @@ DB_PATH = os.path.join(DATA_DIR, "recipes.db")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS recipes (
-    id                INTEGER PRIMARY KEY AUTOINCREMENT,
-    url               TEXT NOT NULL UNIQUE,
-    title             TEXT NOT NULL,
-    parsed_json       TEXT NOT NULL,
-    lang              TEXT NOT NULL,
-    saved_at          INTEGER,
-    created_at        INTEGER NOT NULL,
-    deleted_at        INTEGER,
-    source            TEXT,          -- lowercase source name (from URL); NULL if unsourced
-    last_displayed_at INTEGER,       -- updated on every successful push_recipe_to_display
-    displayed_count   INTEGER NOT NULL DEFAULT 0  -- incremented alongside last_displayed_at
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    url                 TEXT NOT NULL UNIQUE,
+    title               TEXT NOT NULL,
+    parsed_json         TEXT NOT NULL,
+    lang                TEXT NOT NULL,
+    saved_at            INTEGER,
+    created_at          INTEGER NOT NULL,
+    deleted_at          INTEGER,
+    source              TEXT,                       -- lowercase source name (from URL); NULL if unsourced
+    last_displayed_at   INTEGER,                    -- updated on every successful push_recipe_to_display
+    displayed_count     INTEGER NOT NULL DEFAULT 0, -- incremented alongside last_displayed_at
+    translated_keywords TEXT                        -- LLM-produced FR/DE search blob; NULL = pending, "" = tried & gave up
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipes_saved_at ON recipes(saved_at);
--- idx_recipes_source + idx_recipes_last_displayed_at live inside their
--- respective _migrate_* helpers so they can't race the ALTER TABLE on a
--- DB that pre-dated either column.
+CREATE INDEX IF NOT EXISTS idx_recipes_source ON recipes(source);
+CREATE INDEX IF NOT EXISTS idx_recipes_last_displayed_at ON recipes(last_displayed_at);
 
 CREATE TABLE IF NOT EXISTS comments (
     id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +86,17 @@ CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
     title, ingredients, notes, translated,
     tokenize='unicode61 remove_diacritics 2'
 );
+
+-- Per-call LLM accounting, drives the monthly cost surface on /status.
+CREATE TABLE IF NOT EXISTS llm_calls (
+    ts            INTEGER NOT NULL,
+    kind          TEXT NOT NULL,
+    model         TEXT NOT NULL,
+    input_tokens  INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_llm_calls_ts ON llm_calls(ts);
 """
 
 
@@ -130,100 +141,8 @@ def init_db() -> None:
     os.makedirs(DATA_DIR, exist_ok=True)
     with _connect() as conn:
         conn.executescript(_SCHEMA)
-        _migrate_add_deleted_at(conn)
-        _migrate_add_source(conn)
-        _migrate_add_last_displayed(conn)
-        _migrate_add_displayed_count(conn)
-        _migrate_drop_rating(conn)
-        _migrate_normalize_urls(conn)
-        _migrate_add_translated_keywords(conn)
-        from library.llm_calls import migrate as _migrate_llm_calls
-        _migrate_llm_calls(conn)
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
-
-
-def _migrate_add_deleted_at(conn: sqlite3.Connection) -> None:
-    """Add `deleted_at` to an older DB if it's missing. Idempotent."""
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
-    if "deleted_at" not in cols:
-        conn.execute("ALTER TABLE recipes ADD COLUMN deleted_at INTEGER")
-        log.info("Migration: added recipes.deleted_at column")
-
-
-def _migrate_add_source(conn: sqlite3.Connection) -> None:
-    """Add `source` column and backfill it from existing URLs. Idempotent."""
-    from status_helpers import source_name
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
-    if "source" not in cols:
-        conn.execute("ALTER TABLE recipes ADD COLUMN source TEXT")
-        log.info("Migration: added recipes.source column")
-    # Index lives here (not in _SCHEMA) so it can't race the ALTER above on
-    # a DB that pre-dated the column.
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_recipes_source ON recipes(source)")
-    # Backfill anywhere the column is still NULL (covers both fresh-add
-    # and any rows inserted before this migration landed).
-    rows = conn.execute(
-        "SELECT id, url FROM recipes WHERE source IS NULL"
-    ).fetchall()
-    updated = 0
-    for row in rows:
-        src = source_name(row["url"])
-        if src:
-            conn.execute(
-                "UPDATE recipes SET source = ? WHERE id = ?",
-                (src.lower(), row["id"]),
-            )
-            updated += 1
-    if updated:
-        log.info("Migration: backfilled source on %d rows", updated)
-
-
-def _migrate_add_last_displayed(conn: sqlite3.Connection) -> None:
-    """Add `last_displayed_at`. Idempotent — no backfill.
-
-    Existing rows stay NULL ("never shown") until a real push bumps them
-    via `touch_displayed`. Callers must treat NULL as a first-class state
-    rather than a date.
-    """
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
-    if "last_displayed_at" not in cols:
-        conn.execute("ALTER TABLE recipes ADD COLUMN last_displayed_at INTEGER")
-        log.info("Migration: added recipes.last_displayed_at column")
-    # Index lives here (not in _SCHEMA) so it can't race the ALTER above on
-    # a DB that pre-dated the column.
-    conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_recipes_last_displayed_at "
-        "ON recipes(last_displayed_at)"
-    )
-
-
-def _migrate_add_displayed_count(conn: sqlite3.Connection) -> None:
-    """Add `displayed_count` defaulting to 0. Idempotent.
-
-    SQLite's ALTER TABLE ADD COLUMN propagates the literal DEFAULT to
-    existing rows, so no manual backfill is needed. Incremented alongside
-    `last_displayed_at` by `touch_displayed`.
-    """
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
-    if "displayed_count" not in cols:
-        conn.execute(
-            "ALTER TABLE recipes ADD COLUMN displayed_count INTEGER NOT NULL DEFAULT 0"
-        )
-        log.info("Migration: added recipes.displayed_count column")
-
-
-def _migrate_drop_rating(conn: sqlite3.Connection) -> None:
-    """Drop the legacy `rating` column. Idempotent.
-
-    Ratings were removed in favour of `displayed_count` as the implicit
-    "favourite" signal — what you actually cook is a better proxy than
-    a self-report. Requires SQLite ≥ 3.35 (CPython 3.12 bundles 3.40+).
-    """
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
-    if "rating" in cols:
-        conn.execute("ALTER TABLE recipes DROP COLUMN rating")
-        log.info("Migration: dropped recipes.rating column")
 
 
 def _ingredients_text(parsed_json: str) -> str:
@@ -275,67 +194,6 @@ def _rebuild_fts(conn: sqlite3.Connection) -> None:
             _comments_text(conn, row["id"]),
             row["translated_keywords"] or "",
         )
-
-
-def _migrate_add_translated_keywords(conn: sqlite3.Connection) -> None:
-    """Add `recipes.translated_keywords` + the FTS `translated` column. Idempotent.
-
-    The recipes table gets a new column via ALTER TABLE — straightforward.
-    The FTS5 virtual table can't add columns via ALTER, so when the
-    existing schema lacks `translated` we drop + recreate it. The
-    `_rebuild_fts` call in `init_db` repopulates from `recipes` right
-    after, so no data is lost — only the FTS ranking history, which
-    isn't persistent state we care about.
-    """
-    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
-    if "translated_keywords" not in cols:
-        conn.execute("ALTER TABLE recipes ADD COLUMN translated_keywords TEXT")
-        log.info("Migration: added recipes.translated_keywords column")
-
-    fts_cols = {
-        r["name"] for r in conn.execute("PRAGMA table_info(recipes_fts)").fetchall()
-    }
-    if "translated" not in fts_cols:
-        conn.execute("DROP TABLE IF EXISTS recipes_fts")
-        conn.execute(
-            "CREATE VIRTUAL TABLE recipes_fts USING fts5("
-            "title, ingredients, notes, translated, "
-            "tokenize='unicode61 remove_diacritics 2')"
-        )
-        log.info(
-            "Migration: rebuilt recipes_fts with translated column "
-            "(rebuild_fts will repopulate)"
-        )
-
-
-def _migrate_normalize_urls(conn: sqlite3.Connection) -> None:
-    """Rewrite any pre-normalization URLs in `recipes.url` to canonical form.
-
-    Idempotent — rows already canonical are no-ops. On a normalization
-    collision (two old rows that canonicalize to the same URL) we keep the
-    earlier row and drop the duplicate's row; comments referencing it get
-    cleaned up via the FK cascade.
-    """
-    rows = conn.execute("SELECT id, url FROM recipes ORDER BY id ASC").fetchall()
-    for row in rows:
-        canonical = normalize_url(row["url"])
-        if canonical == row["url"]:
-            continue
-        clash = conn.execute(
-            "SELECT id FROM recipes WHERE url = ? AND id != ?",
-            (canonical, row["id"]),
-        ).fetchone()
-        if clash is not None:
-            log.warning(
-                "URL normalization collision: dropping recipe id=%d (raw=%r) — "
-                "already covered by id=%d",
-                row["id"], row["url"], clash["id"],
-            )
-            conn.execute("DELETE FROM recipes WHERE id = ?", (row["id"],))
-        else:
-            conn.execute(
-                "UPDATE recipes SET url = ? WHERE id = ?", (canonical, row["id"])
-            )
 
 
 def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None) -> int:
