@@ -892,7 +892,7 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
     async def _on_llm_start() -> None:
         try:
             await msg.edit_text(
-                "🤖 Asking the AI to read the recipe…\n"
+                "🤖 Converting the recipe with an LLM…\n"
                 "<i>This can take a moment if the site is unusual.</i>",
                 parse_mode="HTML",
             )

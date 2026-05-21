@@ -63,7 +63,7 @@ async def process_recipe_url(
     `on_llm_start` is an optional async callable fired once, just before
     the LLM step actually runs (so only when both faster tiers missed
     AND the LLM is configured). The Telegram bot uses it to swap the
-    placeholder message into an "AI is working on it" state.
+    placeholder message into a "Converting with an LLM…" state.
     """
     log.info("Fetching recipe from: %s", url)
 
@@ -181,7 +181,7 @@ async def _try_llm(url: str, html: str, on_start=None) -> dict | None:
     `on_start` (optional async callable) fires once, just before the
     actual chat-completions request — but only after we've confirmed the
     LLM is enabled and we have a non-empty blob. The Telegram bot uses
-    it to swap the placeholder message into an "AI is working" state.
+    it to swap the placeholder message into an "LLM is working" state.
     """
     if not llm.is_enabled():
         log.info("LLM fallback disabled (LLM_API_URL / LLM_API_KEY unset)")
