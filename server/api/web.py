@@ -681,16 +681,27 @@ async def push_recipe(request: Request, recipe_id: int):
 
 
 @router.delete("/recipes/{recipe_id}", response_class=HTMLResponse)
-async def delete_recipe(request: Request, recipe_id: int):
-    """Soft-delete a recipe. No restore path — deleted rows are recoverable
-    from the Telegram DB backups if you really need them."""
+async def delete_recipe(request: Request, recipe_id: int, hard: int = 0):
+    """Delete a recipe.
+
+    Default: soft-delete (set `deleted_at`; row is recoverable from a
+    backup). `?hard=1` (the shift-click affordance from the recipe
+    detail page): wipe the row outright — comments cascade away, the
+    FTS entry is dropped, and the next Telegram backup snapshot will
+    no longer carry it.
+    """
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    if not library.delete_recipe(recipe_id):
-        raise HTTPException(404)
-    log.info("Web deleted recipe id=%d title=%r", recipe_id, row["title"])
+    if hard:
+        if not library.hard_delete_recipe(recipe_id):
+            raise HTTPException(404)
+        log.info("Web HARD-deleted recipe id=%d title=%r", recipe_id, row["title"])
+    else:
+        if not library.delete_recipe(recipe_id):
+            raise HTTPException(404)
+        log.info("Web deleted recipe id=%d title=%r", recipe_id, row["title"])
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"
     return resp

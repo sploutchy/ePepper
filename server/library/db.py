@@ -546,6 +546,23 @@ def delete_recipe(recipe_id: int) -> bool:
     return affected
 
 
+def hard_delete_recipe(recipe_id: int) -> bool:
+    """Wipe a recipe row outright (no soft-delete). Returns True on hit.
+
+    Hidden affordance accessed via shift-click on the web delete button.
+    Foreign-key cascade removes any comments; FTS5 isn't a relational
+    table so its row is removed explicitly. Use when a recipe ended up
+    in the library by mistake (e.g. a duplicate OCR pass that produced
+    junk) and you don't want it lingering in the daily Telegram backup.
+    """
+    with _connect() as conn:
+        cur = conn.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
+        affected = cur.rowcount > 0
+        if affected:
+            conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
+    return affected
+
+
 def remove_comment(comment_id: int) -> int | None:
     """Delete a comment. Returns the parent recipe_id if a row was deleted, else None."""
     with _connect() as conn:
