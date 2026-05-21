@@ -1,7 +1,6 @@
 """Telegram bot handlers for ePepper."""
 
 import html
-import json
 import logging
 import time
 import uuid
@@ -23,13 +22,8 @@ import backup
 import display_state
 import library
 from display_push import push_recipe_to_display
-from processing.jsonld import parse_recipe_jsonld, resolve_url
 from processing.recipes import process_recipe_image, process_recipe_url
 from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
-
-# Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
-# a few KB; anything larger is almost certainly not a recipe.
-_JSON_MAX_BYTES = 256 * 1024
 
 log = logging.getLogger(__name__)
 
@@ -146,8 +140,8 @@ def _stash_search(query: str) -> str:
 
 
 # Commands surfaced in Telegram's native blue `/` menu. Order is the order
-# the menu shows them, so list daily-use commands first and the niche
-# `/prompt_*` ones last. /start is omitted — it's a bootstrapping command.
+# the menu shows them, so daily-use commands come first. /start is omitted
+# — it's a bootstrapping command.
 _BOT_COMMANDS: list[tuple[str, str]] = [
     ("recipe", "Push a recipe URL to the display"),
     ("search", "Find a saved recipe"),
@@ -156,8 +150,6 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("status", "Device + library status"),
     ("clear", "Clear the display"),
     ("help", "Show all commands"),
-    ("prompt_url", "LLM prompt: URL → recipe.json"),
-    ("prompt_screenshot", "LLM prompt: photo → recipe.json"),
 ]
 
 
@@ -197,14 +189,7 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("comment", cmd_comment))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(CommandHandler("surprise", cmd_surprise))
-    app.add_handler(CommandHandler("prompt_screenshot", cmd_prompt_screenshot))
-    app.add_handler(CommandHandler("prompt_url", cmd_prompt_url))
-    app.add_handler(CommandHandler("prompt_croqumenus", cmd_prompt_croqumenus))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
-    app.add_handler(MessageHandler(
-        filters.Document.FileExtension("json") | filters.Document.MimeType("application/json"),
-        on_document,
-    ))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
     app.add_handler(CallbackQueryHandler(on_save_note_button, pattern=r"^save_note:"))
@@ -254,14 +239,12 @@ def _web_app_line() -> str:
 _START_TEXT = (
     "🫑 <b>ePepper — your kitchen recipe display</b>\n\n"
     "<b>Send me:</b>\n"
-    "• A photo of a recipe\n"
-    "• A recipe URL (just paste the link)\n"
-    "• A .json file with a schema.org Recipe (for OCR / unsupported sites)\n\n"
+    "• A photo of a recipe — OCR'd into the library automatically\n"
+    "• A recipe URL (just paste the link) — falls back to an LLM if the "
+    "site isn't a known one\n\n"
     "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your library. "
     "Use the device's <b>physical buttons</b> to cycle between recipe "
     "pages.\n\n"
-    "💡 <b>Tip:</b> for unsupported sites, /prompt_url or /prompt_screenshot "
-    "give you an LLM prompt that produces a JSON-LD file you can upload here.\n\n"
     "{web_line}\n\n"
     "Type /help for the full command list."
 )
@@ -284,10 +267,8 @@ async def cmd_start(update: Update, context) -> None:
 _HELP_TEXT = (
     "🫑 <b>ePepper — help</b>\n\n"
     "<b>➕ Add a recipe</b>\n"
-    "Just paste a URL, send a photo, or upload a schema.org Recipe .json.\n"
-    "  /recipe &lt;url&gt; — force-parse a URL\n"
-    "  /prompt_url, /prompt_screenshot — LLM prompts for unsupported sites\n"
-    "  /prompt_croqumenus — JSON-LD prompt for croqumenus.ch / meintiptopf.ch\n\n"
+    "Just paste a URL or send a photo of a cookbook / magazine page.\n"
+    "  /recipe &lt;url&gt; — force-parse a URL\n\n"
     "<b>📚 Library</b>\n"
     "Tap 💾 Save under a push to keep a recipe.\n"
     "  /search &lt;query&gt; — find a saved recipe (paginated)\n"
@@ -327,242 +308,6 @@ async def cmd_help(update: Update, context) -> None:
         parse_mode="HTML",
         disable_web_page_preview=True,
         reply_markup=_help_keyboard(),
-    )
-
-
-# Shared body of the LLM prompts. Tracks parse_recipe_jsonld's expected fields
-# (server/processing/jsonld.py) — keep in sync when that mapping changes.
-_PROMPT_JSON_TEMPLATE = """{
-  "@context": "https://schema.org/",
-  "@type": "Recipe",
-  "name": "<recipe title>",
-  "inLanguage": "<en|de|fr|it>",
-  "totalTime": "PT45M",
-  "recipeYield": "<servings, e.g. 4 servings>",
-  "recipeIngredient": [
-    "<ingredient 1, with quantity and unit>",
-    "<ingredient 2>"
-  ],
-  "recipeInstructions": [
-    { "@type": "HowToStep", "text": "<step 1>" },
-    { "@type": "HowToStep", "text": "<step 2>" }
-  ]
-}"""
-
-_PROMPT_RULES = """Rules:
-- Don't invent or extrapolate any field — omit it if unclear.
-- inLanguage: pick one of en/de/fr/it matching the recipe text.
-- totalTime: ISO 8601 (PT45M, PT1H30M). Omit if the recipe doesn't say.
-- recipeYield: numeric where possible ("4 servings", "12 cookies").
-- Preserve ingredient quantities and order exactly as written.
-- If the recipe has section headings (e.g. "Sauce", "Dough"), wrap their
-  steps in HowToSection:
-    { "@type": "HowToSection", "name": "Sauce",
-      "itemListElement": [ { "@type": "HowToStep", "text": "..." } ] }
-- Output ONE single JSON object inside ONE code block — no surrounding prose,
-  no markdown commentary.
-- Also offer the JSON as a downloadable file named `recipe.json` so it can be
-  attached directly without copy-pasting."""
-
-
-# Screenshot-specific URL rule: ask the LLM to identify the cookbook /
-# magazine / source from the photo and put it into the cookbook:// URL,
-# with a kebab-case title slug for the path. The server preserves these
-# URLs as-is; on the panel + status surfaces the netloc renders as
-# "from Nos-recettes-preferees" (no link — cookbook:// isn't browseable).
-# If the LLM truly can't guess the source, it falls back to "cookbook"
-# as a generic netloc.
-_PROMPT_SCREENSHOT_URL_RULE = (
-    "- `url`: build it as `cookbook://<source-slug>/<title-slug>`. The "
-    "source-slug is a kebab-case identifier you infer from any visible "
-    "branding in the photo — the cookbook title on the cover/spine, a "
-    "magazine name, a restaurant — lowercase ASCII, dashes for spaces. "
-    "If you really can't tell, use `cookbook` as the source-slug. The "
-    "title-slug is the recipe title in the same kebab-case form. "
-    "Example: `cookbook://nos-recettes-preferees/crepes-bretonnes`."
-)
-
-
-def _build_screenshot_prompt() -> str:
-    template = _PROMPT_JSON_TEMPLATE.replace(
-        '"@type": "Recipe",',
-        '"@type": "Recipe",\n  "url": "cookbook://<source-slug>/<title-slug>",',
-    )
-    return (
-        "I'm attaching a photo of a recipe. Convert it to schema.org Recipe "
-        "JSON-LD with this exact shape:\n\n"
-        f"{template}\n\n"
-        f"{_PROMPT_RULES}\n"
-        f"{_PROMPT_SCREENSHOT_URL_RULE}"
-    )
-
-
-def _build_url_prompt(url: str | None) -> str:
-    if url:
-        intro = (
-            f"Fetch this URL and convert the recipe to schema.org Recipe "
-            f"JSON-LD:\n  {url}\n\n"
-            "Output exactly this shape (include the source URL so the "
-            "ePepper library can dedupe):\n\n"
-        )
-        template = _PROMPT_JSON_TEMPLATE.replace(
-            '"@type": "Recipe",',
-            f'"@type": "Recipe",\n  "url": "{url}",',
-        )
-    else:
-        intro = (
-            "Fetch the recipe webpage at the URL I'm about to share and "
-            "convert it to schema.org Recipe JSON-LD with this exact shape "
-            "(include the source URL in the JSON so the ePepper library "
-            "can dedupe):\n\n"
-        )
-        template = _PROMPT_JSON_TEMPLATE.replace(
-            '"@type": "Recipe",',
-            '"@type": "Recipe",\n  "url": "<source URL>",',
-        )
-    return f"{intro}{template}\n\n{_PROMPT_RULES}"
-
-
-def _build_croqumenus_prompt(url: str | None) -> str:
-    """Site-specific prompt for croqumenus.ch / meintiptopf.ch.
-
-    These two sites share a backend (api.meintiptopf.ch) and embed the recipe
-    as a `recipeDetails` JSON blob in the page HTML. A generic LLM that scrapes
-    the rendered text mangles French grammar (missing partitive `de`, ingredient
-    qualifiers injected mid-sentence). Pointing the LLM at the structured blob
-    plus the transformer quirks gives clean output without an in-tree scraper.
-    See [[project_croqumenus_import_flow]] memory for the rationale.
-    """
-    url_line = url if url else "<paste the croqumenus.ch URL here>"
-    template_url = url if url else "<source URL>"
-    template = _PROMPT_JSON_TEMPLATE.replace(
-        '"@type": "Recipe",',
-        f'"@type": "Recipe",\n  "url": "{template_url}",',
-    )
-    return (
-        f"Fetch this croqumenus.ch (or meintiptopf.ch) URL and convert it to "
-        f"schema.org Recipe JSON-LD:\n  {url_line}\n\n"
-        "These two sites embed the recipe as a JSON blob in the HTML — DO NOT "
-        "scrape the rendered text, use the blob (the rendered prose has "
-        "ambiguous quantities and the LLM-flattening produces broken French).\n\n"
-        "1. Fetch with `curl -sL -A \"Mozilla/5.0 (X11; Linux x86_64) "
-        "AppleWebKit/537.36\"` — a default User-Agent returns a stripped page.\n"
-        "2. Locate `\"recipeDetails\":{...}` in the HTML and extract the object "
-        "by brace-matching (response is ~1.5 MB, with strings escaped).\n"
-        "3. Field map:\n"
-        "   - `rezept_titel` → `name`\n"
-        "   - `zubereitungszeit` (minutes, already the total) → `totalTime` "
-        "as ISO 8601 (e.g. 75 → PT1H15M)\n"
-        "   - `anzahl_portionen_big` → `recipeYield` as `\"N portions\"`; "
-        "fallback to HTML-stripped `portionsgroesse` (e.g. `plaque de cuisson`)\n"
-        "   - `inLanguage`: `\"fr\"` for croqumenus.ch, `\"de\"` for meintiptopf.ch\n"
-        "4. Iterate `steps_portion_big`. Each entry has `step_titel`, "
-        "`step_beschreibung` (HTML `<ul><li>...</li></ul>` — strip `<a "
-        "class=\"glossary-term\">` keeping inner text, treat each `<li>` as one "
-        "action phrase), and `step_zutaten` (ingredients used in that step).\n"
-        "5. Build the master `recipeIngredient` list by concatenating all "
-        "`step_zutaten` IN ORDER, with these filters:\n"
-        "   - SKIP entries whose `zutat_namen` ends in "
-        "`préparé/préparée/préparés/préparées` — back-references to a prior step.\n"
-        "   - An entry with `zutat_id: 0` and only `step_zutat_freitext` "
-        "populated is an annotation — fold it as ` (note)` onto the PREVIOUS "
-        "ingredient.\n"
-        "   - Format each ingredient:\n"
-        "     • menge > 0: `{menge} {abkuerzung} {name}` (e.g. "
-        "`400 g pommes de terre`)\n"
-        "     • menge = 0 AND abkuerzung set: `{abkuerzung} {name}` (e.g. "
-        "`un peu poivre`)\n"
-        "     • else: just `{name}` (e.g. `eau`)\n"
-        "6. For each step's text, write a natural French sentence (NOT raw "
-        "bullets):\n"
-        "   - Capitalize the first action verb; integrate the step's "
-        "ingredients into that first phrase, joined with `, ` and a final ` et `"
-        " (e.g. `Verser dans la poêle 2 cs huile, chauffer à feu très vif`).\n"
-        "   - SKIP \"ghost\" ingredients from the step's subject list — menge=0 "
-        "AND no unit AND no freitext AND not a back-ref. They're already "
-        "implied by the action (e.g. don't repeat `eau` when the action says "
-        "`Remplir la casserole d'eau`). They DO stay in the master "
-        "`recipeIngredient` list.\n"
-        "   - Back-refs (`préparé...`) DO appear in the step's subject — they "
-        "tell the reader what to re-add.\n"
-        "   - Subsequent bullets become separate sentences, each capitalized, "
-        "joined with `. `.\n"
-        "   - Prepend `[step_titel] ` if non-empty.\n\n"
-        "Output exactly this shape:\n\n"
-        f"{template}\n\n"
-        "Rules:\n"
-        "- Don't invent or extrapolate any field — omit if not in the source.\n"
-        "- Preserve ingredient quantities and order exactly.\n"
-        "- Output ONE single JSON object inside ONE code block — no "
-        "surrounding prose, no commentary.\n"
-        "- Also offer the JSON as a downloadable file named `recipe.json`."
-    )
-
-
-_PROMPT_OUTRO = (
-    "Then send me the <code>recipe.json</code> file — either the one the "
-    "assistant offers as a download, or save the code block to a file "
-    "yourself. I'll parse it and push it to the display."
-)
-
-
-async def cmd_prompt_screenshot(update: Update, context) -> None:
-    """Emit an LLM-ready prompt for OCR-ing a recipe photo into JSON-LD."""
-    if not _is_allowed(update.effective_user.id):
-        return
-    prompt = _build_screenshot_prompt()
-    await update.message.reply_text(
-        "Tap-and-hold to copy this prompt, then paste it into your LLM "
-        "(Claude, ChatGPT, etc.) together with a screenshot of the recipe:\n\n"
-        f"<pre>{html.escape(prompt)}</pre>\n\n"
-        f"{_PROMPT_OUTRO}",
-        parse_mode="HTML",
-    )
-
-
-async def cmd_prompt_url(update: Update, context) -> None:
-    """Emit an LLM-ready prompt for fetching a URL and converting it to JSON-LD."""
-    if not _is_allowed(update.effective_user.id):
-        return
-    url = context.args[0].strip() if context.args else None
-    prompt = _build_url_prompt(url)
-    intro_extra = (
-        ""
-        if url
-        else "Pass it to an LLM that can browse (Claude with web tools, "
-        "ChatGPT with browsing, Perplexity, …) — or use it as a template "
-        "and paste the URL inline.\n\n"
-    )
-    await update.message.reply_text(
-        f"{intro_extra}Tap-and-hold to copy:\n\n"
-        f"<pre>{html.escape(prompt)}</pre>\n\n"
-        f"{_PROMPT_OUTRO}",
-        parse_mode="HTML",
-    )
-
-
-async def cmd_prompt_croqumenus(update: Update, context) -> None:
-    """Emit a croqumenus.ch / meintiptopf.ch-specific JSON-LD prompt.
-
-    Exploits the embedded `recipeDetails` blob so the LLM doesn't have to
-    re-derive ingredient/step alignment from rendered prose (which produces
-    broken French — see [[project_croqumenus_import_flow]]).
-    """
-    if not _is_allowed(update.effective_user.id):
-        return
-    url = context.args[0].strip() if context.args else None
-    prompt = _build_croqumenus_prompt(url)
-    intro_extra = (
-        ""
-        if url
-        else "Best run in an LLM with code execution (Claude Code, ChatGPT "
-        "with code interpreter) so it can curl + brace-match the JSON blob.\n\n"
-    )
-    await update.message.reply_text(
-        f"{intro_extra}Tap-and-hold to copy:\n\n"
-        f"<pre>{html.escape(prompt)}</pre>\n\n"
-        f"{_PROMPT_OUTRO}",
-        parse_mode="HTML",
     )
 
 
@@ -1075,10 +820,9 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
     if recipe is None:
         log.warning("Failed to parse recipe from URL: %s", url)
         await msg.edit_text(
-            "❌ Couldn't parse a recipe from that URL.\n"
-            "Try /prompt_url with the URL — paste the prompt into an LLM, "
-            "then send me the recipe.json it returns. Or send a screenshot "
-            "and use /prompt_screenshot."
+            "❌ Couldn't read a recipe from that URL.\n"
+            "If the site is unusual, take a photo of a printed copy and send "
+            "that instead — the OCR path uses the same library backend."
         )
         return
     await _present_recipe(url, recipe, msg)
@@ -1178,71 +922,6 @@ def _format_push_reply(title: str, url: str | None, total_pages: int) -> str:
     if total_pages > 1:
         body += f"\n📄 {total_pages} pages"
     return body
-
-
-async def on_document(update: Update, context) -> None:
-    """Handle .json uploads — schema.org Recipe JSON-LD ingest."""
-    if not _is_allowed(update.effective_user.id):
-        return
-
-    doc = update.message.document
-    log.info(
-        "Document received from user %s: name=%s mime=%s size=%s",
-        update.effective_user.id, doc.file_name, doc.mime_type, doc.file_size,
-    )
-
-    msg = await update.message.reply_text("🧾 Reading JSON...")
-
-    # Refuse uploads with unknown or oversized declared size — download_as_bytearray
-    # buffers the whole document in memory, so we need the cap up-front.
-    if not doc.file_size or doc.file_size > _JSON_MAX_BYTES:
-        await msg.edit_text(
-            f"❌ JSON file too large or size unknown (limit "
-            f"{_JSON_MAX_BYTES // 1024} KB)."
-        )
-        return
-
-    try:
-        file = await doc.get_file()
-        raw = await file.download_as_bytearray()
-    except Exception:
-        log.exception("Failed to download JSON document")
-        await msg.edit_text("❌ Couldn't download the file. Try again.")
-        return
-    # Double-check actual size in case Telegram's declared size was wrong.
-    if len(raw) > _JSON_MAX_BYTES:
-        await msg.edit_text(
-            f"❌ JSON file too large (limit {_JSON_MAX_BYTES // 1024} KB)."
-        )
-        return
-    try:
-        data = json.loads(bytes(raw).decode("utf-8"))
-    except (ValueError, UnicodeDecodeError) as e:
-        log.warning("Failed to parse uploaded JSON: %s", e)
-        await msg.edit_text(
-            "❌ Couldn't parse the file as JSON.\n"
-            "If the LLM output isn't valid JSON, re-run /prompt_url or "
-            "/prompt_screenshot and try again."
-        )
-        return
-
-    parsed = parse_recipe_jsonld(data)
-    if parsed is None:
-        await msg.edit_text(
-            "❌ No schema.org Recipe found.\n"
-            "Expecting an object with <code>@type: \"Recipe\"</code>, plus "
-            "at least <code>name</code> and one of "
-            "<code>recipeIngredient</code> / <code>recipeInstructions</code>.\n"
-            "Re-run /prompt_url or /prompt_screenshot — that prompt produces "
-            "the right shape.",
-            parse_mode="HTML",
-        )
-        return
-
-    recipe, source_url = parsed
-    url = resolve_url(source_url, recipe)
-    log.info("JSON-LD recipe ingested: title=%r url=%s", recipe.get("title"), url)
-    await _present_recipe(url, recipe, msg)
 
 
 async def on_save_button(update: Update, context) -> None:

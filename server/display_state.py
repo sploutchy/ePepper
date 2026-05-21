@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 # Current display state
 _state: dict[str, Any] = {
     "hash": "",
-    "type": "idle",         # "photo", "recipe", "idle"
+    "type": "idle",         # "recipe", "idle"
     "page": 1,
     "total_pages": 1,
     "updated_at": 0,
@@ -51,14 +51,6 @@ _device: dict[str, Any] = {
     "humidity_pct": None,
     "last_seen": 0,
 }
-
-
-def set_image(img: Image.Image, content_type: str = "photo", title: str = "", lang: str = "en") -> None:
-    """Set a single-page image as the current display content."""
-    _pages.clear()
-    _recipe_inputs.update({"recipe": None, "comments": [], "url": None})
-    _pages[1] = img
-    _update_state(content_type=content_type, title=title, total_pages=1, lang=lang, recipe_id=None, url=None)
 
 
 def set_recipe(
