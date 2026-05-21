@@ -528,12 +528,58 @@ _SORT_ORDERS: dict[str, str] = {
 }
 
 
+_TAG_RE = re.compile(r'#(\w+)', re.UNICODE)
+
+
+def _recipe_ids_with_tag(conn: sqlite3.Connection, tag: str) -> list[int]:
+    """Recipe ids whose comments contain `#tag` as a standalone hashtag.
+
+    Two-stage match: a SQL LIKE pulls anything with `#tag` as a substring
+    (cheap with no index but the comments table is small), then a Python
+    regex with a word boundary drops false positives like `#tagteam` when
+    filtering for `#tag`.
+    """
+    lowered = tag.lower()
+    rx = re.compile(rf'#{re.escape(lowered)}\b', re.IGNORECASE)
+    rows = conn.execute(
+        "SELECT DISTINCT recipe_id, body FROM comments WHERE LOWER(body) LIKE ?",
+        (f"%#{lowered}%",),
+    ).fetchall()
+    return sorted({r["recipe_id"] for r in rows if rx.search(r["body"])})
+
+
+def list_tags() -> list[tuple[str, int]]:
+    """Distinct `#hashtag` tokens across saved recipes' comments.
+
+    Returns `[(tag, count), ...]` sorted by frequency desc, then alpha.
+    Used to populate the library page's tag filter. Tags are case-folded
+    to lowercase so `#Weeknight` and `#weeknight` collapse.
+    """
+    counts: dict[str, int] = {}
+    with _connect() as conn:
+        rows = conn.execute(
+            """
+            SELECT c.body FROM comments c
+            JOIN recipes r ON r.id = c.recipe_id
+            WHERE r.deleted_at IS NULL
+              AND r.saved_at IS NOT NULL
+              AND c.body LIKE '%#%'
+            """
+        ).fetchall()
+    for row in rows:
+        for match in _TAG_RE.findall(row["body"]):
+            tag = match.lower()
+            counts[tag] = counts.get(tag, 0) + 1
+    return sorted(counts.items(), key=lambda x: (-x[1], x[0]))
+
+
 def list_recipes(
     offset: int = 0,
     limit: int = 20,
     query: str | None = None,
     sort: str | None = None,
     source: str | None = None,
+    tag: str | None = None,
 ) -> list[dict]:
     """Paginated list of saved, non-deleted recipes.
 
@@ -543,6 +589,10 @@ def list_recipes(
 
     source: lowercase source key (matching `source_name(url).lower()`).
     Filters to recipes whose stored `source` column equals this value.
+
+    tag: a `#tag` token (without the `#`) appearing in any comment on the
+    recipe. Pre-filtered to a set of ids via a separate query so the main
+    pagination can stay in SQL.
     """
     order_by = _SORT_ORDERS.get(sort) if sort else None
     where_extra = ""
@@ -550,6 +600,14 @@ def list_recipes(
     if source:
         where_extra += " AND r.source = ? "
         extra_params.append(source.lower())
+    if tag:
+        with _connect() as conn_tag:
+            tag_ids = _recipe_ids_with_tag(conn_tag, tag)
+        if not tag_ids:
+            return []
+        placeholders = ",".join("?" for _ in tag_ids)
+        where_extra += f" AND r.id IN ({placeholders}) "
+        extra_params.extend(tag_ids)
 
     if query and query.strip():
         tokens = _FTS_TOKEN_RE.findall(query)

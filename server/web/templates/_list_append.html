@@ -1,7 +1,7 @@
 {% for r in recipes %}{% include "_card.html" %}{% endfor %}
 {% if has_more %}
   <li class="loader"
-      hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&offset={{ next_offset }}"
+      hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}"
       hx-trigger="revealed"
       hx-swap="outerHTML">Loading…</li>
 {% endif %}

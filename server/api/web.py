@@ -221,12 +221,30 @@ def _sanitize_source(source: str | None) -> str | None:
     return s or None
 
 
+_TAG_TOKEN_RE = __import__("re").compile(r"^\w+$", __import__("re").UNICODE)
+
+
+def _sanitize_tag(tag: str | None) -> str | None:
+    """Strip the leading `#` if present, lowercase, accept word chars only.
+
+    Bound into SQL via parameter binding, but the strict character class
+    also keeps random punctuation out of the tag dropdown's selected state.
+    """
+    if not tag:
+        return None
+    s = tag.strip().lstrip("#").lower()
+    if not s or not _TAG_TOKEN_RE.match(s):
+        return None
+    return s
+
+
 def _list_context(
     request: Request,
     q: str,
     offset: int,
     sort: str | None,
     source: str | None,
+    tag: str | None,
 ) -> dict:
     rows = library.list_recipes(
         offset=offset,
@@ -234,6 +252,7 @@ def _list_context(
         query=q or None,
         sort=sort,
         source=source,
+        tag=tag,
     )
     has_more = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]
@@ -243,7 +262,9 @@ def _list_context(
         "q": q,
         "sort": sort or "",
         "source": source or "",
+        "tag": tag or "",
         "sources": library.list_sources(),
+        "tags": library.list_tags(),
         "offset": offset,
         "next_offset": offset + _PAGE_SIZE,
         "has_more": has_more,
@@ -263,12 +284,14 @@ async def index(
     offset: int = 0,
     sort: str | None = None,
     source: str | None = None,
+    tag: str | None = None,
 ):
     _require_auth(request)
     sort = _sanitize_sort(sort)
     source = _sanitize_source(source)
+    tag = _sanitize_tag(tag)
     ctx = _context_globals(request)
-    ctx.update(_list_context(request, q, offset, sort, source))
+    ctx.update(_list_context(request, q, offset, sort, source, tag))
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -279,13 +302,15 @@ async def search_partial(
     offset: int = 0,
     sort: str | None = None,
     source: str | None = None,
+    tag: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
-    sort, or source filter changes, or the Load more button is tapped."""
+    sort, source, or tag filter changes, or the Load more button is tapped."""
     _require_auth(request)
     sort = _sanitize_sort(sort)
     source = _sanitize_source(source)
-    ctx = _list_context(request, q, offset, sort, source)
+    tag = _sanitize_tag(tag)
+    ctx = _list_context(request, q, offset, sort, source, tag)
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
 
