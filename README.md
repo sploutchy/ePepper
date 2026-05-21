@@ -557,6 +557,19 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 | SD enable | 16 | |
 | SD detect | 15 | |
 
+## Roadmap
+
+Nice-to-have improvements parked for later. Each is worth doing on its
+own — none unblock anything else.
+
+- **Ingredient checkboxes.** Tick items off the recipe page while
+  shopping or cooking. State lives in `localStorage` (no schema change),
+  scoped per recipe id.
+- **Serving scaler.** A small `× N` control on the recipe page that
+  rewrites quantities in-place ("4 → 6 servings"). Works on numeric
+  tokens at the head of each ingredient line; degrades gracefully when
+  a quantity is absent.
+
 ## License
 
 MIT
