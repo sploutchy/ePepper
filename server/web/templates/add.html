@@ -20,9 +20,13 @@
   </button>
 </form>
 
-{# Existing-photo upload — pick a file from the gallery, confirm in
-   the on-page label, then tap upload. OCR'd into the library, no
-   push to the panel. #}
+{# Camera / photo upload — `capture="environment"` tells mobile browsers
+   to open the rear camera straight away. On desktop the attribute is
+   silently ignored and the input falls back to a file picker, which is
+   why this single tile covers both surfaces. The form auto-submits on
+   change — the native camera UI already has a "use photo / retake"
+   step, so a second confirmation here would only slow the snap-and-done
+   flow. #}
 <form class="add-tile"
       hx-post="/app/add/file"
       hx-target="#add-result"
@@ -30,42 +34,9 @@
       hx-encoding="multipart/form-data"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("upload", 20) }} Photo</h2>
+  <h2>{{ icon("camera", 20) }} Photo</h2>
   <ul class="add-help muted">
-    <li>Cookbook / magazine page &rarr; OCR'd into the library.</li>
-  </ul>
-
-  <div class="file-row">
-    <label class="file-input" title="Choose photo">
-      <input type="file" name="file"
-             accept="image/*"
-             required>
-      {{ icon("paperclip", 18) }}
-      <span class="file-input-name muted" data-empty="no file chosen">no file chosen</span>
-    </label>
-    <button type="submit" class="primary icon-only" title="Upload" aria-label="Upload">
-      {{ icon("upload", 20) }}
-    </button>
-  </div>
-</form>
-
-{# Direct camera capture — `capture="environment"` tells mobile browsers
-   to open the rear camera straight away, bypassing the gallery/camera
-   picker. On desktop the attribute is silently ignored and the input
-   falls back to a normal file picker, so the tile is still useful (a
-   webcam picker on most laptops). `data-autosubmit` triggers the form
-   on change — the native camera UI already has a "use photo / retake"
-   step, so there's no second confirmation needed on this page. #}
-<form class="add-tile"
-      hx-post="/app/add/file"
-      hx-target="#add-result"
-      hx-swap="innerHTML"
-      hx-encoding="multipart/form-data"
-      hx-disabled-elt="find button"
-      hx-indicator="this">
-  <h2>{{ icon("camera", 20) }} Camera</h2>
-  <ul class="add-help muted">
-    <li>Snap a recipe with your phone &rarr; uploaded right after you confirm.</li>
+    <li>Snap a recipe (or pick a file) &rarr; OCR'd into the library.</li>
   </ul>
 
   <div class="file-row">
@@ -73,7 +44,6 @@
       <input type="file" name="file"
              accept="image/*"
              capture="environment"
-             data-autosubmit
              required>
       {{ icon("camera", 18) }}
       <span class="file-input-name muted">Tap to open camera</span>
@@ -82,27 +52,18 @@
 </form>
 
 <script>
-  // Reflect the picked filename in the label so the user can confirm what
-  // they're about to upload. Delegated so it survives HTMX swaps.
-  //
-  // Inputs marked `data-autosubmit` (the Camera tile) also kick off the
-  // form right after the change fires, since the native camera UI's
-  // "use photo" prompt already counts as confirmation.
+  // Auto-submit the form when the user picks/captures a file. The
+  // native camera UI's "use photo" prompt is the confirmation step;
+  // there's no useful second one we could add on this page.
   document.addEventListener('change', function(e) {
     var input = e.target;
     if (!input.matches('.file-input input[type=file]')) return;
-    var label = input.closest('.file-input').querySelector('.file-input-name');
-    if (label && label.dataset.empty) {
-      label.textContent = (input.files[0] && input.files[0].name) || label.dataset.empty;
-      label.classList.toggle('muted', !input.files[0]);
-    }
-    if (input.dataset.autosubmit !== undefined && input.files[0]) {
-      var form = input.closest('form');
-      if (form && typeof form.requestSubmit === 'function') {
-        form.requestSubmit();
-      } else if (form) {
-        form.submit();
-      }
+    if (!input.files[0]) return;
+    var form = input.closest('form');
+    if (form && typeof form.requestSubmit === 'function') {
+      form.requestSubmit();
+    } else if (form) {
+      form.submit();
     }
   });
 </script>
