@@ -44,7 +44,11 @@ _RULES = """Rules:
   and grate" with no subject. Use cookbook infinitive style
   ("Kartoffeln schälen", "Éplucher les pommes de terre", "Sbucciare
   le patate", "Peel the potatoes") — NOT direct imperative ("Schäle
-  die Kartoffeln", "Épluchez les pommes de terre").
+  die Kartoffeln", "Épluchez les pommes de terre"). Reference each
+  ingredient by NAME ONLY in step text — never repeat its quantity or
+  unit (those live in the ingredient list). E.g. "Mehl und Salz in
+  eine Schüssel geben", NOT "400 g Mehl und 1 KL Salz in eine
+  Schüssel geben".
 - source_name: only populated from image inputs, from visible
   cookbook / magazine branding. Null for webpage inputs."""
 
