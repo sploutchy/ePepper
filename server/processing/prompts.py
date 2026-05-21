@@ -37,7 +37,12 @@ _RULES = """Rules:
 - lang: detect from the recipe's own text.
 - instructions: emit a {"type":"heading"} entry before each section's
   steps (e.g. "Sauce", "Dough", "Garniture"). Plain steps are
-  {"type":"step"}.
+  {"type":"step"}. Each step text must be a complete imperative
+  sentence naming the ingredient(s) acted on — if the source uses a
+  two-column cookbook layout (ingredients on one side, action verbs
+  on the other), integrate the ingredient into the action text
+  rather than emitting orphan verbs like "peel and grate" with no
+  subject.
 - source_name: only populated from image inputs, from visible
   cookbook / magazine branding. Null for webpage inputs."""
 
