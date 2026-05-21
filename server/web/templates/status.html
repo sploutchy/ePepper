@@ -2,12 +2,6 @@
 {% block title %}Status · ePepper{% endblock %}
 
 {% block content %}
-{% if request.query_params.get("pushed") == "image" %}
-  <div class="toast" id="pushed-toast">
-    Image pushed to the display.
-  </div>
-  <script>setTimeout(() => document.getElementById('pushed-toast')?.remove(), 3000);</script>
-{% endif %}
 {% if request.query_params.get("cleared") %}
   <div class="toast" id="cleared-toast">
     Display cleared.
