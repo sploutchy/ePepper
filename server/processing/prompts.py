@@ -41,7 +41,6 @@ _RULES = """Rules:
   Salz in Schüssel geben", not "Schäle das Mehl" (no imperative) and
   not "400 g Mehl in Schüssel geben" (no quantity re-stated). DE/FR/IT
   use infinitive; EN keeps imperative.
-- German output uses Swiss orthography — "ss" not "ß" (Strasse, weiss).
 - source_name: only populated from image inputs, from visible
   cookbook / magazine branding. Null for webpage inputs."""
 
