@@ -73,13 +73,15 @@ LLM_API_KEY: str = os.environ.get("LLM_API_KEY", "").strip()
 # prompt rule that gemma3n ignores. Override via env per-deployment.
 LLM_TEXT_MODEL: str = os.environ.get("LLM_TEXT_MODEL", "mistralai/Ministral-3-14B-Instruct-2512")
 LLM_VISION_MODEL: str = os.environ.get("LLM_VISION_MODEL", "mistralai/Ministral-3-14B-Instruct-2512")
-# Translation (recipe → bilingual FTS keywords) is a much narrower task
-# than extraction — no infinitive-style rule, no quantity preservation,
-# just FR/DE noun-form keywords. Default to Gemma, which is cheaper and
-# fast enough that the backfill of an existing library is a non-event.
+# Translation (recipe → bilingual FTS keywords) is narrower than extraction
+# but still requires real bilingual competence: gemma3n empirically leaves
+# half the source-language words untranslated and hallucinates fillers
+# (translated "quatre-épices" as "Welpe" / puppy). Same model as the
+# extraction path keeps quality consistent at trivial extra cost.
 # Falls back to LLM_TEXT_MODEL if explicitly cleared.
 LLM_TRANSLATE_MODEL: str = (
-    os.environ.get("LLM_TRANSLATE_MODEL", "gemma3n").strip() or LLM_TEXT_MODEL
+    os.environ.get("LLM_TRANSLATE_MODEL", "mistralai/Ministral-3-14B-Instruct-2512").strip()
+    or LLM_TEXT_MODEL
 )
 
 
