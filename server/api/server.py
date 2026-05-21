@@ -30,9 +30,13 @@ def _check_api_key(request: Request) -> bool:
     The query-param fallback was dropped — uvicorn's access log records the
     full path+query, so passing the key in `?key=` leaked it on every request.
     """
-    # Device path: Bearer token == raw API key.
+    # Device path: Bearer token == raw API key. Compare as bytes — passing
+    # raw str to compare_digest raises TypeError on non-ASCII input, which
+    # would surface as a 500 instead of an auth failure for a junk header.
     auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer ") and secrets.compare_digest(auth[7:], API_KEY):
+    if auth.startswith("Bearer ") and secrets.compare_digest(
+        auth[7:].encode("utf-8"), API_KEY.encode("utf-8"),
+    ):
         return True
     # Browser path: random session token minted by /app/login.
     if library.validate_session(request.cookies.get("epepper_auth", "")):
