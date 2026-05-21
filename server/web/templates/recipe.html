@@ -68,13 +68,34 @@
 
   {# Delete sits at the very bottom, styled as a quiet link so it's reachable
      but never competes with Display for the user's attention. The earlier
-     side-by-side Display / Delete pairing invited fat-finger mistakes. #}
+     side-by-side Display / Delete pairing invited fat-finger mistakes.
+     Hidden affordance: shift-click promotes the soft-delete to a hard
+     wipe (no row in the next backup snapshot). The mousedown handler
+     swaps `hx-delete` + `hx-confirm` in place, then htmx reads the
+     updated attributes when it processes the click. #}
   <div class="recipe-footer">
-    <button class="link danger"
+    <button class="link danger js-delete-recipe"
             hx-delete="/app/recipes/{{ r.id }}"
-            hx-confirm="Delete this recipe?">
+            hx-confirm="Delete this recipe?"
+            data-base-url="/app/recipes/{{ r.id }}">
       {{ icon("trash", 14) }} Delete this recipe
     </button>
   </div>
+  <script>
+    document.addEventListener('mousedown', function(e) {
+      var btn = e.target.closest('.js-delete-recipe');
+      if (!btn) return;
+      if (e.shiftKey) {
+        btn.setAttribute('hx-delete', btn.dataset.baseUrl + '?hard=1');
+        btn.setAttribute(
+          'hx-confirm',
+          'HARD delete this recipe? The row is wiped — not recoverable from a backup taken after this point.'
+        );
+      } else {
+        btn.setAttribute('hx-delete', btn.dataset.baseUrl);
+        btn.setAttribute('hx-confirm', 'Delete this recipe?');
+      }
+    });
+  </script>
 </article>
 {% endblock %}
