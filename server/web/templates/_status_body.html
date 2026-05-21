@@ -153,6 +153,28 @@
   {% endif %}
 </section>
 
+{# LLM call ledger for the current calendar month. Headline only —
+   one line: total calls + URL/OCR split + estimated CHF. The
+   `chf_partial` flag fires when a model in the period isn't in the
+   pricing table; surface that as a "≥" prefix so the user knows the
+   estimate undercounts. #}
+{% if llm.enabled %}
+<section class="status-card">
+  <h2>{{ icon("cpu", 18) }} LLM</h2>
+  {% if llm.calls == 0 %}
+    <p class="status-line muted">No calls this month yet.</p>
+  {% else %}
+    <p class="status-line">
+      <strong>{{ llm.calls }}</strong> call{{ '' if llm.calls == 1 else 's' }}
+      <span class="muted">this month</span>
+      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR)
+      —
+      <strong>{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong>
+    </p>
+  {% endif %}
+</section>
+{% endif %}
+
 <section class="status-card">
   <h2>{{ icon("radio", 18) }} Device</h2>
   {% if device.last_seen %}

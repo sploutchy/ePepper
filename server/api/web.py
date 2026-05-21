@@ -19,7 +19,7 @@ import display_state
 import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
-from config import API_KEY, TZ
+from config import API_KEY, LLM_API_KEY, LLM_API_URL, TZ
 from display_push import push_recipe_to_display
 from processing.recipes import process_recipe_image, process_recipe_url
 from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
@@ -462,10 +462,18 @@ def _status_ctx(request: Request) -> dict:
     #   3. Else, generic "Fooby will play" hint (cache missing / stale —
     #      a first deploy that hasn't reached its first midnight yet,
     #      typically).
-    tomorrow = datetime.now(TZ) + timedelta(days=1)
+    now_local = datetime.now(TZ)
+    tomorrow = now_local + timedelta(days=1)
     next_anniv = library.pick_anniversary_recipe(
         tomorrow.strftime("%m-%d"), tomorrow.year
     )
+    # LLM token+cost ledger for the current calendar month (local TZ —
+    # matches Infomaniak's billing boundary).
+    month_start = int(
+        now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
+    )
+    llm = library.llm_month_stats(month_start)
+    llm["enabled"] = bool(LLM_API_URL and LLM_API_KEY)
     next_anniv_years_ago: int | None = None
     if next_anniv and next_anniv.get("last_displayed_at"):
         cooked_year = datetime.fromtimestamp(
@@ -496,6 +504,7 @@ def _status_ctx(request: Request) -> dict:
         "next_anniversary_years_ago": next_anniv_years_ago,
         "next_anniversary_date": tomorrow.strftime("%d.%m"),
         "fooby_preview": fooby_preview,
+        "llm": llm,
         # _context_globals only fires on the full /status page render; the
         # 30 s HTMX partial calls this directly, so include source_name
         # here too so the Display card can keep rendering "from X".

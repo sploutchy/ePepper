@@ -17,7 +17,14 @@ from telegram.ext import (
     filters,
 )
 
-from config import TELEGRAM_BOT_TOKEN, ALLOWED_USERS, WEB_URL
+from config import (
+    ALLOWED_USERS,
+    LLM_API_KEY,
+    LLM_API_URL,
+    TELEGRAM_BOT_TOKEN,
+    TZ,
+    WEB_URL,
+)
 import backup
 import display_state
 import library
@@ -373,6 +380,26 @@ def _build_status_text() -> str:
         backup_text = humanize_ago(last_ts) if last_ts else "never"
         library_lines.append(f"Last backup: {backup_text}")
     sections.append("\n".join(library_lines))
+
+    # LLM section — headline only, mirrors what /app/status shows. Hidden
+    # entirely when the LLM isn't configured (the section would just be
+    # noise on a deployment that doesn't use it).
+    if LLM_API_URL and LLM_API_KEY:
+        month_start = int(
+            datetime.now(TZ)
+            .replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+            .timestamp()
+        )
+        llm_stats = library.llm_month_stats(month_start)
+        if llm_stats["calls"] == 0:
+            sections.append("<b>🧠 LLM</b> — no calls this month yet")
+        else:
+            chf_prefix = "≥ " if llm_stats["chf_partial"] else "~"
+            sections.append(
+                f"<b>🧠 LLM</b> — {llm_stats['calls']} calls this month "
+                f"({llm_stats['url_calls']} URL, {llm_stats['ocr_calls']} OCR), "
+                f"{chf_prefix}CHF {llm_stats['chf']:.2f}"
+            )
 
     # Device section — header carries freshness so the rows can be tight.
     # Fields are "as of last wake" (button press or daily timer).
