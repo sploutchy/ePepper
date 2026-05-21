@@ -56,6 +56,24 @@ BACKUP_CHAT_ID: int | None = (
     int(os.environ["BACKUP_CHAT_ID"]) if os.environ.get("BACKUP_CHAT_ID") else None
 )
 
+# LLM (Infomaniak AI Tools or any OpenAI-compatible endpoint).
+# When LLM_API_URL + LLM_API_KEY are both set, the URL flow grows an
+# LLM fallback (used when recipe-scrapers fails and no embedded JSON-LD
+# is present), and photo uploads are OCR'd into recipes. When unset,
+# those paths degrade gracefully — URL fallback skipped, photos rejected
+# with a clear error.
+#
+# LLM_API_URL is the OpenAI base — e.g.
+#   https://api.infomaniak.com/2/ai/<product_id>/openai/v1
+# The client appends `/chat/completions`.
+LLM_API_URL: str = os.environ.get("LLM_API_URL", "").rstrip("/")
+LLM_API_KEY: str = os.environ.get("LLM_API_KEY", "").strip()
+# Default to Gemma — cheapest serious option with vision support on
+# Infomaniak's catalog. Override via env per-deployment.
+LLM_TEXT_MODEL: str = os.environ.get("LLM_TEXT_MODEL", "gemma3n")
+LLM_VISION_MODEL: str = os.environ.get("LLM_VISION_MODEL", "gemma3n")
+
+
 # Fonts (DejaVu Sans, installed via apt in Docker)
 FONT_DIR: str = "/usr/share/fonts/truetype/dejavu"
 FONT_REGULAR: str = os.path.join(FONT_DIR, "DejaVuSans.ttf")
