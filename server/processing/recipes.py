@@ -46,7 +46,11 @@ def _get_session() -> aiohttp.ClientSession:
     return _session
 
 
-async def process_recipe_url(url: str) -> dict | None:
+async def process_recipe_url(
+    url: str,
+    *,
+    on_llm_start=None,
+) -> dict | None:
     """Fetch a URL and extract structured recipe data.
 
     Returns a dict with title, total_time, servings, ingredients, instructions, lang.
@@ -55,6 +59,11 @@ async def process_recipe_url(url: str) -> dict | None:
     Falls back through embedded JSON-LD and an LLM call when
     recipe-scrapers can't make sense of the page. Returns None only when
     all three paths have failed.
+
+    `on_llm_start` is an optional async callable fired once, just before
+    the LLM step actually runs (so only when both faster tiers missed
+    AND the LLM is configured). The Telegram bot uses it to swap the
+    placeholder message into an "AI is working on it" state.
     """
     log.info("Fetching recipe from: %s", url)
 
@@ -74,7 +83,7 @@ async def process_recipe_url(url: str) -> dict | None:
         log.info("Recipe sourced from embedded JSON-LD (no LLM call)")
         return recipe
 
-    recipe = await _try_llm(url, html)
+    recipe = await _try_llm(url, html, on_start=on_llm_start)
     if recipe is not None:
         log.info("Recipe sourced from LLM fallback")
         return recipe
@@ -161,13 +170,18 @@ def _try_embedded_jsonld(url: str, html: str) -> dict | None:
     return recipe_payload
 
 
-async def _try_llm(url: str, html: str) -> dict | None:
+async def _try_llm(url: str, html: str, on_start=None) -> dict | None:
     """Cleaned-HTML → LLM → validated recipe dict.
 
     Returns None when the LLM isn't configured, when the call fails, or
     when the model's output doesn't pass the validator. Each of those is
     a clean failure mode; the caller logs and surfaces a user-facing
     error.
+
+    `on_start` (optional async callable) fires once, just before the
+    actual chat-completions request — but only after we've confirmed the
+    LLM is enabled and we have a non-empty blob. The Telegram bot uses
+    it to swap the placeholder message into an "AI is working" state.
     """
     if not llm.is_enabled():
         log.info("LLM fallback disabled (LLM_API_URL / LLM_API_KEY unset)")
@@ -180,6 +194,14 @@ async def _try_llm(url: str, html: str) -> dict | None:
     if not blob:
         log.info("Empty preprocessed blob, skipping LLM call")
         return None
+
+    if on_start is not None:
+        try:
+            await on_start()
+        except Exception:
+            # The hook is decorative; a failure (e.g. Telegram edit race)
+            # must not abort the actual recipe parse.
+            log.debug("on_llm_start hook failed", exc_info=True)
 
     log.info("Calling LLM (%s) with %d chars of cleaned text", LLM_TEXT_MODEL, len(blob))
     try:

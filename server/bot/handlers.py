@@ -1,10 +1,12 @@
 """Telegram bot handlers for ePepper."""
 
+import asyncio
 import html
 import logging
 import time
 import uuid
 from collections import OrderedDict
+from contextlib import asynccontextmanager
 from datetime import datetime
 from typing import Tuple
 
@@ -786,6 +788,41 @@ async def on_push_button(update: Update, context) -> None:
     await query.answer(f"Pushed: {row['title']}")
 
 
+@asynccontextmanager
+async def _typing_indicator(bot, chat_id: int):
+    """Keep Telegram's 'typing…' indicator alive for the duration of the block.
+
+    The Bot API clears `sendChatAction` after ~5 s, so we re-ping every 4 s
+    while inside the context. Cancel on exit so the indicator vanishes when
+    the work finishes. Useful on the OCR / LLM-fallback paths where a single
+    handler call can sit for 20-30 s and the user would otherwise wonder if
+    the bot froze.
+    """
+    async def _loop():
+        try:
+            while True:
+                try:
+                    await bot.send_chat_action(chat_id=chat_id, action="typing")
+                except Exception:
+                    # Network blip or rate-limit — keep looping; the next
+                    # ping will recover. Don't surface to the caller, the
+                    # indicator is purely a UX nicety.
+                    log.debug("typing indicator ping failed", exc_info=True)
+                await asyncio.sleep(4)
+        except asyncio.CancelledError:
+            return
+
+    task = asyncio.create_task(_loop())
+    try:
+        yield
+    finally:
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+
+
 async def on_photo(update: Update, context) -> None:
     """Handle photo messages — OCR via LLM, then push the recipe to the display.
 
@@ -807,7 +844,10 @@ async def on_photo(update: Update, context) -> None:
         await msg.edit_text("❌ Couldn't download the photo. Try again.")
         return
 
-    result = await process_recipe_image(bytes(image_bytes))
+    # OCR is always an LLM call — wrap it in the typing indicator so the
+    # 10-30 s wait reads as "bot is working" instead of "did this freeze?".
+    async with _typing_indicator(context.bot, msg.chat_id):
+        result = await process_recipe_image(bytes(image_bytes))
     if result is None:
         await msg.edit_text(
             "❌ Couldn't read a recipe from that photo.\n"
@@ -842,8 +882,25 @@ async def on_text(update: Update, context) -> None:
 
 
 async def _fetch_and_display_recipe(url: str, msg) -> None:
-    """Fetch a recipe URL, render all pages, push to display, and reply."""
-    recipe = await process_recipe_url(url)
+    """Fetch a recipe URL, render all pages, push to display, and reply.
+
+    The placeholder reply starts as "🔍 Fetching recipe…". If the URL
+    falls through to the LLM, the placeholder is edited once to make the
+    longer wait legible — and the typing indicator runs throughout so
+    Telegram shows "Bot is typing" the whole time.
+    """
+    async def _on_llm_start() -> None:
+        try:
+            await msg.edit_text(
+                "🤖 Asking the AI to read the recipe…\n"
+                "<i>This can take a moment if the site is unusual.</i>",
+                parse_mode="HTML",
+            )
+        except Exception:
+            log.debug("placeholder edit on LLM start failed", exc_info=True)
+
+    async with _typing_indicator(msg.get_bot(), msg.chat_id):
+        recipe = await process_recipe_url(url, on_llm_start=_on_llm_start)
     if recipe is None:
         log.warning("Failed to parse recipe from URL: %s", url)
         await msg.edit_text(
