@@ -310,9 +310,12 @@ stale than a recipe you've never cooked).
 
 `displayed_count` is incremented alongside `last_displayed_at`, so the
 library knows how many times you've cooked each recipe. The library card
-and detail page render `cooked N×, last DD.MM.YYYY` (or just `cooked
-DD.MM.YYYY` after a single cook), and there's a **Most cooked** sort
-option in the library header. Counts start at 0 for everything on
+and detail page render `cooked N×, last <when>` (or just `cooked <when>`
+after a single cook), where `<when>` is a humanised relative phrase —
+`yesterday`, `3 days ago`, `last week`, `last month`, `2 years ago`, etc.
+The bot's search results and surprise card share the same wording via
+`status_helpers.humanize_date`. There's a **Most cooked** sort option in
+the library header. Counts start at 0 for everything on
 upgrade; only future pushes accumulate.
 
 Note: pushing a recipe to the panel is the only thing that bumps these
