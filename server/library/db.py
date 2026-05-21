@@ -433,7 +433,8 @@ def remove_comment(comment_id: int) -> int | None:
         conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
         # Re-index FTS with the new (shorter) notes blob.
         recipe = conn.execute(
-            "SELECT title, parsed_json FROM recipes WHERE id = ?", (recipe_id,)
+            "SELECT title, parsed_json, translated_keywords FROM recipes WHERE id = ?",
+            (recipe_id,),
         ).fetchone()
         if recipe is not None:
             _fts_upsert(
@@ -442,6 +443,7 @@ def remove_comment(comment_id: int) -> int | None:
                 recipe["title"],
                 _ingredients_text(recipe["parsed_json"]),
                 _comments_text(conn, recipe_id),
+                recipe["translated_keywords"] or "",
             )
     return recipe_id
 
@@ -453,7 +455,7 @@ def add_comment(recipe_id: int, body: str) -> int | None:
     now = int(time.time())
     with _connect() as conn:
         row = conn.execute(
-            "SELECT title, parsed_json FROM recipes "
+            "SELECT title, parsed_json, translated_keywords FROM recipes "
             "WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
@@ -470,6 +472,7 @@ def add_comment(recipe_id: int, body: str) -> int | None:
             row["title"],
             _ingredients_text(row["parsed_json"]),
             _comments_text(conn, recipe_id),
+            row["translated_keywords"] or "",
         )
     return comment_id
 
