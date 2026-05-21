@@ -833,7 +833,7 @@ async def on_photo(update: Update, context) -> None:
         return
 
     log.info("Photo received from user %s", update.effective_user.id)
-    msg = await update.message.reply_text("📸 Reading recipe…")
+    msg = await update.message.reply_text("🤖 Converting the recipe with an LLM…")
 
     try:
         photo = update.message.photo[-1]
@@ -849,12 +849,7 @@ async def on_photo(update: Update, context) -> None:
     async with _typing_indicator(context.bot, msg.chat_id):
         result = await process_recipe_image(bytes(image_bytes))
     if result is None:
-        await msg.edit_text(
-            "❌ Couldn't read a recipe from that photo.\n"
-            "Make sure the photo is in focus, the recipe text is fully "
-            "visible, and (if you sent a screenshot) that the OCR model "
-            "is configured on the server."
-        )
+        await msg.edit_text("❌ Couldn't read a recipe from that photo.")
         return
 
     recipe, url = result
@@ -891,11 +886,7 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
     """
     async def _on_llm_start() -> None:
         try:
-            await msg.edit_text(
-                "🤖 Converting the recipe with an LLM…\n"
-                "<i>This can take a moment if the site is unusual.</i>",
-                parse_mode="HTML",
-            )
+            await msg.edit_text("🤖 Converting the recipe with an LLM…")
         except Exception:
             log.debug("placeholder edit on LLM start failed", exc_info=True)
 
@@ -903,11 +894,7 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
         recipe = await process_recipe_url(url, on_llm_start=_on_llm_start)
     if recipe is None:
         log.warning("Failed to parse recipe from URL: %s", url)
-        await msg.edit_text(
-            "❌ Couldn't read a recipe from that URL.\n"
-            "If the site is unusual, take a photo of a printed copy and send "
-            "that instead — the OCR path uses the same library backend."
-        )
+        await msg.edit_text("❌ Couldn't read a recipe from that URL.")
         return
     await _present_recipe(url, recipe, msg)
 
