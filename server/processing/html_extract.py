@@ -65,35 +65,32 @@ _BLOCK_TAGS = {
 }
 
 
-def extract(html: str) -> tuple[dict, str] | tuple[None, str]:
-    """Preprocess `html` into either a parsed Recipe dict or a text blob.
+def extract(html: str) -> dict | None:
+    """Return the embedded JSON-LD Recipe dict, or None when no Recipe is found.
 
-    Return shape:
-      (recipe_dict, source_url) — when embedded JSON-LD carries a Recipe.
-        Same shape as parse_recipe_jsonld returns.
-      (None, text_blob) — when no embedded recipe was found; the text is
-        ready to send to the LLM.
+    Same shape as `parse_recipe_jsonld` (minus the source_url — the caller
+    already has the canonical URL). Use `to_text()` for the LLM-fallback
+    text blob; the two paths are independent because a page can ship a
+    too-sparse Recipe blob and still be worth sending to the LLM.
 
-    Never raises on malformed HTML — BeautifulSoup is permissive and
-    every failure mode falls through to the text-blob path.
+    Never raises on malformed HTML — BeautifulSoup is permissive.
     """
     soup = BeautifulSoup(html, "html.parser")
-
-    recipe = _try_embedded_jsonld(soup)
-    if recipe is not None:
-        return recipe
-
-    return None, _to_text(soup)
+    found = _try_embedded_jsonld(soup)
+    if found is None:
+        return None
+    recipe, _source_url = found
+    return recipe
 
 
 def to_text(html: str) -> str:
     """LLM-ready text blob, ignoring any embedded JSON-LD recipe.
 
-    `extract()` short-circuits to the JSON-LD path as soon as it finds a
-    Recipe blob, even one too sparse to use (e.g. bio-mio.ch ships a
-    Recipe with ingredients but no instructions). The LLM fallback still
-    needs the page text in that case, so it calls this helper instead
-    of unpacking `extract()`.
+    `extract()` returns the structured Recipe (or None) and skips the
+    text path entirely — even when the Recipe is too sparse to use (e.g.
+    bio-mio.ch ships a Recipe with ingredients but no instructions). The
+    LLM fallback still needs the page text in that case, so it calls
+    this helper directly.
     """
     soup = BeautifulSoup(html, "html.parser")
     return _to_text(soup)

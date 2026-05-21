@@ -62,7 +62,7 @@ OCR_SYSTEM = f"""You extract recipes from photos of cookbook / magazine pages in
 def url_user(url: str, cleaned_text: str) -> str:
     """User message for the URL fallback path.
 
-    `cleaned_text` is the output of `html_extract.extract()` — already
+    `cleaned_text` is the output of `html_extract.to_text()` — already
     stripped of chrome, capped at ~30 K chars.
     """
     return (

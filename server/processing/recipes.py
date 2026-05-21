@@ -142,11 +142,10 @@ def _try_embedded_jsonld(url: str, html: str) -> dict | None:
     try:
         from processing.html_extract import extract
 
-        result = extract(html)
+        recipe_payload = extract(html)
     except Exception as e:
         log.info("html_extract failed for %s: %s", url, e)
         return None
-    recipe_payload, _ = result
     if recipe_payload is None:
         return None
     # Same rule as _try_scraper — without steps, ePepper has nothing to
@@ -159,8 +158,6 @@ def _try_embedded_jsonld(url: str, html: str) -> dict | None:
             url, len(recipe_payload.get("ingredients") or []),
         )
         return None
-    # extract() returns (recipe_dict, source_url) when JSON-LD won — we
-    # don't need source_url here because we already have the canonical URL.
     return recipe_payload
 
 
