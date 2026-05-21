@@ -20,10 +20,11 @@ the next midnight tick.
 
 import asyncio
 import logging
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 
 import backup
 import display_state
+import fooby_cache
 import library
 from config import TZ
 from display_push import push_recipe_to_display
@@ -97,23 +98,36 @@ def _push_anniversary_for(today: datetime) -> bool:
 async def _push_fooby_inspiration_for(today: datetime) -> None:
     """Push one Fooby weekly-inspiration recipe, indexed by today's weekday.
 
+    Prefers the pre-fetched cache (`fooby_cache`, populated by the previous
+    tick's `_prefetch_fooby_for`) so the recipe the status page advertised
+    as "Tomorrow" is exactly what lands on the panel. Falls back to a live
+    fetch on first deploy, after a cache miss, or when yesterday's prefetch
+    failed.
+
     Transient: not added to the library. The user can still save it later
     by sending the URL to the Telegram bot. No retry — if the picked URL
     fails to parse, the display is left unchanged.
     """
-    try:
-        urls = await fetch_weekly_inspiration_urls()
-    except Exception:
-        log.exception("Fooby inspiration: fetch failed; leaving display unchanged")
-        return
-    if not urls:
-        log.info("Fooby inspiration: no recipe URLs found; leaving display unchanged")
-        return
+    today_iso = today.date().isoformat()
+    url: str | None = None
+    cached = fooby_cache.get()
+    if cached and cached.get("for_date") == today_iso:
+        url = cached.get("url")
+        log.info("Fooby inspiration: using pre-fetched URL %s", url)
 
-    # Mon=0..Sun=6 → deterministic rotation, same slot every week.
-    # Modulo keeps it safe when fewer than seven URLs are published.
-    idx = today.weekday() % len(urls)
-    url = urls[idx]
+    if url is None:
+        try:
+            urls = await fetch_weekly_inspiration_urls()
+        except Exception:
+            log.exception("Fooby inspiration: fetch failed; leaving display unchanged")
+            return
+        if not urls:
+            log.info("Fooby inspiration: no recipe URLs found; leaving display unchanged")
+            return
+        # Mon=0..Sun=6 → deterministic rotation, same slot every week.
+        # Modulo keeps it safe when fewer than seven URLs are published.
+        idx = today.weekday() % len(urls)
+        url = urls[idx]
 
     state = display_state.get()
     if state.get("type") == "recipe" and state.get("url") == url:
@@ -132,9 +146,66 @@ async def _push_fooby_inspiration_for(today: datetime) -> None:
         url=url,
     )
     log.info(
-        "Pushed Fooby weekly inspiration (weekday=%d, slot=%d/%d): %r (%s)",
-        today.weekday(), idx, len(urls), recipe.get("title"), url,
+        "Pushed Fooby weekly inspiration: %r (%s)",
+        recipe.get("title"), url,
     )
+
+
+async def _prefetch_fooby_for(target: date) -> None:
+    """Resolve + cache the Fooby pick that would play on `target`.
+
+    Skipped when `target` already has an anniversary candidate — in that
+    case the midnight scheduler would push the anniversary, not a Fooby
+    recipe, so caching one would be misleading on the status preview.
+
+    Best-effort: every failure is logged, never raised. A miss just leaves
+    the cache stale; the status page falls back to a generic hint, and the
+    next midnight tick re-fetches live.
+    """
+    anniv = library.pick_anniversary_recipe(
+        target.strftime("%m-%d"), target.year
+    )
+    if anniv is not None:
+        log.info(
+            "Fooby prefetch: anniversary covers %s (id=%d); skipping",
+            target.isoformat(), anniv["id"],
+        )
+        return
+    try:
+        urls = await fetch_weekly_inspiration_urls()
+    except Exception:
+        log.exception("Fooby prefetch: fetch failed for %s", target.isoformat())
+        return
+    if not urls:
+        log.info("Fooby prefetch: no recipe URLs found for %s", target.isoformat())
+        return
+    idx = target.weekday() % len(urls)
+    url = urls[idx]
+    recipe = await process_recipe_url(url)
+    if recipe is None:
+        log.info("Fooby prefetch: failed to parse %s", url)
+        return
+    title = recipe.get("title") or url
+    fooby_cache.set_pick(target, url, title)
+
+
+async def initial_fooby_prefetch() -> None:
+    """One-shot prefetch on container start when the cache isn't current.
+
+    Without this, a fresh deploy or a restart between midnights would leave
+    the status "Tomorrow" card showing the generic hint until the next
+    midnight tick. With it, the preview lands as soon as the server is up.
+    """
+    tomorrow = (datetime.now(TZ) + timedelta(days=1)).date()
+    cached = fooby_cache.get()
+    if cached and cached.get("for_date") == tomorrow.isoformat():
+        log.info("Initial Fooby prefetch: cache already current for %s", tomorrow.isoformat())
+        return
+    log.info("Initial Fooby prefetch: refreshing for %s", tomorrow.isoformat())
+    try:
+        await _prefetch_fooby_for(tomorrow)
+    except Exception:
+        log.exception("Initial Fooby prefetch failed")
 
 
 async def midnight_loop() -> None:
@@ -161,6 +232,15 @@ async def midnight_loop() -> None:
                 await _push_fooby_inspiration_for(today)
         except Exception:
             log.exception("Midnight push failed; backup will still run")
+        try:
+            # Pre-fetch tomorrow's Fooby pick so the web "Tomorrow" card has
+            # a concrete recipe to show, and so the next tick has a
+            # deterministic URL to push (matching what the user saw on the
+            # preview). Skipped internally when tomorrow has an anniversary.
+            tomorrow = (datetime.now(TZ) + timedelta(days=1)).date()
+            await _prefetch_fooby_for(tomorrow)
+        except Exception:
+            log.exception("Fooby prefetch failed; status page will fall back to generic hint")
         try:
             await backup.flush_if_dirty()
         except Exception:
