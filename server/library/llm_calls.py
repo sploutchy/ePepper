@@ -104,6 +104,7 @@ def month_stats(conn_factory, since_ts: int) -> dict:
     calls = len(rows)
     url_calls = 0
     ocr_calls = 0
+    translate_calls = 0
     chf = 0.0
     chf_known = True
     for row in rows:
@@ -114,6 +115,8 @@ def month_stats(conn_factory, since_ts: int) -> dict:
             url_calls += 1
         elif kind == "ocr":
             ocr_calls += 1
+        elif kind == "translate":
+            translate_calls += 1
         price = _PRICES_CHF.get(model)
         if price is None:
             if model not in _warned_models:
@@ -131,6 +134,7 @@ def month_stats(conn_factory, since_ts: int) -> dict:
         "calls": calls,
         "url_calls": url_calls,
         "ocr_calls": ocr_calls,
+        "translate_calls": translate_calls,
         "chf": chf,
         # When at least one row used a model we don't have pricing for,
         # the CHF total is a lower bound, not the exact figure.
