@@ -176,10 +176,10 @@ async def _try_llm(url: str, html: str) -> dict | None:
         log.info("LLM fallback disabled (LLM_API_URL / LLM_API_KEY unset)")
         return None
 
-    from processing.html_extract import extract
+    from processing.html_extract import to_text
     from processing.prompts import URL_SYSTEM, url_user
 
-    _, blob = extract(html)
+    blob = to_text(html)
     if not blob:
         log.info("Empty preprocessed blob, skipping LLM call")
         return None

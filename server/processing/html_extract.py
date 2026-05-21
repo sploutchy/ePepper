@@ -86,6 +86,19 @@ def extract(html: str) -> tuple[dict, str] | tuple[None, str]:
     return None, _to_text(soup)
 
 
+def to_text(html: str) -> str:
+    """LLM-ready text blob, ignoring any embedded JSON-LD recipe.
+
+    `extract()` short-circuits to the JSON-LD path as soon as it finds a
+    Recipe blob, even one too sparse to use (e.g. bio-mio.ch ships a
+    Recipe with ingredients but no instructions). The LLM fallback still
+    needs the page text in that case, so it calls this helper instead
+    of unpacking `extract()`.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    return _to_text(soup)
+
+
 def _try_embedded_jsonld(soup: BeautifulSoup) -> tuple[dict, str] | None:
     """Look for a schema.org Recipe in any `<script type="application/ld+json">`.
 
