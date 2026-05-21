@@ -1,4 +1,15 @@
-"""Recipe URL processing via recipe-scrapers."""
+"""Recipe URL processing via recipe-scrapers, with an LLM fallback.
+
+Order of attempts in `process_recipe_url`:
+  1. recipe-scrapers (site-specific parser, then generic wild_mode)
+  2. embedded JSON-LD via html_extract (a free win — many sites that
+     break recipe-scrapers still ship clean schema.org Recipe blobs)
+  3. LLM extraction over a preprocessed text blob (Infomaniak AI Tools
+     by default; configured via LLM_API_URL / LLM_API_KEY)
+
+Each step is conditional on the previous one returning None, so a
+well-behaved site never touches the LLM and never spends a token.
+"""
 
 import logging
 import re
@@ -6,6 +17,8 @@ import re
 from recipe_scrapers import scrape_html
 import aiohttp
 
+from config import LLM_TEXT_MODEL, LLM_VISION_MODEL
+from processing import llm
 from processing.safe_url import assert_url_safe
 
 log = logging.getLogger(__name__)
@@ -38,14 +51,41 @@ async def process_recipe_url(url: str) -> dict | None:
 
     Returns a dict with title, total_time, servings, ingredients, instructions, lang.
     Instructions is a list of dicts: {"type": "step"|"heading", "text": "..."}
+
+    Falls back through embedded JSON-LD and an LLM call when
+    recipe-scrapers can't make sense of the page. Returns None only when
+    all three paths have failed.
     """
     log.info("Fetching recipe from: %s", url)
 
     try:
         html = await _fetch_html(url)
-        log.info("Fetched %d bytes of HTML", len(html))
+    except Exception as e:
+        log.warning("Failed to fetch %s: %s", url, e)
+        return None
+    log.info("Fetched %d bytes of HTML", len(html))
 
-        # Try site-specific parser first, fall back to wild_mode (generic schema.org)
+    recipe = _try_scraper(url, html)
+    if recipe is not None:
+        return recipe
+
+    recipe = _try_embedded_jsonld(url, html)
+    if recipe is not None:
+        log.info("Recipe sourced from embedded JSON-LD (no LLM call)")
+        return recipe
+
+    recipe = await _try_llm(url, html)
+    if recipe is not None:
+        log.info("Recipe sourced from LLM fallback")
+        return recipe
+
+    log.warning("All recipe parsers failed for %s", url)
+    return None
+
+
+def _try_scraper(url: str, html: str) -> dict | None:
+    """recipe-scrapers path — the cheap, fast default."""
+    try:
         try:
             scraper = scrape_html(html, org_url=url)
         except Exception:
@@ -66,6 +106,14 @@ async def process_recipe_url(url: str) -> dict | None:
             "lang": lang,
         }
 
+        # An empty parse is "scraper found nothing useful" — let the
+        # fallbacks try. Title alone isn't enough; recipe-scrapers
+        # often returns the page's `<title>` even when the recipe body
+        # didn't parse.
+        if not recipe["ingredients"] and not recipe["instructions"]:
+            log.info("recipe-scrapers returned empty body for %s", url)
+            return None
+
         log.info("Parsed recipe: %s (lang=%s)", recipe["title"], lang)
         log.info("  Ingredients (%d): %s", len(recipe["ingredients"]), recipe["ingredients"])
         log.info("  Instructions (%d): %s", len(recipe["instructions"]), recipe["instructions"])
@@ -74,8 +122,256 @@ async def process_recipe_url(url: str) -> dict | None:
         return recipe
 
     except Exception as e:
-        log.warning("Failed to parse recipe from %s: %s", url, e)
+        log.info("recipe-scrapers failed for %s: %s", url, e)
         return None
+
+
+def _try_embedded_jsonld(url: str, html: str) -> dict | None:
+    """Pull a schema.org Recipe out of `<script type=application/ld+json>`.
+
+    Free of LLM cost — many sites that defeat recipe-scrapers (because
+    of unusual CSS or HTML structure) still publish valid JSON-LD blobs.
+    Imported lazily so the legacy import surface (process_recipe_url) stays
+    cheap when LLM features are disabled.
+    """
+    try:
+        from processing.html_extract import extract
+
+        result = extract(html)
+    except Exception as e:
+        log.info("html_extract failed for %s: %s", url, e)
+        return None
+    recipe_payload, _ = result
+    if recipe_payload is None:
+        return None
+    # extract() returns (recipe_dict, source_url) when JSON-LD won — we
+    # don't need source_url here because we already have the canonical URL.
+    return recipe_payload
+
+
+async def _try_llm(url: str, html: str) -> dict | None:
+    """Cleaned-HTML → LLM → validated recipe dict.
+
+    Returns None when the LLM isn't configured, when the call fails, or
+    when the model's output doesn't pass the validator. Each of those is
+    a clean failure mode; the caller logs and surfaces a user-facing
+    error.
+    """
+    if not llm.is_enabled():
+        log.info("LLM fallback disabled (LLM_API_URL / LLM_API_KEY unset)")
+        return None
+
+    from processing.html_extract import extract
+    from processing.prompts import URL_SYSTEM, url_user
+
+    _, blob = extract(html)
+    if not blob:
+        log.info("Empty preprocessed blob, skipping LLM call")
+        return None
+
+    log.info("Calling LLM (%s) with %d chars of cleaned text", LLM_TEXT_MODEL, len(blob))
+    try:
+        raw = await llm.complete_json(
+            model=LLM_TEXT_MODEL,
+            system=URL_SYSTEM,
+            user=url_user(url, blob),
+        )
+    except llm.LLMError as e:
+        log.warning("LLM fallback failed for %s: %s", url, e)
+        return None
+
+    recipe = validate_llm_recipe(raw)
+    if recipe is None:
+        log.warning("LLM output didn't validate for %s", url)
+        return None
+    return recipe
+
+
+async def process_recipe_image(image_bytes: bytes) -> tuple[dict, str] | None:
+    """OCR a recipe photo into ePepper's internal recipe dict.
+
+    Returns `(recipe, url)` where `url` is a `cookbook://<source>/<slug>`
+    surrogate built from the LLM's `source_name` (when readable, e.g.
+    the cookbook title visible on a cover/spine) and the recipe title.
+    Source-less photos collapse to `cookbook://cookbook/<slug>` and
+    further to a content hash via the existing `resolve_url` helper.
+
+    Returns None when the LLM is unconfigured, the call fails, or the
+    output doesn't satisfy the minimum recipe contract — same contract
+    the URL path uses, so the caller can surface a uniform error.
+    """
+    if not llm.is_enabled():
+        log.info("OCR skipped — LLM_API_URL / LLM_API_KEY unset")
+        return None
+
+    from processing.images import encode_for_ocr
+    from processing.jsonld import resolve_url
+    from processing.prompts import OCR_SYSTEM, OCR_USER
+
+    try:
+        jpeg = encode_for_ocr(image_bytes)
+    except Exception as e:
+        log.warning("OCR: image decode failed: %s", e)
+        return None
+    log.info("OCR: calling %s with %d byte JPEG", LLM_VISION_MODEL, len(jpeg))
+
+    try:
+        raw = await llm.complete_json(
+            model=LLM_VISION_MODEL,
+            system=OCR_SYSTEM,
+            user=OCR_USER,
+            image_jpeg=jpeg,
+        )
+    except llm.LLMError as e:
+        log.warning("OCR LLM call failed: %s", e)
+        return None
+
+    recipe = validate_llm_recipe(raw)
+    if recipe is None:
+        log.warning("OCR: LLM output didn't validate")
+        return None
+
+    source_name = ""
+    src = raw.get("source_name")
+    if isinstance(src, str):
+        source_name = src.strip()
+
+    url = _ocr_url(source_name, recipe["title"])
+    url = resolve_url(url, recipe)  # collapses to content hash if empty
+    log.info("OCR: recipe %r url=%s source=%r", recipe["title"], url, source_name)
+    return recipe, url
+
+
+_SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(text: str) -> str:
+    """ASCII kebab-case slug; empty if `text` carries no ASCII letters/digits."""
+    import unicodedata
+
+    norm = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    norm = norm.lower()
+    return _SLUG_KEEP_RE.sub("-", norm).strip("-")
+
+
+def _ocr_url(source_name: str, title: str) -> str:
+    """Build the `cookbook://<source>/<title>` surrogate URL for an OCR recipe.
+
+    Falls back to `cookbook://cookbook/<title>` when no source was read,
+    and to bare `cookbook://` when the title slugifies to nothing — at
+    which point `resolve_url` swaps in a content hash so the library's
+    UNIQUE(url) still dedupes.
+    """
+    src_slug = _slug(source_name) or "cookbook"
+    title_slug = _slug(title)
+    if not title_slug:
+        return "cookbook://"
+    return f"cookbook://{src_slug}/{title_slug}"
+
+
+def validate_llm_recipe(raw: dict) -> dict | None:
+    """Coerce an LLM-produced JSON object into ePepper's internal recipe shape.
+
+    Tolerant — accepts string total_time, missing optional fields, list
+    or string ingredients — but enforces the minimum contract: a title
+    and at least one of ingredients/instructions, with a lang we
+    actually render. Returns None when those minimums aren't met so the
+    caller can surface a clear error instead of pushing a junk recipe
+    into the library.
+    """
+    if not isinstance(raw, dict):
+        return None
+
+    title = _str_or_empty(raw.get("title")).strip()
+    if not title:
+        return None
+
+    ingredients = _coerce_ingredients(raw.get("ingredients"))
+    instructions = _coerce_instructions(raw.get("instructions"))
+    if not ingredients and not instructions:
+        return None
+
+    total_time = _coerce_int(raw.get("total_time"))
+    servings = _str_or_empty(raw.get("servings")).strip() or None
+
+    lang_raw = _str_or_empty(raw.get("lang")).strip().lower()
+    lang = lang_raw if lang_raw in ("en", "de", "fr", "it") else "en"
+
+    return {
+        "title": title,
+        "total_time": total_time,
+        "servings": servings,
+        "ingredients": ingredients,
+        "instructions": instructions,
+        "lang": lang,
+    }
+
+
+def _str_or_empty(v) -> str:
+    return v if isinstance(v, str) else ""
+
+
+def _coerce_int(v) -> int | None:
+    if isinstance(v, bool):
+        return None
+    if isinstance(v, int):
+        return v if v > 0 else None
+    if isinstance(v, float):
+        return int(v) if v > 0 else None
+    if isinstance(v, str):
+        m = re.search(r"\d+", v)
+        if m:
+            n = int(m.group(0))
+            return n if n > 0 else None
+    return None
+
+
+def _coerce_ingredients(v) -> list[str]:
+    if isinstance(v, str):
+        return [line.strip() for line in v.splitlines() if line.strip()]
+    if isinstance(v, list):
+        out = []
+        for item in v:
+            if isinstance(item, str) and item.strip():
+                out.append(item.strip())
+            elif isinstance(item, dict):
+                # tolerate the LLM emitting {name, qty, unit} shapes
+                txt = item.get("text") or item.get("name") or ""
+                if isinstance(txt, str) and txt.strip():
+                    out.append(txt.strip())
+        return out
+    return []
+
+
+def _coerce_instructions(v) -> list[dict]:
+    """Accept the canonical [{type, text}, …] shape, plus a few stragglers.
+
+    Stragglers we tolerate: a plain string (newline-split), a list of
+    plain strings (each becomes a step), a list with a string `step`
+    instead of the typed dict.
+    """
+    if isinstance(v, str):
+        return [
+            {"type": "step", "text": line.strip()}
+            for line in v.splitlines()
+            if line.strip()
+        ]
+    if not isinstance(v, list):
+        return []
+    out: list[dict] = []
+    for item in v:
+        if isinstance(item, str) and item.strip():
+            out.append({"type": "step", "text": item.strip()})
+            continue
+        if not isinstance(item, dict):
+            continue
+        t = item.get("type", "step")
+        text = item.get("text") or item.get("step") or item.get("name") or ""
+        if not isinstance(text, str) or not text.strip():
+            continue
+        kind = "heading" if t == "heading" else "step"
+        out.append({"type": kind, "text": text.strip()})
+    return out
 
 
 async def _fetch_html(url: str) -> str:

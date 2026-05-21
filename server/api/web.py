@@ -5,7 +5,6 @@ stores the same API_KEY the device uses; httpOnly + Secure + SameSite=Lax).
 Routes live under /app/ to keep the existing device-facing endpoints clean.
 """
 
-import json
 import logging
 import secrets
 import time
@@ -22,17 +21,14 @@ import library
 from library.db import SESSION_DURATION_S
 from config import API_KEY, TZ
 from display_push import push_recipe_to_display
-from processing.images import process_photo
-from processing.jsonld import parse_recipe_jsonld, resolve_url
-from processing.recipes import process_recipe_url
+from processing.recipes import process_recipe_image, process_recipe_url
 from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
-# Hard cap on uploaded files. Schema.org Recipe payloads are typically a few
-# KB; images uploaded for the display max out around 1–2 MB after browser-side
-# JPEG re-encode. 8 MB leaves headroom while still rejecting accidental drops.
-_JSON_MAX_BYTES = 256 * 1024
+# Hard cap on photo uploads. Phone shots after browser-side JPEG re-encode
+# are typically 1-3 MB; 8 MB leaves headroom while still rejecting
+# accidental drops.
 _PHOTO_MAX_BYTES = 8 * 1024 * 1024
 
 # Stream-read chunk size for the size-capped upload reader.
@@ -385,12 +381,12 @@ async def add_url(request: Request, url: str = Form(...)):
 
 @router.post("/add/file", response_class=HTMLResponse)
 async def add_file(request: Request, file: UploadFile = File(...)):
-    """Single upload endpoint — dispatches by content type / extension.
+    """Single upload endpoint — OCR a recipe photo into the library.
 
-    Images go through process_photo (resize + dither → display-only,
-    not saved). JSON files go through parse_recipe_jsonld (upserted
-    into the library, same dedup-by-URL behaviour as the URL ingest
-    path).
+    Mirrors the URL-add path: the photo is OCR'd via the configured LLM,
+    saved to the library, and the user lands on the recipe detail page.
+    The panel is not touched — Display on the detail page is the
+    explicit "push to panel" action.
     """
     _require_auth(request)
     ct = (file.content_type or "").lower()
@@ -398,13 +394,10 @@ async def add_file(request: Request, file: UploadFile = File(...)):
     is_image = ct.startswith("image/") or name.endswith(
         (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".bmp", ".gif")
     )
-    is_json = ct in ("application/json", "application/ld+json") or name.endswith(".json")
 
     if is_image:
         return await _add_photo_bytes(request, file)
-    if is_json:
-        return await _add_jsonld_bytes(request, file)
-    return _add_error(request, "Pick an image or a `.json` file.")
+    return _add_error(request, "Pick an image file (JPG, PNG, WebP, HEIC).")
 
 
 async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
@@ -414,44 +407,25 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
             request,
             f"Image too large (limit {_PHOTO_MAX_BYTES // 1024} KB).",
         )
-    try:
-        img = process_photo(raw)
-    except Exception:
-        log.exception("Web photo processing failed")
-        return _add_error(request, "Couldn't read that image.")
-    display_state.set_image(img, content_type="photo")
-    log.info("Web add (photo): %d bytes", len(raw))
-    return _hx_redirect("/app/status?pushed=image")
-
-
-async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:
-    """JSON-LD upload — adds the recipe to the library without pushing.
-
-    Same shape as `add_url`: Add is library-only, Display is panel. See
-    that handler's docstring for the rationale.
-    """
-    raw = await _read_capped(file, _JSON_MAX_BYTES)
-    if raw is None:
+    log.info("Web add (photo OCR): %d bytes", len(raw))
+    result = await process_recipe_image(raw)
+    if result is None:
         return _add_error(
             request,
-            f"JSON file too large (limit {_JSON_MAX_BYTES // 1024} KB).",
+            "Couldn't read a recipe from that photo — check focus, framing, "
+            "and that the OCR model is configured on the server.",
         )
-    try:
-        data = json.loads(raw.decode("utf-8"))
-    except (ValueError, UnicodeDecodeError):
-        return _add_error(request, "Not valid JSON.")
-    parsed = parse_recipe_jsonld(data)
-    if parsed is None:
-        return _add_error(request, "No schema.org `Recipe` in that `.json`.")
-    recipe, source_url = parsed
-    url = resolve_url(source_url, recipe)
+    recipe, url = result
     existing = library.find_by_url(url)
     if existing is not None:
-        log.info("Web add (existing JSON-LD): id=%d", existing["id"])
+        log.info("Web add (existing OCR): id=%d", existing["id"])
         return _hx_redirect(f"/app/recipes/{existing['id']}")
     recipe_id = library.upsert_recipe(url, recipe)
     library.save_recipe(recipe_id)
-    log.info("Web add (JSON-LD): id=%d title=%r", recipe_id, recipe.get("title"))
+    log.info(
+        "Web add (photo OCR): id=%d title=%r url=%s",
+        recipe_id, recipe.get("title"), url,
+    )
     return _hx_redirect(f"/app/recipes/{recipe_id}")
 
 

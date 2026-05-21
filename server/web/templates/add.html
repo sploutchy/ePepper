@@ -20,10 +20,9 @@
   </button>
 </form>
 
-{# One file tile covering both image (resized + dithered, display-only)
-   and JSON-LD (parsed into the library). The server dispatches on
-   content type, so the user picks a file without having to choose the
-   route. #}
+{# Photo of a cookbook / magazine page — OCR'd by the LLM into a
+   recipe and saved to the library. Click Display on the resulting
+   recipe page to push it to the panel. #}
 <form class="add-tile"
       hx-post="/app/add/file"
       hx-target="#add-result"
@@ -31,16 +30,15 @@
       hx-encoding="multipart/form-data"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("upload", 20) }} Upload</h2>
+  <h2>{{ icon("upload", 20) }} Photo</h2>
   <ul class="add-help muted">
-    <li>Image &rarr; pushed to display.</li>
-    <li>JSON-LD &rarr; parsed into library.</li>
+    <li>Cookbook / magazine page &rarr; OCR'd into the library.</li>
   </ul>
 
   <div class="file-row">
-    <label class="file-input" title="Choose file">
+    <label class="file-input" title="Choose photo">
       <input type="file" name="file"
-             accept="image/*,.json,application/json"
+             accept="image/*"
              required>
       {{ icon("paperclip", 18) }}
       <span class="file-input-name muted" data-empty="no file chosen">no file chosen</span>
