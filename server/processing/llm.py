@@ -43,6 +43,7 @@ def is_enabled() -> bool:
 
 async def complete_json(
     *,
+    kind: str,
     model: str,
     system: str,
     user: str,
@@ -51,6 +52,9 @@ async def complete_json(
     timeout_s: float = 60.0,
 ) -> dict[str, Any]:
     """Call chat-completions and return the JSON object the model produced.
+
+    `kind` is "url" or "ocr" and tags the call in the on-disk ledger
+    that backs the status page.
 
     The system + user prompts are responsible for instructing the model to
     output ONLY a JSON object — we strip a leading/trailing ```json fence
@@ -79,7 +83,7 @@ async def complete_json(
         {"role": "user", "content": user_content},
     ]
 
-    raw = await _chat(model, messages, max_tokens, timeout_s)
+    raw = await _chat(kind, model, messages, max_tokens, timeout_s)
     try:
         return _parse_json(raw)
     except ValueError as e:
@@ -93,7 +97,7 @@ async def complete_json(
             "JSON object, no prose, no markdown fences."
         ),
     })
-    raw = await _chat(model, messages, max_tokens, timeout_s)
+    raw = await _chat(kind, model, messages, max_tokens, timeout_s)
     try:
         return _parse_json(raw)
     except ValueError as e:
@@ -101,6 +105,7 @@ async def complete_json(
 
 
 async def _chat(
+    kind: str,
     model: str,
     messages: list[dict[str, Any]],
     max_tokens: int,
@@ -108,8 +113,8 @@ async def _chat(
 ) -> str:
     """POST to /chat/completions, return the assistant message content.
 
-    Logs token usage from the response so per-call CHF cost is traceable
-    in the container logs (grep `LLM call`).
+    Records the call in the on-disk ledger and logs token usage so
+    per-call CHF cost is traceable in the container logs (grep `LLM call`).
     """
     url = f"{LLM_API_URL.rstrip('/')}/chat/completions"
     headers = {
@@ -148,12 +153,25 @@ async def _chat(
         raise LLMError(f"LLM response missing choices/message: {e}") from None
 
     usage = data.get("usage") or {}
+    prompt_tokens = usage.get("prompt_tokens") or 0
+    completion_tokens = usage.get("completion_tokens") or 0
     log.info(
-        "LLM call: model=%s prompt_tokens=%s completion_tokens=%s total=%s",
+        "LLM call: kind=%s model=%s prompt_tokens=%s completion_tokens=%s total=%s",
+        kind,
         model,
-        usage.get("prompt_tokens"),
-        usage.get("completion_tokens"),
+        prompt_tokens,
+        completion_tokens,
         usage.get("total_tokens"),
+    )
+    # Imported lazily so processing.llm has no import-time dependency on
+    # the library package (avoids a cycle if the library ever grows
+    # something that imports processing.*).
+    from library import record_llm_call
+    record_llm_call(
+        kind=kind,
+        model=model,
+        input_tokens=int(prompt_tokens),
+        output_tokens=int(completion_tokens),
     )
     return content or ""
 

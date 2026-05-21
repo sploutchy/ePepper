@@ -23,6 +23,31 @@ from library.db import (
     validate_session,
     delete_session,
 )
+from library.db import _connect as _db_connect
+from library import llm_calls as _llm_calls
+
+
+def record_llm_call(
+    *,
+    kind: str,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+) -> None:
+    """Append one LLM-call row to the ledger. Errors are swallowed."""
+    _llm_calls.record(
+        _db_connect,
+        kind=kind,
+        model=model,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+    )
+
+
+def llm_month_stats(since_ts: int) -> dict:
+    """Aggregate calls/tokens/CHF since `since_ts`."""
+    return _llm_calls.month_stats(_db_connect, since_ts)
+
 
 __all__ = [
     "init_db",
@@ -46,4 +71,6 @@ __all__ = [
     "create_session",
     "validate_session",
     "delete_session",
+    "record_llm_call",
+    "llm_month_stats",
 ]

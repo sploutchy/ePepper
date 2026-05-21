@@ -132,6 +132,8 @@ def init_db() -> None:
         _migrate_add_displayed_count(conn)
         _migrate_drop_rating(conn)
         _migrate_normalize_urls(conn)
+        from library.llm_calls import migrate as _migrate_llm_calls
+        _migrate_llm_calls(conn)
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
 

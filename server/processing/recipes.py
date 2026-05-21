@@ -172,6 +172,7 @@ async def _try_llm(url: str, html: str) -> dict | None:
     log.info("Calling LLM (%s) with %d chars of cleaned text", LLM_TEXT_MODEL, len(blob))
     try:
         raw = await llm.complete_json(
+            kind="url",
             model=LLM_TEXT_MODEL,
             system=URL_SYSTEM,
             user=url_user(url, blob),
@@ -217,6 +218,7 @@ async def process_recipe_image(image_bytes: bytes) -> tuple[dict, str] | None:
 
     try:
         raw = await llm.complete_json(
+            kind="ocr",
             model=LLM_VISION_MODEL,
             system=OCR_SYSTEM,
             user=OCR_USER,
