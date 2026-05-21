@@ -35,20 +35,13 @@ _RULES = """Rules:
 - total_time: total cooking time in minutes (sum prep + cook if both
   given). Integer. Null if not specified.
 - lang: detect from the recipe's own text.
-- instructions: emit a {"type":"heading"} entry before each section's
-  steps (e.g. "Sauce", "Dough", "Garniture"). Plain steps are
-  {"type":"step"}. Each step text must name the ingredient(s) acted
-  on — if the source uses a two-column cookbook layout (ingredients
-  on one side, action verbs on the other), integrate the ingredient
-  into the action text rather than emitting orphan verbs like "peel
-  and grate" with no subject. Use cookbook infinitive style
-  ("Kartoffeln schälen", "Éplucher les pommes de terre", "Sbucciare
-  le patate", "Peel the potatoes") — NOT direct imperative ("Schäle
-  die Kartoffeln", "Épluchez les pommes de terre"). Reference each
-  ingredient by NAME ONLY in step text — never repeat its quantity or
-  unit (those live in the ingredient list). E.g. "Mehl und Salz in
-  eine Schüssel geben", NOT "400 g Mehl und 1 KL Salz in eine
-  Schüssel geben".
+- instructions: each step is {"type":"step","text":"…"}; sections
+  become {"type":"heading","text":"Sauce"}. Steps name the
+  ingredient(s) acted on in cookbook infinitive style — "Mehl und
+  Salz in Schüssel geben", not "Schäle das Mehl" (no imperative) and
+  not "400 g Mehl in Schüssel geben" (no quantity re-stated). DE/FR/IT
+  use infinitive; EN keeps imperative.
+- German output uses Swiss orthography — "ss" not "ß" (Strasse, weiss).
 - source_name: only populated from image inputs, from visible
   cookbook / magazine branding. Null for webpage inputs."""
 
