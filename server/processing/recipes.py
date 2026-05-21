@@ -106,12 +106,17 @@ def _try_scraper(url: str, html: str) -> dict | None:
             "lang": lang,
         }
 
-        # An empty parse is "scraper found nothing useful" — let the
-        # fallbacks try. Title alone isn't enough; recipe-scrapers
-        # often returns the page's `<title>` even when the recipe body
-        # didn't parse.
-        if not recipe["ingredients"] and not recipe["instructions"]:
-            log.info("recipe-scrapers returned empty body for %s", url)
+        # No instructions = "scraper found nothing useful" — let the
+        # fallbacks try. ePepper renders steps as the load-bearing surface;
+        # an ingredients-only parse is a shopping list, not a recipe (seen
+        # in the wild on bio-mio.ch, where recipe-scrapers extracts the
+        # ingredient table but misses the steps).
+        if not recipe["instructions"]:
+            log.info(
+                "recipe-scrapers returned no instructions for %s "
+                "(ingredients=%d) — falling through to JSON-LD / LLM",
+                url, len(recipe["ingredients"]),
+            )
             return None
 
         log.info("Parsed recipe: %s (lang=%s)", recipe["title"], lang)
