@@ -333,14 +333,33 @@ def validate_llm_recipe(raw: dict) -> dict | None:
     lang_raw = _str_or_empty(raw.get("lang")).strip().lower()
     lang = lang_raw if lang_raw in ("en", "de", "fr", "it") else "en"
 
-    return {
+    return _swissify({
         "title": title,
         "total_time": total_time,
         "servings": servings,
         "ingredients": ingredients,
         "instructions": instructions,
         "lang": lang,
-    }
+    })
+
+
+def _swissify(recipe: dict) -> dict:
+    """Normalise German ß → ss across every text field.
+
+    Asking the LLM to honour Swiss orthography via a prompt rule
+    proved unreliable (it'd write "Strasse" half the time and
+    "Straße" the other half). A post-pass over the validated recipe
+    is cheap and deterministic. Unconditional rather than gated on
+    lang=="de" because ß is German-only — no other language has
+    characters it could legitimately produce.
+    """
+    recipe["title"] = recipe["title"].replace("ß", "ss")
+    if recipe.get("servings"):
+        recipe["servings"] = recipe["servings"].replace("ß", "ss")
+    recipe["ingredients"] = [s.replace("ß", "ss") for s in recipe["ingredients"]]
+    for step in recipe["instructions"]:
+        step["text"] = step["text"].replace("ß", "ss")
+    return recipe
 
 
 def _str_or_empty(v) -> str:
