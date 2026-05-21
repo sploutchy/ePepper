@@ -5,16 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ePepper · Sign in</title>
   <link rel="stylesheet" href="/app/static/app.css">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,wght@0,400;0,500;0,600;0,700;1,500;1,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 </head>
 <body class="centered">
   <main class="login">
-    <h1 class="brand">
-      <span class="e">e</span>Pepper
+    <h1>
+      <img src="/app/static/pepper.svg" alt="" class="pepper">
+      ePepper
     </h1>
-    <p class="tagline">Kitchen recipe display</p>
+    <p class="muted">Enter your access code to unlock the recipe library.</p>
     {% if error %}<p class="error">That code doesn't match — try again.</p>{% endif %}
     <form action="/app/login" method="post">
       <input type="password" name="api_key" autofocus required

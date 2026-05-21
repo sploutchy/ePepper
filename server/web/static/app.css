@@ -6,12 +6,11 @@
 
   --bg:           #faf8f4;
   --fg:           #2a2620;
-  --muted:        #6f6a60;   /* lifted from #807a70 — WCAG AA on cream */
+  --muted:        #807a70;
   --border:       #e4dfd2;
 
   --card-bg:      #ffffff;
   --comment-bg:   #f3eedf;   /* warm cream, distinct from the white textarea */
-  --code-bg:      rgba(0,0,0,0.06);  /* inline <code> background — flips in dark theme */
 
   --primary:      #3d7a4d;   /* forest green — push, sign-in, save */
   --primary-soft: #d4e3cd;
@@ -32,12 +31,6 @@
   --gap:          14px;
   --shadow:       0 1px 2px rgba(0,0,0,0.04);
 
-  /* Brand faces — italic terracotta `e` lives in Newsreader; meta &
-     code lines run in JetBrains Mono. UI prose stays on system-ui so
-     long text doesn't pay a webfont round-trip on every page. */
-  --font-serif:   'Newsreader', Georgia, serif;
-  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
-  --font-ui:      system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 /* Lock the UA color-scheme to the active theme when the user has overridden
@@ -76,8 +69,6 @@
     --warn-fg:      #f0d28a;
     --warn-border:  #6a5424;
 
-    --code-bg:      rgba(255,255,255,0.08);
-
     --shadow:       0 1px 2px rgba(0,0,0,0.4);
   }
 }
@@ -105,8 +96,6 @@
   --warn-fg:      #f0d28a;
   --warn-border:  #6a5424;
 
-  --code-bg:      rgba(255,255,255,0.08);
-
   --shadow:       0 1px 2px rgba(0,0,0,0.4);
 }
 
@@ -117,17 +106,7 @@ html, body {
   padding: 0;
   background: var(--bg);
   color: var(--fg);
-  font: 17px/1.5 var(--font-ui);
-}
-
-/* Inline <code> — one rule, both themes. --code-bg flips on the
-   dark-theme root, so per-component overrides are no longer needed. */
-code {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-  background: var(--code-bg);
-  padding: 1px 5px;
-  border-radius: 4px;
+  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
 
 body.centered {
@@ -148,21 +127,13 @@ a:hover { text-decoration: underline; }
 .muted { color: var(--muted); font-size: 0.92em; }
 .error { color: var(--danger); }
 
-/* Mono uppercase metadata line — "saved 4 days ago · cooked 3×", page
-   indicators, time/cost stamps. Reads as the machine voice next to the
-   serif headlines. */
-.meta-line {
-  font-family: var(--font-mono);
-  font-size: 0.78em;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin: 0 0 8px;
+/* Brand icon — inline SVG so we don't depend on system emoji fonts. */
+.pepper {
+  width: 1.2em;
+  height: 1.2em;
+  vertical-align: -0.2em;
+  margin-right: 4px;
 }
-.meta-line a { text-underline-offset: 2px; }
-
-/* Tabular-numeric runs — battery %, signal dBm, calls/min, etc. */
-strong.num { font-variant-numeric: tabular-nums; }
 
 /* Top bar — background spans the viewport, but the inner row is capped
    at the same max-width and side padding as <main> so the brand and the
@@ -180,24 +151,12 @@ strong.num { font-variant-numeric: tabular-nums; }
   margin: 0 auto;
   padding: 10px var(--gap);
 }
-/* The wordmark — italic terracotta `e` + roman charcoal Pepper. The
-   negative margin tucks the italic-leaning `e` into the `P` so the
-   optical gap matches the natural Pe pair without crashing. */
 .brand {
-  font-family: var(--font-serif);
-  font-weight: 600;
-  font-size: 1.5em;
-  letter-spacing: -0.025em;
-  line-height: 1;
+  font-weight: 700;
+  font-size: 1.1em;
   color: var(--fg);
-  text-decoration: none;
   display: inline-flex;
-  align-items: baseline;
-}
-.brand .e {
-  color: var(--danger);
-  font-style: italic;
-  margin-right: -0.04em;
+  align-items: center;
 }
 .logout-form { margin: 0; }
 .link {
@@ -235,20 +194,17 @@ strong.num { font-variant-numeric: tabular-nums; }
   font-size: 0.85em;
   line-height: 1.4;
 }
-/* Subtitle that sits just below the wordmark on the login screen.
-   Mono + slight tracking gives a quiet "device label" feel — matches
-   the meta-line voice without the all-caps shout. */
-.tagline {
-  margin: 4px 0 0;
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  letter-spacing: 0.05em;
-  color: var(--muted);
+.login-hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
 }
-/* Stretched submit button (the login form is a grid) needs explicit
-   horizontal centring so "Sign in" sits in the middle, not at the
-   start of the now-full-width button. */
-.login form button { justify-content: center; }
+:root[data-theme="dark"] .login-hint code { background: rgba(255,255,255,0.08); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .login-hint code { background: rgba(255,255,255,0.08); }
+}
 
 /* Inputs */
 input[type=search], input[type=password], textarea {
@@ -372,25 +328,22 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   text-decoration: none;
 }
 .card-title {
-  font-family: var(--font-serif);
-  font-size: 1.2em;
   font-weight: 600;
-  letter-spacing: -0.015em;
   display: flex;
   align-items: baseline;
   gap: 8px;
   flex-wrap: wrap;
 }
-/* "from X" chip next to the recipe title — stays UI sans so it reads
-   as metadata next to the Newsreader title. Same selector specificity
-   notes apply as before (font-synthesis blocks Firefox Android's fake
-   bold from inherited weight). */
+/* "from X" chip next to the recipe title — styled like .muted so it
+   matches the "saved …" line below the title visually. Selector is
+   .card-title-scoped so it outranks the parent's font-weight: 600 even
+   on Firefox Android, which otherwise synthesizes a fake bold from the
+   inherited weight. font-synthesis-weight: none belt-and-braces blocks
+   the synthesis path even when the explicit weight is ignored. */
 .card-title .card-source {
-  font-family: var(--font-ui);
-  font-size: 0.78em;
+  font-size: 0.92em;
   font-weight: 400;
   font-synthesis-weight: none;
-  letter-spacing: 0;
   color: var(--muted);
 }
 .card-meta {
@@ -398,15 +351,6 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   gap: 10px;
   align-items: center;
   margin-top: 4px;
-}
-/* "cooked N×, last <when>" / "never cooked" — same mono uppercase
-   voice as the recipe header's .meta-line, scoped here so the
-   card-meta flex row owns its own spacing. */
-.card-meta .muted {
-  font-family: var(--font-mono);
-  font-size: 0.78em;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
 }
 .loader, .more {
   text-align: center;
@@ -426,6 +370,17 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   text-align: center;
 }
 .empty-onboarding p { margin: 6px 0; }
+.empty-onboarding code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+:root[data-theme="dark"] .empty-onboarding code { background: rgba(255,255,255,0.08); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .empty-onboarding code { background: rgba(255,255,255,0.08); }
+}
 
 /* Recipe page footer holds the (de-emphasized) delete button. Sits well
    below the notes so it's reachable but doesn't pull the eye. */
@@ -445,28 +400,13 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   margin-bottom: 8px;
   color: var(--muted);
 }
-.recipe h1 {
-  margin: 4px 0 6px;
-  line-height: 1.2;
-  font-family: var(--font-serif);
-  font-weight: 600;
-  letter-spacing: -0.02em;
-}
-/* "from XYZ" sits on its own line under the title in natural UI sans —
-   reads as a readable sub-credit, separate from the mono uppercase
-   meta-line (saved · cooked) that follows. */
-.recipe-source {
-  margin: 0 0 6px;
-  color: var(--muted);
-  font-size: 0.95em;
-}
+.recipe h1 { margin: 4px 0 6px; line-height: 1.2; }
 .recipe h2 {
   margin: 24px 0 8px;
-  font-family: var(--font-mono);
-  font-size: 0.78em;
+  font-size: 1.05em;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.05em;
 }
 .recipe h3 {
   margin: 18px 0 6px;
@@ -774,6 +714,17 @@ input[type=file]::file-selector-button {
   border-radius: var(--radius);
   margin: 10px 0;
 }
+.add-error code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 0.92em;
+  background: rgba(0,0,0,0.06);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+:root[data-theme="dark"] .add-error code { background: rgba(255,255,255,0.08); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .add-error code { background: rgba(255,255,255,0.08); }
+}
 :root[data-theme="dark"] .add-error { color: var(--fg); }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .add-error { color: var(--fg); }
@@ -793,12 +744,10 @@ input[type=file]::file-selector-button {
 }
 .status-card h2 {
   margin: 0 0 10px;
-  font-family: var(--font-mono);
-  font-weight: 500;
-  font-size: 0.7em;
+  font-size: 1.05em;
   color: var(--muted);
   text-transform: uppercase;
-  letter-spacing: 0.18em;
+  letter-spacing: 0.05em;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -810,96 +759,16 @@ input[type=file]::file-selector-button {
   gap: 6px;
   flex-wrap: wrap;
 }
-/* Mono "data line" voice — applied to whole-line metrics (last backup
-   timestamp) or to a span wrapping a dense numeric breakdown inside an
-   otherwise sans status-line (LLM URL/OCR/translate split + CHF total).
-   Tabular-nums on a nested strong.num is preserved by the inherited
-   font-feature-settings. */
-.status-metric {
-  font-family: var(--font-mono);
-  font-size: 0.92em;
-}
-/* Display card's title row — Newsreader for the recipe name, the
-   "from X" suffix in UI sans, "page X of Y" in mono uppercase. Flex
-   layout so the title truncates with an ellipsis if it would overflow
-   the card width; the source + page indicator never shrink. */
-.display-title {
-  margin: 4px 0 2px;
-  display: flex;
-  align-items: baseline;
-  flex-wrap: nowrap;
-  gap: 6px;
-  overflow: hidden;
-  font-family: var(--font-serif);
-  font-weight: 600;
-  font-size: 1.35em;
-  letter-spacing: -0.02em;
-  line-height: 1.2;
-}
-.display-title-name {
-  min-width: 0;
-  flex: 0 1 auto;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-weight: inherit;
-}
-.display-title a { color: var(--fg); text-decoration: none; }
-.display-title a:hover { text-decoration: underline; text-underline-offset: 3px; }
-/* "from XYZ" — natural UI sans, kept readable next to the serif title. */
-.display-source {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  font-family: var(--font-ui);
-  font-weight: 400;
-  font-size: 0.65em;
-  letter-spacing: 0;
-  color: var(--muted);
-}
-.display-source a { color: var(--primary); }
-/* "— page X of Y" — mono uppercase, the data voice. flex-shrink: 0
-   keeps it visible even when the title gets ellipsised. */
-.display-page {
-  flex: 0 0 auto;
-  white-space: nowrap;
-  font-family: var(--font-mono);
-  font-size: 0.6em;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
-
-/* "Updated 7 min ago" and similar timestamps under a display-title.
-   Same mono-uppercase voice as .meta-line, no extra margins. */
-.updated-line {
-  margin: 4px 0 0;
-  font-family: var(--font-mono);
-  font-size: 0.7em;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
+/* Display card's title row uses plain inline flow so title + source +
+   page indicator all stay on the same line until the text genuinely
+   overflows. */
+.display-title { margin: 4px 0; }
 .status-icon {
   display: inline-flex;
   align-items: center;
   color: var(--muted);
 }
-.status-actions {
-  margin-top: 12px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-/* Clear button — outlined / quiet variant so it doesn't compete with
-   the page-nav row above it. Fills to a soft tint on hover. */
-.status-actions button.danger {
-  background: transparent;
-  color: var(--danger);
-  border: 1px solid var(--danger-soft);
-}
-.status-actions button.danger:hover {
-  background: var(--danger-soft);
-  filter: none;
-}
+.status-actions { margin-top: 12px; }
 
 /* Page nav — sits under the display preview when the current recipe spans
    multiple pages. Same icon buttons used in the topbar so the visual
@@ -938,10 +807,7 @@ input[type=file]::file-selector-button {
   background: var(--warn-bg);
   padding: 1px 6px;
   border-radius: 6px;
-  font-family: var(--font-mono);
-  font-size: 0.7em;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  font-size: 0.85em;
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -964,17 +830,4 @@ input[type=file]::file-selector-button {
   image-rendering: pixelated;
   border: 1px solid var(--border);
   border-radius: var(--radius);
-}
-
-/* ============================================================== */
-/* Honour the OS reduced-motion preference. The htmx spinner and our
-   120–150 ms hover transitions both collapse to instant for users who
-   set the flag. */
-@media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
-    animation-duration: 0.01ms !important;
-    animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
-    scroll-behavior: auto !important;
-  }
 }
