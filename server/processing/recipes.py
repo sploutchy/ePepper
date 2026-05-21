@@ -222,7 +222,10 @@ async def _try_llm(url: str, html: str, on_start=None) -> dict | None:
     return recipe
 
 
-async def process_recipe_image(image_bytes: bytes) -> tuple[dict, str] | None:
+async def process_recipe_image(
+    image_bytes: bytes,
+    hint: str | None = None,
+) -> tuple[dict, str] | None:
     """OCR a recipe photo into ePepper's internal recipe dict.
 
     Returns `(recipe, url)` where `url` is a `cookbook://<source>/<slug>`
@@ -230,6 +233,12 @@ async def process_recipe_image(image_bytes: bytes) -> tuple[dict, str] | None:
     the cookbook title visible on a cover/spine) and the recipe title.
     Source-less photos collapse to `cookbook://cookbook/<slug>` and
     further to a content hash via the existing `resolve_url` helper.
+
+    `hint` is optional sender-supplied context — the Telegram caption or
+    the (cleaned) web upload filename. The OCR prompt treats it as
+    ground truth for `source_name` / title disambiguation, which is the
+    fix for the common "Photo shows the recipe page but not the cover"
+    failure mode.
 
     Returns None when the LLM is unconfigured, the call fails, or the
     output doesn't satisfy the minimum recipe contract — same contract
@@ -241,21 +250,24 @@ async def process_recipe_image(image_bytes: bytes) -> tuple[dict, str] | None:
 
     from processing.images import encode_for_ocr
     from processing.jsonld import resolve_url
-    from processing.prompts import OCR_SYSTEM, OCR_USER
+    from processing.prompts import OCR_SYSTEM, ocr_user
 
     try:
         jpeg = encode_for_ocr(image_bytes)
     except Exception as e:
         log.warning("OCR: image decode failed: %s", e)
         return None
-    log.info("OCR: calling %s with %d byte JPEG", LLM_VISION_MODEL, len(jpeg))
+    log.info(
+        "OCR: calling %s with %d byte JPEG (hint=%r)",
+        LLM_VISION_MODEL, len(jpeg), hint or "",
+    )
 
     try:
         raw = await llm.complete_json(
             kind="ocr",
             model=LLM_VISION_MODEL,
             system=OCR_SYSTEM,
-            user=OCR_USER,
+            user=ocr_user(hint),
             image_jpeg=jpeg,
         )
     except llm.LLMError as e:

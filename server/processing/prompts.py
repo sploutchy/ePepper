@@ -59,7 +59,12 @@ OCR_SYSTEM = f"""You extract recipes from photos of cookbook / magazine pages in
 
 {_RULES}
 - source_name: read the cookbook title from the cover/spine/header, or
-  the magazine name. Null if you can't read any source branding."""
+  the magazine name. Null if you can't read any source branding.
+- If the user message contains a "User context: …" line, treat it as
+  ground truth from the recipe owner — typically a cookbook name and /
+  or the recipe title (e.g. "Ceviche, Ottolenghi Simple"). Use it to
+  fill source_name and / or correct the title; it overrides whatever
+  branding you'd otherwise infer from the photo."""
 
 
 def url_user(url: str, cleaned_text: str) -> str:
@@ -76,7 +81,21 @@ def url_user(url: str, cleaned_text: str) -> str:
     )
 
 
-OCR_USER = "Extract the recipe from this image."
+def ocr_user(hint: str | None) -> str:
+    """User message for OCR. Folds in an optional sender-supplied hint.
+
+    The hint comes from one of two places:
+      - Telegram: the caption typed alongside the photo
+      - Web: a cleaned form of the upload's filename
+    Either way the LLM treats it as ground truth that overrides whatever
+    branding it does (or doesn't) read from the photo itself — the user
+    almost always knows the source better than the OCR can read it.
+    """
+    base = "Extract the recipe from this image."
+    cleaned = (hint or "").strip()
+    if not cleaned:
+        return base
+    return f"{base}\nUser context: {cleaned}"
 
 
 # Translation prompt — fed to LLM_TRANSLATE_MODEL (default gemma3n). Job
