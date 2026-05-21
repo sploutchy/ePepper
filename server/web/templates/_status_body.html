@@ -25,18 +25,21 @@
 <section class="status-card">
   <h2>{{ icon("monitor", 18) }} Display</h2>
   {% if display.type == "recipe" %}
-    {# Title · from Source · — page X of Y, all on one line. Inline flow
-       (not flex) so the page indicator stays beside the title until the
-       text actually overflows. #}
+    {# Title · from Source — page X of Y, all on one line. Flex layout
+       so the title truncates with an ellipsis when it overflows; source
+       and page indicator never shrink (the most actionable bits stay
+       readable even on a narrow phone). #}
     <p class="display-title">
-      {% if display.recipe_id %}
-        <strong><a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a></strong>
-      {% else %}
-        <strong>{{ display.title }}</strong>
-      {% endif %}
+      <strong class="display-title-name">
+        {%- if display.recipe_id -%}
+          <a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a>
+        {%- else -%}
+          {{ display.title }}
+        {%- endif -%}
+      </strong>
       {% set src = source_name(display.url) %}
       {% if src %}
-        <span class="muted">from
+        <span class="display-source">from
           {% if display.url.startswith("http") -%}
             <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
           {%- else -%}
@@ -45,7 +48,7 @@
         </span>
       {% endif %}
       {% if display.total_pages > 1 %}
-        <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
+        <span class="display-page">— page {{ display.page }} of {{ display.total_pages }}</span>
       {% endif %}
     </p>
   {% else %}
@@ -142,7 +145,7 @@
     <strong class="num">{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
   </p>
   {% if backup_enabled %}
-    <p class="status-line muted">
+    <p class="status-line status-metric muted">
       Last backup:
       {% if last_backup_at %}
         {{ humanize_ago(last_backup_at) }}
@@ -167,9 +170,9 @@
     <p class="status-line">
       <strong class="num">{{ llm.calls }}</strong> call{{ '' if llm.calls == 1 else 's' }}
       <span class="muted">this month</span>
-      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
+      <span class="status-metric">({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
       —
-      <strong class="num">{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong>
+      <strong class="num">{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong></span>
     </p>
   {% endif %}
 </section>

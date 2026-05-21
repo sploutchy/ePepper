@@ -810,26 +810,63 @@ input[type=file]::file-selector-button {
   gap: 6px;
   flex-wrap: wrap;
 }
+/* Mono "data line" voice — applied to whole-line metrics (last backup
+   timestamp) or to a span wrapping a dense numeric breakdown inside an
+   otherwise sans status-line (LLM URL/OCR/translate split + CHF total).
+   Tabular-nums on a nested strong.num is preserved by the inherited
+   font-feature-settings. */
+.status-metric {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
 /* Display card's title row — Newsreader for the recipe name, the
-   "from X" suffix in UI sans, "page X of Y" in mono uppercase. Inline
-   flow so they all stay on one line until the title actually wraps. */
+   "from X" suffix in UI sans, "page X of Y" in mono uppercase. Flex
+   layout so the title truncates with an ellipsis if it would overflow
+   the card width; the source + page indicator never shrink. */
 .display-title {
   margin: 4px 0 2px;
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  gap: 6px;
+  overflow: hidden;
   font-family: var(--font-serif);
   font-weight: 600;
   font-size: 1.35em;
   letter-spacing: -0.02em;
   line-height: 1.2;
 }
-.display-title strong { font-weight: inherit; }
+.display-title-name {
+  min-width: 0;
+  flex: 0 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: inherit;
+}
 .display-title a { color: var(--fg); text-decoration: none; }
 .display-title a:hover { text-decoration: underline; text-underline-offset: 3px; }
-.display-title .muted {
+/* "from XYZ" — natural UI sans, kept readable next to the serif title. */
+.display-source {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  font-family: var(--font-ui);
+  font-weight: 400;
+  font-size: 0.65em;
+  letter-spacing: 0;
+  color: var(--muted);
+}
+.display-source a { color: var(--primary); }
+/* "— page X of Y" — mono uppercase, the data voice. flex-shrink: 0
+   keeps it visible even when the title gets ellipsised. */
+.display-page {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-family: var(--font-mono);
   font-size: 0.6em;
   letter-spacing: 0.14em;
   text-transform: uppercase;
-  margin-left: 4px;
+  color: var(--muted);
 }
 
 /* "Updated 7 min ago" and similar timestamps under a display-title.

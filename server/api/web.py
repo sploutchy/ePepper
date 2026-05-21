@@ -531,8 +531,11 @@ def _status_ctx(request: Request) -> dict:
         "fooby_preview": fooby_preview,
         "llm": llm,
         # _context_globals only fires on the full /status page render; the
-        # 30 s HTMX partial calls this directly, so include source_name
-        # here too so the Display card can keep rendering "from X".
+        # 30 s HTMX partial calls this directly, so re-include the bits the
+        # status partial needs (saved_count for the Library card, source_name
+        # for the "from X" chip on the Display card). Without these the
+        # partial silently renders blank values after the first refresh.
+        "saved_count": library.count_saved(),
         "source_name": source_name,
     }
 
