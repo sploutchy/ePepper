@@ -540,15 +540,12 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   .iconbtn-label { display: inline; }
 }
 
-/* Add page — URL field is the headliner (the common case); photo and
-   JSON-LD live in compact tiles below. */
-.add-row {
-  display: flex;
-  gap: 8px;
-  margin: 18px 0 20px;
-}
-.add-row input[type=url] {
+/* Add page — URL and Photo are equal-weight cards, stacked. The URL
+   input lives inside a .file-row so the input + submit button line up
+   the same way as the photo tile's file picker + button. */
+.add-tile input[type=url] {
   flex: 1;
+  min-width: 0;
   padding: 12px 14px;
   font-size: 1.05em;
   border: 1px solid var(--border);
@@ -556,12 +553,11 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   background: var(--card-bg);
   color: var(--fg);
 }
-.add-row input[type=url]:focus {
+.add-tile input[type=url]:focus {
   outline: 2px solid var(--primary-soft);
   outline-offset: 1px;
   border-color: var(--primary);
 }
-.add-row.htmx-request button { opacity: 0.55; cursor: progress; }
 
 /* Submit button with only an icon — square-ish so it pairs visually with
    the tall URL input / file row instead of growing on default padding. */
@@ -641,6 +637,11 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   flex-direction: column;
   gap: 10px;
   box-shadow: var(--shadow, 0 1px 2px rgba(0,0,0,0.04));
+}
+.add-tile + .add-tile {
+  /* Breathing room between the URL and Photo cards so they don't fuse
+     into a single rectangle when the page is narrow. */
+  margin-top: 14px;
 }
 .add-tile h2 {
   margin: 0;

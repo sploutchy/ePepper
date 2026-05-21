@@ -5,19 +5,29 @@
 {% block content %}
 <div id="add-result"></div>
 
-<form class="add-row"
+{# URL paste — fetched server-side, parsed via recipe-scrapers with an
+   LLM fallback for sites the scrapers don't know. Same card chrome as
+   the Photo tile below so both ingress paths read as equally weighted. #}
+<form class="add-tile"
       hx-post="/app/add/url"
       hx-target="#add-result"
       hx-swap="innerHTML"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <input type="url" name="url" required
-         placeholder="Paste a recipe URL…"
-         autocomplete="off"
-         autofocus>
-  <button type="submit" class="primary icon-only" title="Fetch &amp; push" aria-label="Fetch and push">
-    {{ icon("arrow-right", 20) }}
-  </button>
+  <h2>{{ icon("link", 20) }} URL</h2>
+  <ul class="add-help muted">
+    <li>Paste a recipe link &rarr; parsed into the library.</li>
+  </ul>
+
+  <div class="file-row">
+    <input type="url" name="url" required
+           placeholder="https://…"
+           autocomplete="off"
+           autofocus>
+    <button type="submit" class="primary icon-only" title="Fetch" aria-label="Fetch">
+      {{ icon("arrow-right", 20) }}
+    </button>
+  </div>
 </form>
 
 {# Camera / photo upload — `capture="environment"` tells mobile browsers
