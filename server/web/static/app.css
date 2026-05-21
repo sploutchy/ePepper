@@ -670,7 +670,33 @@ input[type=file]::file-selector-button {
   margin-right: 10px;
   cursor: pointer;
 }
-.add-tile.htmx-request { opacity: 0.6; }
+/* In-flight dim is applied to the form's inputs / button only (not the
+   tile itself), so the progress strip below stays at full readable
+   opacity. CSS `opacity` on the parent would multiply into the child
+   and can't be cancelled — hence the per-element approach. */
+.add-tile.htmx-request .file-row,
+.add-tile.htmx-request h2,
+.add-tile.htmx-request .add-help { opacity: 0.55; }
+
+/* Progress strip — hidden by default, revealed while htmx has a
+   request in flight. Stays full-opacity so the spinner + message read
+   as the foreground state, not part of the disabled chrome. */
+.add-progress {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9em;
+  color: var(--fg);
+}
+.add-tile.htmx-request .add-progress { display: flex; }
+
+.spinning {
+  display: inline-flex;
+  animation: ePepper-spin 1s linear infinite;
+}
+@keyframes ePepper-spin {
+  to { transform: rotate(360deg); }
+}
 .add-help {
   margin: 0;
   padding: 0;

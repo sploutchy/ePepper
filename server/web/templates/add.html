@@ -28,6 +28,15 @@
       {{ icon("arrow-right", 20) }}
     </button>
   </div>
+
+  {# Progress strip — revealed by the parent tile's `htmx-request` class
+     while the form is in flight. The URL path falls through to an LLM
+     call on unsupported sites, which can take 20s+; the spinner +
+     message makes it obvious we're working, not frozen. #}
+  <div class="add-progress" aria-live="polite">
+    <span class="spinning">{{ icon("loader", 16) }}</span>
+    <span>Fetching recipe… can take a moment if the site is unusual.</span>
+  </div>
 </form>
 
 {# Camera / photo upload — `capture="environment"` tells mobile browsers
@@ -58,6 +67,11 @@
       {{ icon("camera", 18) }}
       <span class="file-input-name muted">Tap to open camera</span>
     </label>
+  </div>
+
+  <div class="add-progress" aria-live="polite">
+    <span class="spinning">{{ icon("loader", 16) }}</span>
+    <span>Reading the recipe…</span>
   </div>
 </form>
 
