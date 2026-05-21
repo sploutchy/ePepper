@@ -12,12 +12,18 @@
       <img src="/app/static/pepper.svg" alt="" class="pepper">
       ePepper
     </h1>
-    <p class="muted">Paste your <code>API_KEY</code> to unlock the library.</p>
-    {% if error %}<p class="error">Wrong key.</p>{% endif %}
+    <p class="muted">Enter your access code to unlock the recipe library.</p>
+    {% if error %}<p class="error">That code doesn't match — try again.</p>{% endif %}
     <form action="/app/login" method="post">
-      <input type="password" name="api_key" autofocus required placeholder="API_KEY">
+      <input type="password" name="api_key" autofocus required
+             placeholder="Access code"
+             autocomplete="current-password">
       <button type="submit">Sign in</button>
     </form>
+    <p class="login-hint muted">
+      Your access code is the <code>API_KEY</code> set on the server.
+      Sessions stay signed in for 30 days.
+    </p>
   </main>
 </body>
 </html>

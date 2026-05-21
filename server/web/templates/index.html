@@ -2,8 +2,8 @@
 {% block title %}ePepper · Library{% endblock %}
 
 {% block content %}
-{# One form holds the search input + sort + source filters. HTMX fires on
-   text input (debounced) and select changes, including all named fields
+{# One form holds the search input + sort + source + tag filters. HTMX fires
+   on text input (debounced) and select changes, including all named fields
    so any control's change replays the full query. #}
 <form class="list-controls"
       hx-get="/app/_search"
@@ -24,6 +24,16 @@
       <option value="" {% if not source %}selected{% endif %}>All sources</option>
       {% for s in sources %}
         <option value="{{ s }}" {% if source == s %}selected{% endif %}>{{ s|capitalize }}</option>
+      {% endfor %}
+    </select>
+  {% endif %}
+  {% if tags %}
+    {# Tag dropdown — values come from `#hashtags` users dropped inside notes.
+       Counts hint at how big each subset is. #}
+    <select name="tag" class="list-select" aria-label="Tag">
+      <option value="" {% if not tag %}selected{% endif %}>All tags</option>
+      {% for t, n in tags %}
+        <option value="{{ t }}" {% if tag == t %}selected{% endif %}>#{{ t }} ({{ n }})</option>
       {% endfor %}
     </select>
   {% endif %}
