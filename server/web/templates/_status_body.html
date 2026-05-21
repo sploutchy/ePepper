@@ -25,21 +25,18 @@
 <section class="status-card">
   <h2>{{ icon("monitor", 18) }} Display</h2>
   {% if display.type == "recipe" %}
-    {# Title · from Source — page X of Y, all on one line. Flex layout
-       so the title truncates with an ellipsis when it overflows; source
-       and page indicator never shrink (the most actionable bits stay
-       readable even on a narrow phone). #}
+    {# Title · from Source · — page X of Y, all on one line. Inline flow
+       (not flex) so the page indicator stays beside the title until the
+       text actually overflows. #}
     <p class="display-title">
-      <strong class="display-title-name">
-        {%- if display.recipe_id -%}
-          <a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a>
-        {%- else -%}
-          {{ display.title }}
-        {%- endif -%}
-      </strong>
+      {% if display.recipe_id %}
+        <strong><a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a></strong>
+      {% else %}
+        <strong>{{ display.title }}</strong>
+      {% endif %}
       {% set src = source_name(display.url) %}
       {% if src %}
-        <span class="display-source">from
+        <span class="muted">from
           {% if display.url.startswith("http") -%}
             <a href="{{ display.url }}" target="_blank" rel="noopener">{{ src }}</a>
           {%- else -%}
@@ -48,7 +45,7 @@
         </span>
       {% endif %}
       {% if display.total_pages > 1 %}
-        <span class="display-page">— page {{ display.page }} of {{ display.total_pages }}</span>
+        <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
       {% endif %}
     </p>
   {% else %}
@@ -58,7 +55,7 @@
      been touched. Suppress only at first start (updated_at == 0), when
      the em-dash placeholder would render as bare "Updated —". #}
   {% if display.updated_at %}
-    <p class="updated-line">Updated {{ fmt_updated }}</p>
+    <p class="muted">Updated {{ fmt_updated }}</p>
   {% endif %}
 
   {% if display.type == "recipe" and display.total_pages > 1 %}
@@ -142,10 +139,10 @@
 <section class="status-card">
   <h2>{{ icon("book", 18) }} Library</h2>
   <p class="status-line">
-    <strong class="num">{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
+    <strong>{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
   </p>
   {% if backup_enabled %}
-    <p class="status-line status-metric muted">
+    <p class="status-line muted">
       Last backup:
       {% if last_backup_at %}
         {{ humanize_ago(last_backup_at) }}
@@ -168,11 +165,11 @@
     <p class="status-line muted">No calls this month yet.</p>
   {% else %}
     <p class="status-line">
-      <strong class="num">{{ llm.calls }}</strong> call{{ '' if llm.calls == 1 else 's' }}
+      <strong>{{ llm.calls }}</strong> call{{ '' if llm.calls == 1 else 's' }}
       <span class="muted">this month</span>
-      <span class="status-metric">({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
+      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
       —
-      <strong class="num">{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong></span>
+      <strong>{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong>
     </p>
   {% endif %}
 </section>
@@ -188,27 +185,27 @@
     {% if device.battery_mv %}
       <p class="status-line">
         <span class="status-icon">{{ icon("battery-low" if is_low_battery else "battery", 18) }}</span>
-        Battery: <strong class="num">{{ battery_pct }}%</strong>
+        Battery: <strong>{{ battery_pct }}%</strong>
         <span class="muted">({{ '%.2f' % (device.battery_mv / 1000) }} V)</span>
       </p>
     {% endif %}
     {% if device.rssi %}
       <p class="status-line">
         <span class="status-icon">{{ icon("wifi", 18) }}</span>
-        Signal: <strong class="num">{{ device.rssi }} dBm</strong>
+        Signal: <strong>{{ device.rssi }} dBm</strong>
         <span class="muted">({{ rssi_quality(device.rssi) }})</span>
       </p>
     {% endif %}
     {% if device.temperature_c is not none %}
       <p class="status-line">
         <span class="status-icon">{{ icon("thermometer", 18) }}</span>
-        Temp: <strong class="num">{{ '%.1f' % device.temperature_c }} °C</strong>
+        Temp: <strong>{{ '%.1f' % device.temperature_c }} °C</strong>
       </p>
     {% endif %}
     {% if device.humidity_pct is not none %}
       <p class="status-line">
         <span class="status-icon">{{ icon("droplet", 18) }}</span>
-        Humidity: <strong class="num">{{ '%.0f' % device.humidity_pct }} %</strong>
+        Humidity: <strong>{{ '%.0f' % device.humidity_pct }} %</strong>
       </p>
     {% endif %}
   {% else %}
