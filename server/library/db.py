@@ -649,16 +649,27 @@ def list_recipes(
     return [_row_to_dict(r) for r in rows]
 
 
-def random_recipe() -> dict | None:
+def random_recipe(exclude_id: int | None = None) -> dict | None:
     """Return one randomly-picked saved, non-deleted recipe, or None if
-    the library is empty. Used by the bot's /surprise command."""
+    the library is empty. Used by the bot's /surprise command.
+
+    `exclude_id`, when set, skips that row — used by the "Another" button
+    so a re-roll doesn't get blocked at the same pick. Falls through to
+    None when the library has only that one recipe.
+    """
+    sql = (
+        "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, "
+        "displayed_count, created_at "
+        "FROM recipes "
+        "WHERE saved_at IS NOT NULL AND deleted_at IS NULL "
+    )
+    params: tuple = ()
+    if exclude_id is not None:
+        sql += "AND id != ? "
+        params = (exclude_id,)
+    sql += "ORDER BY RANDOM() LIMIT 1"
     with _connect() as conn:
-        row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at "
-            "FROM recipes "
-            "WHERE saved_at IS NOT NULL AND deleted_at IS NULL "
-            "ORDER BY RANDOM() LIMIT 1"
-        ).fetchone()
+        row = conn.execute(sql, params).fetchone()
     return _row_to_dict(row) if row else None
 
 
@@ -680,13 +691,15 @@ def list_sources() -> list[str]:
 _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
-def search(query: str, limit: int = 5) -> list[dict]:
+def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
     """Full-text search over saved recipes (title + ingredients + comments).
 
     Only returns recipes the user explicitly saved (saved_at set). Most
     relevant first. The query is tokenized into quoted phrases so FTS5
-    operators in user
-    input (AND/OR/NOT/quotes) can't break the parser.
+    operators in user input (AND/OR/NOT/quotes) can't break the parser.
+
+    `offset` drives bot-side pagination — callers ask for `limit + 1` to
+    detect a "more available" tail without a second COUNT query.
     """
     tokens = _FTS_TOKEN_RE.findall(query)
     if not tokens:
@@ -703,9 +716,9 @@ def search(query: str, limit: int = 5) -> list[dict]:
               AND r.saved_at IS NOT NULL
               AND r.deleted_at IS NULL
             ORDER BY rank
-            LIMIT ?
+            LIMIT ? OFFSET ?
             """,
-            (fts_query, limit),
+            (fts_query, limit, offset),
         ).fetchall()
     return [_row_to_dict(r) for r in rows]
 
