@@ -25,7 +25,6 @@ _BTN_PREV_X = 450
 _BTN_NEXT_X = 490
 _BTN_REFRESH_X = 545
 _GLYPH_W = 10
-_GLYPH_H = 10
 
 _GLYPH_PREV = (
     "....#.....",
