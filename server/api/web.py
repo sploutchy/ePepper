@@ -21,9 +21,8 @@ import library
 from library.db import SESSION_DURATION_S
 from config import API_KEY, TZ
 from display_push import push_recipe_to_display
-from processing.images import process_photo
 from processing.jsonld import parse_recipe_jsonld, resolve_url
-from processing.recipes import process_recipe_url
+from processing.recipes import process_recipe_image, process_recipe_url
 from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
@@ -384,12 +383,12 @@ async def add_url(request: Request, url: str = Form(...)):
 
 @router.post("/add/file", response_class=HTMLResponse)
 async def add_file(request: Request, file: UploadFile = File(...)):
-    """Single upload endpoint — dispatches by content type / extension.
+    """Single upload endpoint — OCR a recipe photo into the library.
 
-    Images go through process_photo (resize + dither → display-only,
-    not saved). JSON files go through parse_recipe_jsonld (upserted
-    into the library, same dedup-by-URL behaviour as the URL ingest
-    path).
+    Mirrors the URL-add path: the photo is OCR'd via the configured LLM,
+    saved to the library, and the user lands on the recipe detail page.
+    The panel is not touched — Display on the detail page is the
+    explicit "push to panel" action.
     """
     _require_auth(request)
     ct = (file.content_type or "").lower()
@@ -397,13 +396,10 @@ async def add_file(request: Request, file: UploadFile = File(...)):
     is_image = ct.startswith("image/") or name.endswith(
         (".jpg", ".jpeg", ".png", ".webp", ".heic", ".heif", ".bmp", ".gif")
     )
-    is_json = ct in ("application/json", "application/ld+json") or name.endswith(".json")
 
     if is_image:
         return await _add_photo_bytes(request, file)
-    if is_json:
-        return await _add_jsonld_bytes(request, file)
-    return _add_error(request, "Pick an image or a `.json` file.")
+    return _add_error(request, "Pick an image file (JPG, PNG, WebP, HEIC).")
 
 
 async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
@@ -413,14 +409,26 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
             request,
             f"Image too large (limit {_PHOTO_MAX_BYTES // 1024} KB).",
         )
-    try:
-        img = process_photo(raw)
-    except Exception:
-        log.exception("Web photo processing failed")
-        return _add_error(request, "Couldn't read that image.")
-    display_state.set_image(img, content_type="photo")
-    log.info("Web add (photo): %d bytes", len(raw))
-    return _hx_redirect("/app/status?pushed=image")
+    log.info("Web add (photo OCR): %d bytes", len(raw))
+    result = await process_recipe_image(raw)
+    if result is None:
+        return _add_error(
+            request,
+            "Couldn't read a recipe from that photo — check focus, framing, "
+            "and that the OCR model is configured on the server.",
+        )
+    recipe, url = result
+    existing = library.find_by_url(url)
+    if existing is not None:
+        log.info("Web add (existing OCR): id=%d", existing["id"])
+        return _hx_redirect(f"/app/recipes/{existing['id']}")
+    recipe_id = library.upsert_recipe(url, recipe)
+    library.save_recipe(recipe_id)
+    log.info(
+        "Web add (photo OCR): id=%d title=%r url=%s",
+        recipe_id, recipe.get("title"), url,
+    )
+    return _hx_redirect(f"/app/recipes/{recipe_id}")
 
 
 async def _add_jsonld_bytes(request: Request, file: UploadFile) -> HTMLResponse:

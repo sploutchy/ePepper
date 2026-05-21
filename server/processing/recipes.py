@@ -17,7 +17,7 @@ import re
 from recipe_scrapers import scrape_html
 import aiohttp
 
-from config import LLM_TEXT_MODEL
+from config import LLM_TEXT_MODEL, LLM_VISION_MODEL
 from processing import llm
 from processing.safe_url import assert_url_safe
 
@@ -185,6 +185,88 @@ async def _try_llm(url: str, html: str) -> dict | None:
         log.warning("LLM output didn't validate for %s", url)
         return None
     return recipe
+
+
+async def process_recipe_image(image_bytes: bytes) -> tuple[dict, str] | None:
+    """OCR a recipe photo into ePepper's internal recipe dict.
+
+    Returns `(recipe, url)` where `url` is a `cookbook://<source>/<slug>`
+    surrogate built from the LLM's `source_name` (when readable, e.g.
+    the cookbook title visible on a cover/spine) and the recipe title.
+    Source-less photos collapse to `cookbook://cookbook/<slug>` and
+    further to a content hash via the existing `resolve_url` helper.
+
+    Returns None when the LLM is unconfigured, the call fails, or the
+    output doesn't satisfy the minimum recipe contract — same contract
+    the URL path uses, so the caller can surface a uniform error.
+    """
+    if not llm.is_enabled():
+        log.info("OCR skipped — LLM_API_URL / LLM_API_KEY unset")
+        return None
+
+    from processing.images import encode_for_ocr
+    from processing.jsonld import resolve_url
+    from processing.prompts import OCR_SYSTEM, OCR_USER
+
+    try:
+        jpeg = encode_for_ocr(image_bytes)
+    except Exception as e:
+        log.warning("OCR: image decode failed: %s", e)
+        return None
+    log.info("OCR: calling %s with %d byte JPEG", LLM_VISION_MODEL, len(jpeg))
+
+    try:
+        raw = await llm.complete_json(
+            model=LLM_VISION_MODEL,
+            system=OCR_SYSTEM,
+            user=OCR_USER,
+            image_jpeg=jpeg,
+        )
+    except llm.LLMError as e:
+        log.warning("OCR LLM call failed: %s", e)
+        return None
+
+    recipe = validate_llm_recipe(raw)
+    if recipe is None:
+        log.warning("OCR: LLM output didn't validate")
+        return None
+
+    source_name = ""
+    src = raw.get("source_name")
+    if isinstance(src, str):
+        source_name = src.strip()
+
+    url = _ocr_url(source_name, recipe["title"])
+    url = resolve_url(url, recipe)  # collapses to content hash if empty
+    log.info("OCR: recipe %r url=%s source=%r", recipe["title"], url, source_name)
+    return recipe, url
+
+
+_SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")
+
+
+def _slug(text: str) -> str:
+    """ASCII kebab-case slug; empty if `text` carries no ASCII letters/digits."""
+    import unicodedata
+
+    norm = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
+    norm = norm.lower()
+    return _SLUG_KEEP_RE.sub("-", norm).strip("-")
+
+
+def _ocr_url(source_name: str, title: str) -> str:
+    """Build the `cookbook://<source>/<title>` surrogate URL for an OCR recipe.
+
+    Falls back to `cookbook://cookbook/<title>` when no source was read,
+    and to bare `cookbook://` when the title slugifies to nothing — at
+    which point `resolve_url` swaps in a content hash so the library's
+    UNIQUE(url) still dedupes.
+    """
+    src_slug = _slug(source_name) or "cookbook"
+    title_slug = _slug(title)
+    if not title_slug:
+        return "cookbook://"
+    return f"cookbook://{src_slug}/{title_slug}"
 
 
 def validate_llm_recipe(raw: dict) -> dict | None:

@@ -1,37 +1,53 @@
-"""Image processing: resize and dither photos for e-ink display."""
+"""Image preprocessing for the OCR (image → recipe) LLM path.
+
+Goals:
+- Bound the vision-token budget (a 4000 px-wide cookbook scan would be
+  tiled into many image tokens; downscaling to 1600 px keeps cost
+  predictable without losing legibility of recipe text).
+- Strip EXIF (and apply EXIF orientation) so the model sees a properly
+  rotated image and we don't leak GPS metadata to the API.
+- Normalise to JPEG bytes; OpenAI-compatible vision endpoints accept
+  base64 data URLs of common formats but JPEG is the safe lowest
+  common denominator.
+"""
 
 from io import BytesIO
 
-from PIL import Image
+from PIL import Image, ImageOps
 
-from config import DISPLAY_WIDTH, RECIPE_HEIGHT
+# Long-edge ceiling for the image we send to the LLM. 1600 px keeps a
+# typical cookbook scan readable while limiting vision-token usage on
+# providers that tile (most do, with ~512 px tiles).
+_MAX_LONG_EDGE = 1600
+
+# JPEG quality knob — 85 is the usual sweet spot for photographic content.
+_JPEG_QUALITY = 85
 
 
-def process_photo(image_bytes: bytes) -> Image.Image:
-    """Resize and dither an image for the e-ink display.
+def encode_for_ocr(image_bytes: bytes) -> bytes:
+    """Normalise an arbitrary upload into a compact JPEG suitable for OCR.
 
-    Returns a 1-bit BMP-ready image sized to the full display (800x480).
+    Accepts whatever Pillow can open (JPEG / PNG / WebP / HEIC if the
+    Pillow build has the plugin). Applies EXIF orientation, drops the
+    rest of the metadata, downscales the long edge to `_MAX_LONG_EDGE`,
+    and re-encodes as a quality-85 JPEG.
     """
     img = Image.open(BytesIO(image_bytes))
-    img = img.convert("RGB")
+    img = ImageOps.exif_transpose(img)
+    if img.mode not in ("RGB", "L"):
+        img = img.convert("RGB")
 
-    # Resize to fit display, maintaining aspect ratio
-    img = _resize_to_fit(img, DISPLAY_WIDTH, RECIPE_HEIGHT)
+    img = _shrink_to_long_edge(img, _MAX_LONG_EDGE)
 
-    # Center on white canvas
-    canvas = Image.new("RGB", (DISPLAY_WIDTH, RECIPE_HEIGHT), (255, 255, 255))
-    x = (DISPLAY_WIDTH - img.width) // 2
-    y = (RECIPE_HEIGHT - img.height) // 2
-    canvas.paste(img, (x, y))
-
-    # Convert to 1-bit with Floyd-Steinberg dithering
-    return canvas.convert("1")
+    out = BytesIO()
+    img.save(out, format="JPEG", quality=_JPEG_QUALITY, optimize=True)
+    return out.getvalue()
 
 
-def _resize_to_fit(img: Image.Image, max_w: int, max_h: int) -> Image.Image:
-    """Resize image to fit within max dimensions, keeping aspect ratio."""
-    ratio = min(max_w / img.width, max_h / img.height)
-    if ratio >= 1:
+def _shrink_to_long_edge(img: Image.Image, max_edge: int) -> Image.Image:
+    long_edge = max(img.width, img.height)
+    if long_edge <= max_edge:
         return img
+    ratio = max_edge / long_edge
     new_size = (int(img.width * ratio), int(img.height * ratio))
     return img.resize(new_size, Image.Resampling.LANCZOS)

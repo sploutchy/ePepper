@@ -23,9 +23,8 @@ import backup
 import display_state
 import library
 from display_push import push_recipe_to_display
-from processing.images import process_photo
 from processing.jsonld import parse_recipe_jsonld, resolve_url
-from processing.recipes import process_recipe_url
+from processing.recipes import process_recipe_image, process_recipe_url
 from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 # Hard cap on uploaded JSON size. Schema.org Recipe payloads are typically
@@ -1016,32 +1015,39 @@ async def on_push_button(update: Update, context) -> None:
 
 
 async def on_photo(update: Update, context) -> None:
-    """Handle photo messages — resize and send to display."""
+    """Handle photo messages — OCR via LLM, then push the recipe to the display.
+
+    Falls through to `_present_recipe` so the result lands in exactly the
+    same Save-button flow as a pasted URL.
+    """
     if not _is_allowed(update.effective_user.id):
         return
 
     log.info("Photo received from user %s", update.effective_user.id)
-    msg = await update.message.reply_text("📸 Processing image...")
+    msg = await update.message.reply_text("📸 Reading recipe…")
 
     try:
         photo = update.message.photo[-1]
         file = await photo.get_file()
         image_bytes = await file.download_as_bytearray()
-
-        img = process_photo(bytes(image_bytes))
-        display_state.set_image(img, content_type="photo")
     except Exception:
-        # process_photo can raise on HEIC / corrupt JPEG / other Pillow
-        # weirdness; without this the "Processing image..." sticks forever.
-        log.exception("Photo processing failed")
+        log.exception("Photo download failed")
+        await msg.edit_text("❌ Couldn't download the photo. Try again.")
+        return
+
+    result = await process_recipe_image(bytes(image_bytes))
+    if result is None:
         await msg.edit_text(
-            "❌ Couldn't process the photo.\n"
-            "Try /prompt_screenshot — paste the prompt into an LLM with the "
-            "photo, then send me the recipe.json it produces."
+            "❌ Couldn't read a recipe from that photo.\n"
+            "Make sure the photo is in focus, the recipe text is fully "
+            "visible, and (if you sent a screenshot) that the OCR model "
+            "is configured on the server."
         )
         return
 
-    await msg.edit_text("✅ Photo sent to display!")
+    recipe, url = result
+    log.info("Photo OCR ingested: title=%r url=%s", recipe.get("title"), url)
+    await _present_recipe(url, recipe, msg)
 
 
 async def on_text(update: Update, context) -> None:
