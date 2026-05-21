@@ -25,16 +25,55 @@ def battery_pct(mv: int) -> int:
     return 0
 
 
-def humanize_ago(ts: int) -> str:
+def humanize_date(ts: int | None) -> str:
+    """Relative-time phrase for a past Unix timestamp.
+
+    Returns "just now", "5 min ago", "3 h ago", "yesterday", "4 days ago",
+    "last week", "2 weeks ago", "last month", "5 months ago", "last year",
+    or "3 years ago". No clock annotation — for that variant see
+    `humanize_ago`.
+
+    None / 0 / negative deltas (clock skew) fold to a safe placeholder so
+    callers don't have to pre-check.
+    """
+    if not ts:
+        return "—"
     delta = max(0, int(time.time()) - ts)
-    abs_time = datetime.fromtimestamp(ts).strftime("%H:%M")
     if delta < 60:
-        return f"just now ({abs_time})"
+        return "just now"
     if delta < 3600:
-        return f"{delta // 60} min ago ({abs_time})"
+        return f"{delta // 60} min ago"
     if delta < 86400:
-        return f"{delta // 3600} h ago ({abs_time})"
-    return datetime.fromtimestamp(ts).strftime("%Y-%m-%d %H:%M")
+        return f"{delta // 3600} h ago"
+    days = delta // 86400
+    if days == 1:
+        return "yesterday"
+    if days < 7:
+        return f"{days} days ago"
+    if days < 14:
+        return "last week"
+    if days < 30:
+        return f"{days // 7} weeks ago"
+    if days < 60:
+        return "last month"
+    if days < 365:
+        return f"{days // 30} months ago"
+    if days < 730:
+        return "last year"
+    return f"{days // 365} years ago"
+
+
+def humanize_ago(ts: int) -> str:
+    """Like `humanize_date`, but appends a same-day clock annotation
+    "(HH:MM)" for timestamps inside the last 24 h. Used on the status
+    page where "Last seen 7 min ago (14:23)" is more actionable than
+    just "7 min ago". Older timestamps render bare so a stale device
+    reads as "3 days ago" rather than a wall-clock date.
+    """
+    phrase = humanize_date(ts)
+    if ts and max(0, int(time.time()) - ts) < 86400:
+        return f"{phrase} ({datetime.fromtimestamp(ts).strftime('%H:%M')})"
+    return phrase
 
 
 def rssi_quality(rssi: int) -> str:

@@ -14,7 +14,7 @@
     <h1 class="brand">
       <span class="e">e</span>Pepper
     </h1>
-    <p class="muted">Enter your access code to unlock the recipe library.</p>
+    <p class="tagline">Kitchen recipe display</p>
     {% if error %}<p class="error">That code doesn't match — try again.</p>{% endif %}
     <form action="/app/login" method="post">
       <input type="password" name="api_key" autofocus required

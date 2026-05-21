@@ -235,6 +235,20 @@ strong.num { font-variant-numeric: tabular-nums; }
   font-size: 0.85em;
   line-height: 1.4;
 }
+/* Subtitle that sits just below the wordmark on the login screen.
+   Mono + slight tracking gives a quiet "device label" feel — matches
+   the meta-line voice without the all-caps shout. */
+.tagline {
+  margin: 4px 0 0;
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+}
+/* Stretched submit button (the login form is a grid) needs explicit
+   horizontal centring so "Sign in" sits in the middle, not at the
+   start of the now-full-width button. */
+.login form button { justify-content: center; }
 
 /* Inputs */
 input[type=search], input[type=password], textarea {
@@ -385,6 +399,15 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   align-items: center;
   margin-top: 4px;
 }
+/* "cooked N×, last <when>" / "never cooked" — same mono uppercase
+   voice as the recipe header's .meta-line, scoped here so the
+   card-meta flex row owns its own spacing. */
+.card-meta .muted {
+  font-family: var(--font-mono);
+  font-size: 0.78em;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
 .loader, .more {
   text-align: center;
   padding: 14px;
@@ -428,6 +451,14 @@ button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
   font-family: var(--font-serif);
   font-weight: 600;
   letter-spacing: -0.02em;
+}
+/* "from XYZ" sits on its own line under the title in natural UI sans —
+   reads as a readable sub-credit, separate from the mono uppercase
+   meta-line (saved · cooked) that follows. */
+.recipe-source {
+  margin: 0 0 6px;
+  color: var(--muted);
+  font-size: 0.95em;
 }
 .recipe h2 {
   margin: 24px 0 8px;

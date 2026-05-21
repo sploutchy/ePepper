@@ -26,7 +26,7 @@ from processing.recipes import (
     process_recipe_url,
     translate_for_search,
 )
-from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
+from status_helpers import battery_pct, humanize_ago, humanize_date, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
@@ -84,9 +84,7 @@ def _require_auth(request: Request) -> None:
 
 
 def _fmt_saved(ts: int | None) -> str:
-    if not ts:
-        return "—"
-    return datetime.fromtimestamp(ts).strftime("%d.%m.%Y")
+    return humanize_date(ts)
 
 
 def _ingredients(recipe: dict) -> list[str]:
@@ -524,10 +522,7 @@ def _status_ctx(request: Request) -> dict:
         "is_overdue": is_overdue,
         "humanize_ago": humanize_ago,
         "rssi_quality": rssi_quality,
-        "fmt_updated": (
-            datetime.fromtimestamp(display["updated_at"]).strftime("%Y-%m-%d %H:%M")
-            if display.get("updated_at") else "—"
-        ),
+        "fmt_updated": humanize_date(display.get("updated_at")),
         "backup_enabled": backup.is_enabled(),
         "last_backup_at": backup.get_last_backup_at(),
         "next_anniversary": next_anniv,

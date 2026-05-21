@@ -7,17 +7,18 @@
 
 <article class="recipe">
   <h1>{{ r.title }}</h1>
-  <p class="meta-line">
-    {% set src = source_name(r.url) %}
-    {% if src %}
+  {% set src = source_name(r.url) %}
+  {% if src %}
+    <p class="recipe-source">
       from
       {% if r.url.startswith("http") -%}
         <a href="{{ r.url }}" target="_blank" rel="noopener">{{ src }}</a>
       {%- else -%}
         {{ src }}
       {%- endif %}
-      ·
-    {% endif %}
+    </p>
+  {% endif %}
+  <p class="meta-line">
     saved {{ fmt_saved(r.saved_at) }}
     · {% if r.last_displayed_at -%}
         {%- if r.displayed_count and r.displayed_count > 1 -%}

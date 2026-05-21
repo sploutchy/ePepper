@@ -36,7 +36,7 @@ from processing.recipes import (
     process_recipe_url,
     translate_for_search,
 )
-from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
+from status_helpers import battery_pct, humanize_ago, humanize_date, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
@@ -514,11 +514,13 @@ async def cmd_comment(update: Update, context) -> None:
 
 
 def _cooked_label(row: dict) -> str:
-    """Match the 'cooked N×, last DD.MM.YYYY' / 'never cooked' phrasing
-    used across the web library cards so the bot's search results, surprise
-    card, and status all describe the same recipe the same way."""
+    """Match the 'cooked N×, last <when>' / 'never cooked' phrasing used
+    across the web library cards so the bot's search results, surprise
+    card, and status all describe the same recipe the same way. `<when>`
+    is the same humanised phrase (`2 days ago`, `last week`, …) the web
+    cards render via `humanize_date`."""
     if row.get("last_displayed_at"):
-        last = datetime.fromtimestamp(row["last_displayed_at"]).strftime("%d.%m.%Y")
+        last = humanize_date(row["last_displayed_at"])
         count = row.get("displayed_count") or 0
         return f"cooked {count}×, last {last}" if count > 1 else f"cooked {last}"
     return "never cooked"
