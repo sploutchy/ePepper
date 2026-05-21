@@ -77,3 +77,51 @@ def url_user(url: str, cleaned_text: str) -> str:
 
 
 OCR_USER = "Extract the recipe from this image."
+
+
+# Translation prompt — fed to LLM_TRANSLATE_MODEL (default gemma3n). Job
+# is to produce noun-form ingredient names + the recipe title in French
+# and German, for indexing into FTS so a user can search a German recipe
+# in French and vice versa. Output is intentionally compact (~120 output
+# tokens for a typical recipe) so per-recipe cost is well under one
+# centime.
+TRANSLATE_SYSTEM = """You generate search keywords for a recipe library.
+
+The user gives you a recipe's title and ingredient list in its native
+language. You return the same content as NOUN-FORM search keywords in
+French and German, suitable for indexing into a full-text search.
+
+Output schema:
+{
+  "fr": ["<title in French>", "<ingredient noun in French>", ...],
+  "de": ["<title in German>", "<ingredient noun in German>", ...]
+}
+
+Rules:
+- Output ONLY the JSON object — no prose, no markdown fences.
+- The first entry of each list is the recipe title translated.
+- Subsequent entries are ingredient nouns. Drop quantities and units
+  (e.g. "200 g Mehl" → "Mehl" / "farine"). Drop preparation modifiers
+  ("hachée fine", "fein gehackt").
+- One ingredient → one keyword. If the source ingredient string lists
+  several, split them (e.g. "salt and pepper" → "salt", "pepper" in EN
+  terms, then translate each).
+- Use Swiss orthography in German (Strasse, weiss — no ß).
+- If the native language is French, still produce both lists (the
+  French list lets you index synonyms / standard cooking nouns even
+  when the original ingredients were colloquial). Same the other way.
+- Skip non-translatable items (brand names, "à volonté", etc.)."""
+
+
+def translate_user(title: str, ingredients: list[str], native_lang: str) -> str:
+    """User message for the translation pass.
+
+    Lang is informational only — the LLM should detect it from the text,
+    but passing it explicitly helps small models stay on track.
+    """
+    joined = "\n".join(f"- {ing}" for ing in ingredients)
+    return (
+        f"Native language: {native_lang}\n"
+        f"Title: {title}\n"
+        f"Ingredients:\n{joined}"
+    )

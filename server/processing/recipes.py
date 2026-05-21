@@ -17,7 +17,7 @@ import re
 from recipe_scrapers import scrape_html
 import aiohttp
 
-from config import LLM_TEXT_MODEL, LLM_VISION_MODEL
+from config import LLM_TEXT_MODEL, LLM_TRANSLATE_MODEL, LLM_VISION_MODEL
 from processing import llm
 from processing.safe_url import assert_url_safe
 
@@ -360,6 +360,59 @@ def _swissify(recipe: dict) -> dict:
     for step in recipe["instructions"]:
         step["text"] = step["text"].replace("ß", "ss")
     return recipe
+
+
+async def translate_for_search(recipe: dict) -> str | None:
+    """Return a flat FR/DE keyword blob for indexing into FTS, or None.
+
+    Calls the (cheaper) LLM_TRANSLATE_MODEL with the recipe's title and
+    ingredient list and asks for noun-form keywords in French + German.
+    The result is space-joined into a single string ready to drop into
+    `recipes.translated_keywords` and `recipes_fts.translated`.
+
+    Returns None when the LLM is unconfigured, when the call fails, or
+    when the output doesn't validate. Translation is decorative — a
+    None return means the recipe still saves, just without bilingual
+    search coverage (the backfill loop retries on startup).
+    """
+    if not llm.is_enabled():
+        return None
+
+    title = (recipe.get("title") or "").strip()
+    ingredients = recipe.get("ingredients") or []
+    if not title and not ingredients:
+        return None
+    native_lang = recipe.get("lang") or "en"
+
+    from processing.prompts import TRANSLATE_SYSTEM, translate_user
+
+    try:
+        raw = await llm.complete_json(
+            kind="translate",
+            model=LLM_TRANSLATE_MODEL,
+            system=TRANSLATE_SYSTEM,
+            user=translate_user(title, ingredients, native_lang),
+            # Keywords are short — a tight cap saves runaway-output cost
+            # if the model decides to monologue.
+            max_tokens=512,
+        )
+    except llm.LLMError as e:
+        log.info("Translation failed for %r: %s", title, e)
+        return None
+
+    keywords: list[str] = []
+    for code in ("fr", "de"):
+        val = raw.get(code)
+        if isinstance(val, list):
+            for item in val:
+                if isinstance(item, str) and item.strip():
+                    keywords.append(item.strip())
+    if not keywords:
+        log.info("Translation produced no keywords for %r", title)
+        return None
+    blob = " ".join(keywords).replace("ß", "ss")
+    log.info("Translation keywords for %r (%d terms)", title, len(keywords))
+    return blob
 
 
 def _str_or_empty(v) -> str:

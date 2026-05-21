@@ -31,7 +31,11 @@ import backup
 import display_state
 import library
 from display_push import push_recipe_to_display
-from processing.recipes import process_recipe_image, process_recipe_url
+from processing.recipes import (
+    process_recipe_image,
+    process_recipe_url,
+    translate_for_search,
+)
 from status_helpers import battery_pct, humanize_ago, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
@@ -1021,7 +1025,8 @@ async def on_save_button(update: Update, context) -> None:
         return
 
     url, recipe = pending
-    recipe_id = library.upsert_recipe(url, recipe)
+    translated = await translate_for_search(recipe)
+    recipe_id = library.upsert_recipe(url, recipe, translated_keywords=translated)
     library.save_recipe(recipe_id)
     log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
 
@@ -1067,7 +1072,8 @@ async def on_save_note_button(update: Update, context) -> None:
         return
 
     url, recipe = pending
-    recipe_id = library.upsert_recipe(url, recipe)
+    translated = await translate_for_search(recipe)
+    recipe_id = library.upsert_recipe(url, recipe, translated_keywords=translated)
     library.save_recipe(recipe_id)
     library.add_comment(recipe_id, note)
     log.info(

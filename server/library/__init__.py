@@ -22,6 +22,8 @@ from library.db import (
     create_session,
     validate_session,
     delete_session,
+    set_translated_keywords,
+    recipes_needing_translation,
 )
 from library.db import _connect as _db_connect
 from library import llm_calls as _llm_calls
@@ -73,4 +75,6 @@ __all__ = [
     "delete_session",
     "record_llm_call",
     "llm_month_stats",
+    "set_translated_keywords",
+    "recipes_needing_translation",
 ]

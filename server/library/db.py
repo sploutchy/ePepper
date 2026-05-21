@@ -77,9 +77,13 @@ CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
 -- FTS5 index for /search. rowid mirrors recipes.id so we can JOIN cheaply.
 -- We manage inserts/updates/deletes manually rather than via triggers
--- because ingredients and notes are derived (JSON / aggregated comments).
+-- because ingredients, notes, and translated keywords are derived
+-- (JSON / aggregated comments / LLM output).
+-- `translated` carries LLM-produced FR/DE keywords so a recipe stored
+-- in one language is searchable from the other (see processing.recipes
+-- :translate_for_search). Empty until the backfill catches it up.
 CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
-    title, ingredients, notes,
+    title, ingredients, notes, translated,
     tokenize='unicode61 remove_diacritics 2'
 );
 """
@@ -132,6 +136,7 @@ def init_db() -> None:
         _migrate_add_displayed_count(conn)
         _migrate_drop_rating(conn)
         _migrate_normalize_urls(conn)
+        _migrate_add_translated_keywords(conn)
         from library.llm_calls import migrate as _migrate_llm_calls
         _migrate_llm_calls(conn)
         _rebuild_fts(conn)
@@ -239,18 +244,28 @@ def _comments_text(conn: sqlite3.Connection, recipe_id: int) -> str:
     return "\n".join(r["body"] for r in rows)
 
 
-def _fts_upsert(conn: sqlite3.Connection, recipe_id: int, title: str, ingredients: str, notes: str) -> None:
+def _fts_upsert(
+    conn: sqlite3.Connection,
+    recipe_id: int,
+    title: str,
+    ingredients: str,
+    notes: str,
+    translated: str = "",
+) -> None:
     conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
     conn.execute(
-        "INSERT INTO recipes_fts (rowid, title, ingredients, notes) VALUES (?, ?, ?, ?)",
-        (recipe_id, title, ingredients, notes),
+        "INSERT INTO recipes_fts (rowid, title, ingredients, notes, translated) "
+        "VALUES (?, ?, ?, ?, ?)",
+        (recipe_id, title, ingredients, notes, translated),
     )
 
 
 def _rebuild_fts(conn: sqlite3.Connection) -> None:
     """Re-populate `recipes_fts` from `recipes` + `comments`. Idempotent."""
     conn.execute("DELETE FROM recipes_fts")
-    rows = conn.execute("SELECT id, title, parsed_json FROM recipes").fetchall()
+    rows = conn.execute(
+        "SELECT id, title, parsed_json, translated_keywords FROM recipes"
+    ).fetchall()
     for row in rows:
         _fts_upsert(
             conn,
@@ -258,6 +273,38 @@ def _rebuild_fts(conn: sqlite3.Connection) -> None:
             row["title"],
             _ingredients_text(row["parsed_json"]),
             _comments_text(conn, row["id"]),
+            row["translated_keywords"] or "",
+        )
+
+
+def _migrate_add_translated_keywords(conn: sqlite3.Connection) -> None:
+    """Add `recipes.translated_keywords` + the FTS `translated` column. Idempotent.
+
+    The recipes table gets a new column via ALTER TABLE — straightforward.
+    The FTS5 virtual table can't add columns via ALTER, so when the
+    existing schema lacks `translated` we drop + recreate it. The
+    `_rebuild_fts` call in `init_db` repopulates from `recipes` right
+    after, so no data is lost — only the FTS ranking history, which
+    isn't persistent state we care about.
+    """
+    cols = {r["name"] for r in conn.execute("PRAGMA table_info(recipes)").fetchall()}
+    if "translated_keywords" not in cols:
+        conn.execute("ALTER TABLE recipes ADD COLUMN translated_keywords TEXT")
+        log.info("Migration: added recipes.translated_keywords column")
+
+    fts_cols = {
+        r["name"] for r in conn.execute("PRAGMA table_info(recipes_fts)").fetchall()
+    }
+    if "translated" not in fts_cols:
+        conn.execute("DROP TABLE IF EXISTS recipes_fts")
+        conn.execute(
+            "CREATE VIRTUAL TABLE recipes_fts USING fts5("
+            "title, ingredients, notes, translated, "
+            "tokenize='unicode61 remove_diacritics 2')"
+        )
+        log.info(
+            "Migration: rebuilt recipes_fts with translated column "
+            "(rebuild_fts will repopulate)"
         )
 
 
@@ -291,7 +338,7 @@ def _migrate_normalize_urls(conn: sqlite3.Connection) -> None:
             )
 
 
-def upsert_recipe(url: str, recipe: dict) -> int:
+def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None) -> int:
     """Insert or update a recipe by URL. Returns the recipe id.
 
     Always overwrites title / parsed_json / lang so a re-fetched recipe
@@ -300,6 +347,12 @@ def upsert_recipe(url: str, recipe: dict) -> int:
     `deleted_at` on conflict — re-pushing a URL is an explicit user signal
     that they want the recipe back (caller would also crash on the get_recipe
     that follows, since that filter excludes soft-deleted rows).
+
+    `translated_keywords` is the LLM-produced FR/DE search blob from
+    `processing.recipes.translate_for_search`. Pass None to leave the
+    existing value untouched (an upsert that re-fetches a recipe doesn't
+    invalidate the translation). The startup backfill task fills NULLs
+    out-of-band.
     """
     from status_helpers import source_name
     now = int(time.time())
@@ -312,23 +365,94 @@ def upsert_recipe(url: str, recipe: dict) -> int:
     source_lower = src.lower() if src else None
 
     with _connect() as conn:
-        cur = conn.execute(
-            """
-            INSERT INTO recipes (url, title, parsed_json, lang, source, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            ON CONFLICT(url) DO UPDATE SET
-                title       = excluded.title,
-                parsed_json = excluded.parsed_json,
-                lang        = excluded.lang,
-                source      = excluded.source,
-                deleted_at  = NULL
-            RETURNING id
-            """,
-            (canonical, title, payload, lang, source_lower, now),
+        if translated_keywords is None:
+            cur = conn.execute(
+                """
+                INSERT INTO recipes (url, title, parsed_json, lang, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    title       = excluded.title,
+                    parsed_json = excluded.parsed_json,
+                    lang        = excluded.lang,
+                    source      = excluded.source,
+                    deleted_at  = NULL
+                RETURNING id, translated_keywords
+                """,
+                (canonical, title, payload, lang, source_lower, now),
+            )
+        else:
+            cur = conn.execute(
+                """
+                INSERT INTO recipes
+                    (url, title, parsed_json, lang, source, created_at, translated_keywords)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(url) DO UPDATE SET
+                    title              = excluded.title,
+                    parsed_json        = excluded.parsed_json,
+                    lang               = excluded.lang,
+                    source             = excluded.source,
+                    deleted_at         = NULL,
+                    translated_keywords = excluded.translated_keywords
+                RETURNING id, translated_keywords
+                """,
+                (canonical, title, payload, lang, source_lower, now, translated_keywords),
+            )
+        row = cur.fetchone()
+        recipe_id = int(row["id"])
+        translated = row["translated_keywords"] or ""
+        _fts_upsert(
+            conn, recipe_id, title, ingredients,
+            _comments_text(conn, recipe_id), translated,
         )
-        recipe_id = int(cur.fetchone()["id"])
-        _fts_upsert(conn, recipe_id, title, ingredients, _comments_text(conn, recipe_id))
     return recipe_id
+
+
+def set_translated_keywords(recipe_id: int, blob: str) -> None:
+    """Backfill translation for an existing row + re-index its FTS entry.
+
+    Called by the startup backfill task once it has the LLM response. No-op
+    if the recipe was deleted between the SELECT and the UPDATE.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT title, parsed_json FROM recipes "
+            "WHERE id = ? AND deleted_at IS NULL",
+            (recipe_id,),
+        ).fetchone()
+        if row is None:
+            return
+        conn.execute(
+            "UPDATE recipes SET translated_keywords = ? WHERE id = ?",
+            (blob, recipe_id),
+        )
+        _fts_upsert(
+            conn, recipe_id, row["title"], _ingredients_text(row["parsed_json"]),
+            _comments_text(conn, recipe_id), blob,
+        )
+
+
+def recipes_needing_translation() -> list[dict]:
+    """Return rows whose translated_keywords is NULL.
+
+    Used by the startup backfill. Excludes soft-deleted rows and rows
+    that the backfill couldn't translate previously (those got a
+    sentinel empty string to mark "tried, gave up") so we don't keep
+    pinging the LLM for a row that already failed once.
+    """
+    with _connect() as conn:
+        rows = conn.execute(
+            "SELECT id, title, parsed_json, lang FROM recipes "
+            "WHERE translated_keywords IS NULL AND deleted_at IS NULL"
+        ).fetchall()
+        out: list[dict] = []
+        for r in rows:
+            out.append({
+                "id": int(r["id"]),
+                "title": r["title"],
+                "recipe": json.loads(r["parsed_json"]),
+                "lang": r["lang"],
+            })
+        return out
 
 
 def _row_to_dict(row) -> dict:
@@ -615,7 +739,10 @@ def list_recipes(
         tokens = _FTS_TOKEN_RE.findall(query)
         if not tokens:
             return []
-        fts_query = " ".join(f'"{t}"' for t in tokens)
+        # Append `*` after each quoted token so FTS5 prefix-matches —
+        # "kartoffel" finds "kartoffeln", "kartoffelpüree", etc. The
+        # quoting still escapes any FTS5 operators the user typed.
+        fts_query = " ".join(f'"{t}"*' for t in tokens)
         order_sql = order_by or "rank"
         with _connect() as conn:
             rows = conn.execute(
@@ -706,7 +833,10 @@ def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
     tokens = _FTS_TOKEN_RE.findall(query)
     if not tokens:
         return []
-    fts_query = " ".join(f'"{t}"' for t in tokens)
+    # Append `*` after each quoted token so FTS5 prefix-matches —
+    # "kartoffel" finds "kartoffeln", "kartoffelpüree", etc. The
+    # quoting still escapes any FTS5 operators the user typed.
+    fts_query = " ".join(f'"{t}"*' for t in tokens)
     with _connect() as conn:
         rows = conn.execute(
             """
