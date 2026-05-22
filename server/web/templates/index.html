@@ -3,19 +3,13 @@
 
 {% block content %}
 {# Editorial page title. The meta line summarizes scope (count + current
-   sort/filter) so the page reads as a magazine index instead of a tool. #}
+   sort/filter) so the page reads as a magazine index instead of a tool.
+   The meta span carries id="lib-meta" so the /app/_search partial can
+   keep it in sync via hx-swap-oob — the dropdown labels live outside
+   the #list swap target. #}
 <div class="library-header">
   <h1>The Library</h1>
-  <span class="meta">
-    {{ saved_count }} recipe{{ '' if saved_count == 1 else 's' }}
-    {%- if q %} — search “{{ q }}”
-    {%- elif source %} — from {{ source|capitalize }}
-    {%- elif tag %} — #{{ tag }}
-    {%- elif sort == 'most_cooked' %} — most cooked
-    {%- elif sort == 'oldest' %} — least recently cooked
-    {%- else %} — recently cooked
-    {%- endif %}
-  </span>
+  <span id="lib-meta" class="meta">{% include "_lib_meta.html" %}</span>
 </div>
 
 {# One form holds the search input + sort + source + tag filters. HTMX fires

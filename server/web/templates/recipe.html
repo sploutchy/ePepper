@@ -31,11 +31,14 @@
   </p>
 
   <div class="actions">
-    <button class="primary"
+    {# Same link-style treatment as "Delete this recipe" in the footer —
+       quiet, no filled chrome. Push isn't destructive so we colour with
+       --accent (paprika) instead of --danger. #}
+    <button class="link accent"
             hx-post="/app/recipes/{{ r.id }}/push"
             hx-target="#toast"
             hx-swap="innerHTML">
-      {{ icon("monitor", 18) }} Push to display
+      {{ icon("monitor", 14) }} Push to display
     </button>
   </div>
 

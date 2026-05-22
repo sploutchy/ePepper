@@ -1,0 +1,13 @@
+{# Inner of the library-header meta line. Rendered standalone here (initial
+   page load) and again at the top of _list.html with hx-swap-oob so it
+   stays in sync with the active sort / source / tag filter as the user
+   plays with the dropdowns. Kept as a separate include to keep the
+   branch logic in one place. #}
+{{ saved_count }} recipe{{ '' if saved_count == 1 else 's' }}
+{%- if q %} — search “{{ q }}”
+{%- elif source %} — from {{ source|capitalize }}
+{%- elif tag %} — #{{ tag }}
+{%- elif sort == 'most_cooked' %} — most cooked
+{%- elif sort == 'oldest' %} — least recently cooked
+{%- else %} — recently cooked
+{%- endif %}
