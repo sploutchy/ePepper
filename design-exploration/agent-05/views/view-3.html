@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>ePepper / library / search "pasta"</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="/app/" class="brand">
+        <img src="../logo.svg" alt="" class="pepper">
+        ePepper
+      </a>
+      <span class="brand-divider">/</span>
+      <span class="brand-route">library <span class="route-active">?q=pasta</span></span>
+
+      <nav class="topnav">
+        <a href="/app/add" class="iconbtn" title="Add a recipe" aria-label="Add a recipe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="iconbtn-label">Add</span>
+        </a>
+        <a href="/app/status" class="iconbtn" title="Status" aria-label="Status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span class="iconbtn-label">Status</span>
+        </a>
+        <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <svg class="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+          <svg class="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span class="iconbtn-label theme-label">Theme</span>
+        </button>
+        <form action="/app/logout" method="post" class="logout-form">
+          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+            <span class="iconbtn-label">Logout</span>
+          </button>
+        </form>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div id="toast"></div>
+
+    <div class="page-head">
+      <div>
+        <span class="eyebrow"><span class="eyebrow-dot"></span> Search results</span>
+        <h1>Library</h1>
+      </div>
+      <div class="head-meta">2 matches</div>
+    </div>
+
+    <form class="list-controls" hx-get="/app/_search" hx-target="#list" hx-swap="innerHTML" hx-trigger="input changed delay:200ms from:input[type=search], change from:select, search">
+      <input class="list-search" type="search" name="q" value="pasta" placeholder="Search title, ingredients, notes..." autofocus>
+      <select name="sort" class="list-select" aria-label="Sort">
+        <option value="" selected>Recently cooked</option>
+        <option value="most_cooked">Most cooked</option>
+        <option value="oldest">Least recently cooked</option>
+      </select>
+      <select name="source" class="list-select" aria-label="Source">
+        <option value="" selected>All sources</option>
+        <option value="allrecipes">Allrecipes</option>
+        <option value="andreanguyen">Andreanguyen</option>
+        <option value="bonappetit">Bonappetit</option>
+        <option value="cordonbleu">Cordonbleu</option>
+        <option value="davidlebovitz">Davidlebovitz</option>
+        <option value="epicurious">Epicurious</option>
+        <option value="fooby">Fooby</option>
+        <option value="foodandwine">Foodandwine</option>
+        <option value="hot-thai-kitchen">Hot-thai-kitchen</option>
+        <option value="justonecookbook">Justonecookbook</option>
+        <option value="maangchi">Maangchi</option>
+        <option value="nonna">Nonna</option>
+        <option value="nytimes">Nytimes</option>
+        <option value="pastagrannies">Pastagrannies</option>
+        <option value="recipetineats">Recipetineats</option>
+        <option value="seriouseats">Seriouseats</option>
+        <option value="smittenkitchen">Smittenkitchen</option>
+        <option value="toriavey">Toriavey</option>
+      </select>
+    </form>
+
+    <p class="list-summary"><strong>2</strong> matches for "pasta" <span>/</span> sort: recent</p>
+
+    <div id="list">
+      <div class="list-shell">
+        <div class="list-header" aria-hidden="true">
+          <span>ID</span>
+          <span>Title</span>
+          <span>Source</span>
+          <span>Last cooked</span>
+          <span></span>
+        </div>
+        <ul class="recipes">
+          <li>
+            <a href="/app/recipes/1" class="card">
+              <span class="card-id">#01</span>
+              <div class="card-title"><span>Spaghetti alla Carbonara</span></div>
+              <span class="card-source">Seriouseats</span>
+              <span class="card-meta">
+                cooked 7x · 4d ago
+                <span class="card-badge" title="Currently on display">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+                  on display
+                </span>
+              </span>
+              <span class="card-chev"></span>
+            </a>
+          </li>
+          <li>
+            <a href="/app/recipes/25" class="card">
+              <span class="card-id">#25</span>
+              <div class="card-title"><span>Pasta e Fagioli</span></div>
+              <span class="card-source">Nonna</span>
+              <span class="card-meta">cooked 3x · 9mo ago</span>
+              <span class="card-chev"></span>
+            </a>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    function toggleTheme() {
+      var html = document.documentElement;
+      var current = html.dataset.theme ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var next = current === 'dark' ? 'light' : 'dark';
+      html.dataset.theme = next;
+      try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+    }
+  </script>
+</body>
+</html>

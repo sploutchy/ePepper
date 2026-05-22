@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Spaghetti alla Carbonara · ePepper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Space+Grotesk:wght@500;600;700&display=swap">
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="/app/" class="brand">
+        <img src="../logo.svg" alt="" class="pepper">
+        ePepper
+      </a>
+      <span class="brand-divider">/</span>
+      <span class="brand-route">recipes <span class="route-active">#01</span></span>
+
+      <nav class="topnav">
+        <a href="/app/add" class="iconbtn" title="Add a recipe" aria-label="Add a recipe">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="iconbtn-label">Add</span>
+        </a>
+        <a href="/app/status" class="iconbtn" title="Status" aria-label="Status">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span class="iconbtn-label">Status</span>
+        </a>
+        <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <svg class="theme-icon-light" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+          <svg class="theme-icon-dark" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <span class="iconbtn-label theme-label">Theme</span>
+        </button>
+        <form action="/app/logout" method="post" class="logout-form">
+          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+            <span class="iconbtn-label">Logout</span>
+          </button>
+        </form>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div id="toast"></div>
+
+    <a href="/app/" class="back">Library</a>
+
+    <article class="recipe">
+      <span class="eyebrow"><span class="eyebrow-dot"></span> Recipe · IT</span>
+      <h1>Spaghetti alla Carbonara</h1>
+      <p class="muted">
+        from <a href="https://www.seriouseats.com/spaghetti-alla-carbonara-recipe" target="_blank" rel="noopener">Seriouseats</a>
+        · saved 3 months ago · cooked 7x · last 4 days ago
+      </p>
+
+      <div class="actions">
+        <button class="primary" hx-post="/app/recipes/1/push" hx-target="#toast" hx-swap="innerHTML">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          Push to display
+        </button>
+      </div>
+
+      <div class="recipe-body">
+        <aside class="ingredients-col">
+          <h2 data-label="8 items">Ingredients</h2>
+          <ul class="ingredients">
+            <li>400 g spaghetti</li>
+            <li>200 g guanciale, diced</li>
+            <li>4 large egg yolks</li>
+            <li>1 whole large egg</li>
+            <li>80 g Pecorino Romano, grated</li>
+            <li>40 g Parmigiano-Reggiano, grated</li>
+            <li>Freshly cracked black pepper</li>
+            <li>Coarse salt for the pasta water</li>
+          </ul>
+        </aside>
+
+        <section class="instructions-col">
+          <h2 data-label="6 steps">Instructions</h2>
+          <ol class="steps">
+            <li>Bring a large pot of salted water to a boil.</li>
+            <li>Render the guanciale in a wide pan over medium heat until golden and crisp at the edges, about 6 minutes. Reserve.</li>
+            <li>Whisk yolks, whole egg, both cheeses, and lots of pepper in a bowl.</li>
+            <li>Cook spaghetti to al dente. Reserve a mug of pasta water.</li>
+            <li>Off the heat, toss pasta with guanciale and fat, then with the egg mixture, loosening with pasta water until creamy.</li>
+            <li>Plate with extra cheese and pepper. Eat immediately.</li>
+          </ol>
+
+          <h2>Notes</h2>
+          <div id="comments">
+            <ul class="comments">
+              <li>
+                <span class="comment-body">Best with thick-cut guanciale — pancetta is fine but flatter.</span>
+                <button class="link danger" hx-delete="/app/recipes/1/comments/1" hx-target="#comments" hx-swap="innerHTML" hx-confirm="Delete this note?">×</button>
+              </li>
+              <li>
+                <span class="comment-body">Tested: 250 ml pasta water was the sweet spot.</span>
+                <button class="link danger" hx-delete="/app/recipes/1/comments/2" hx-target="#comments" hx-swap="innerHTML" hx-confirm="Delete this note?">×</button>
+              </li>
+            </ul>
+
+            <form class="add-comment" hx-post="/app/recipes/1/comments" hx-target="#comments" hx-swap="innerHTML" hx-on::after-request="this.reset()">
+              <textarea name="body" rows="2" placeholder="Add a note..." required></textarea>
+              <button type="submit">Add</button>
+            </form>
+          </div>
+        </section>
+      </div>
+
+      <div class="recipe-footer">
+        <button class="link danger js-delete-recipe" hx-delete="/app/recipes/1" hx-confirm="Delete this recipe?" data-base-url="/app/recipes/1">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+          Delete this recipe
+        </button>
+      </div>
+    </article>
+  </main>
+
+  <script>
+    function toggleTheme() {
+      var html = document.documentElement;
+      var current = html.dataset.theme ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var next = current === 'dark' ? 'light' : 'dark';
+      html.dataset.theme = next;
+      try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+    }
+    document.addEventListener('mousedown', function(e) {
+      var btn = e.target.closest('.js-delete-recipe');
+      if (!btn) return;
+      if (e.shiftKey) {
+        btn.setAttribute('hx-delete', btn.dataset.baseUrl + '?hard=1');
+        btn.setAttribute('hx-confirm', 'HARD delete this recipe?');
+      } else {
+        btn.setAttribute('hx-delete', btn.dataset.baseUrl);
+        btn.setAttribute('hx-confirm', 'Delete this recipe?');
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FBF4E4" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#1F1A1D" media="(prefers-color-scheme: dark)">
+  <title>Status · ePepper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght,SOFT@9..144,400..700,30..100&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem('epepper-theme');
+        if (saved === 'dark' || saved === 'light') {
+          document.documentElement.dataset.theme = saved;
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="/app/" class="brand">
+        <img src="../logo.svg" alt="" class="pepper">
+        ePepper
+      </a>
+      <nav class="topnav">
+        <a href="/app/add" class="iconbtn" title="Add a recipe" aria-label="Add a recipe">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"></path></svg>
+          <span class="iconbtn-label">Add</span>
+        </a>
+        <a href="/app/status" class="iconbtn" title="Status" aria-label="Status">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+          <span class="iconbtn-label">Status</span>
+        </a>
+        <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <svg class="theme-icon-light" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"></path></svg>
+          <svg class="theme-icon-dark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>
+          <span class="iconbtn-label theme-label"></span>
+        </button>
+        <form action="/app/logout" method="post" class="logout-form">
+          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><path d="M16 17l5-5-5-5"></path><path d="M21 12H9"></path></svg>
+            <span class="iconbtn-label">Logout</span>
+          </button>
+        </form>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div id="toast"></div>
+
+    <div id="status-body">
+      <div class="display-preview">
+        <div class="display-preview-frame">
+          <img width="800" height="600" style="width:520px;height:auto" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCA4MDAgNjAwIiB3aWR0aD0iODAwIiBoZWlnaHQ9IjYwMCI+CiAgPHJlY3Qgd2lkdGg9IjgwMCIgaGVpZ2h0PSI2MDAiIGZpbGw9IiNmZmZhZjAiLz4KICA8dGV4dCB4PSI0MCIgeT0iNzAiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLHNlcmlmIiBmb250LXNpemU9IjM4IiBmb250LXdlaWdodD0iNzAwIiBmaWxsPSIjMjIyIj5TcGFnaGV0dGkgYWxsYSBDYXJib25hcmE8L3RleHQ+CiAgPHRleHQgeD0iNDQwIiB5PSI3MCIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiM1NTUiPmZyb20gU2VyaW91c2VhdHM8L3RleHQ+CiAgPGxpbmUgeDE9IjQwIiB5MT0iOTUiIHgyPSI3NjAiIHkyPSI5NSIgc3Ryb2tlPSIjMjIyIiBzdHJva2Utd2lkdGg9IjEiLz4KICA8dGV4dCB4PSI2NjAiIHk9IjEyMCIgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMTYiIGZpbGw9IiMyMjIiPnBhZ2UgMSAvIDI8L3RleHQ+CiAgPGxpbmUgeDE9IjQwMCIgeTE9IjE0MCIgeDI9IjQwMCIgeTI9IjU2MCIgc3Ryb2tlPSIjMjIyIiBzdHJva2Utd2lkdGg9IjEiLz4KICA8dGV4dCB4PSI0MCIgeT0iMTcwIiBmb250LWZhbWlseT0iR2VvcmdpYSxzZXJpZiIgZm9udC1zaXplPSIyMiIgZm9udC13ZWlnaHQ9IjcwMCIgZmlsbD0iIzIyMiI+SW5ncmVkaWVudHM8L3RleHQ+CiAgPGcgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiMyMjIiPgogICAgPHRleHQgeD0iNDAiIHk9IjIwNSI+wrcgNDAwIGcgc3BhZ2hldHRpPC90ZXh0PgogICAgPHRleHQgeD0iNDAiIHk9IjIzNSI+wrcgMjAwIGcgZ3VhbmNpYWxlLCBkaWNlZDwvdGV4dD4KICAgIDx0ZXh0IHg9IjQwIiB5PSIyNjUiPsK3IDQgbGFyZ2UgZWdnIHlvbGtzPC90ZXh0PgogICAgPHRleHQgeD0iNDAiIHk9IjI5NSI+wrcgMSB3aG9sZSBsYXJnZSBlZ2c8L3RleHQ+CiAgICA8dGV4dCB4PSI0MCIgeT0iMzI1Ij7CtyA4MCBnIFBlY29yaW5vIFJvbWFubzwvdGV4dD4KICAgIDx0ZXh0IHg9IjQwIiB5PSIzNTUiPsK3IDQwIGcgUGFybWlnaWFuby1SZWdnaWFubzwvdGV4dD4KICAgIDx0ZXh0IHg9IjQwIiB5PSIzODUiPsK3IEZyZXNobHkgY3JhY2tlZCBwZXBwZXI8L3RleHQ+CiAgICA8dGV4dCB4PSI0MCIgeT0iNDE1Ij7CtyBDb2Fyc2Ugc2FsdDwvdGV4dD4KICA8L2c+CiAgPHRleHQgeD0iNDIwIiB5PSIxNzAiIGZvbnQtZmFtaWx5PSJHZW9yZ2lhLHNlcmlmIiBmb250LXNpemU9IjIyIiBmb250LXdlaWdodD0iNzAwIiBmaWxsPSIjMjIyIj5JbnN0cnVjdGlvbnM8L3RleHQ+CiAgPGcgZm9udC1mYW1pbHk9Ikdlb3JnaWEsc2VyaWYiIGZvbnQtc2l6ZT0iMTgiIGZpbGw9IiMyMjIiPgogICAgPHRleHQgeD0iNDIwIiB5PSIyMDUiPjEuIEJyaW5nIHNhbHRlZCB3YXRlciB0byBhIGJvaWwuPC90ZXh0PgogICAgPHRleHQgeD0iNDIwIiB5PSIyNDAiPjIuIFJlbmRlciBndWFuY2lhbGUgdW50aWwgZ29sZGVuLDwvdGV4dD4KICAgIDx0ZXh0IHg9IjQyMCIgeT0iMjY1Ij4gICAgYWJvdXQgNiBtaW51dGVzLiBSZXNlcnZlLjwvdGV4dD4KICAgIDx0ZXh0IHg9IjQyMCIgeT0iMzAwIj4zLiBXaGlzayB5b2xrcywgZWdnLCBjaGVlc2VzLDwvdGV4dD4KICAgIDx0ZXh0IHg9IjQyMCIgeT0iMzI1Ij4gICAgYW5kIHBlcHBlciBpbiBhIGJvd2wuPC90ZXh0PgogICAgPHRleHQgeD0iNDIwIiB5PSIzNjAiPjQuIENvb2sgcGFzdGEgYWwgZGVudGUuIFJlc2VydmU8L3RleHQ+CiAgICA8dGV4dCB4PSI0MjAiIHk9IjM4NSI+ICAgIGEgbXVnIG9mIHBhc3RhIHdhdGVyLjwvdGV4dD4KICAgIDx0ZXh0IHg9IjQyMCIgeT0iNDIwIj41LiBPZmYgaGVhdCwgdG9zcyB3aXRoIGd1YW5jaWFsZSw8L3RleHQ+CiAgICA8dGV4dCB4PSI0MjAiIHk9IjQ0NSI+ICAgIHRoZW4gZWdnIG1peHR1cmUsIGxvb3NlbmluZy48L3RleHQ+CiAgICA8dGV4dCB4PSI0MjAiIHk9IjQ4MCI+Ni4gUGxhdGUgd2l0aCBjaGVlc2UgYW5kIHBlcHBlci48L3RleHQ+CiAgPC9nPgo8L3N2Zz4K" alt="Current display">
+        </div>
+      </div>
+
+      <section class="status-card">
+        <h2>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8M12 17v4"></path></svg>
+          Display
+        </h2>
+        <p class="display-title">
+          <strong><a href="/app/recipes/1">Spaghetti alla Carbonara</a></strong>
+          <span class="muted">from
+            <a href="https://www.seriouseats.com/spaghetti-alla-carbonara-recipe" target="_blank" rel="noopener">Seriouseats</a>
+          </span>
+          <span class="muted">— page 1 of 2</span>
+        </p>
+        <p class="muted">Updated 26 min ago</p>
+
+        <div class="page-nav">
+          <button class="iconbtn" title="First page" aria-label="First page">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><polygon points="19 20 9 12 19 4 19 20"></polygon><line x1="5" y1="19" x2="5" y2="5"></line></svg>
+          </button>
+          <button class="iconbtn" title="Previous page" aria-label="Previous page">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><polyline points="15 18 9 12 15 6"></polyline></svg>
+          </button>
+          <span class="page-nav-indicator">1 / 2</span>
+          <button class="iconbtn" title="Next page" aria-label="Next page">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><polyline points="9 18 15 12 9 6"></polyline></svg>
+          </button>
+          <button class="iconbtn" title="Last page" aria-label="Last page">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><polygon points="5 4 15 12 5 20 5 4"></polygon><line x1="19" y1="5" x2="19" y2="19"></line></svg>
+          </button>
+        </div>
+
+        <form class="status-actions">
+          <button class="danger" type="submit">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><path d="M3 6h18"></path><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"></path></svg>
+            Clear
+          </button>
+        </form>
+      </section>
+
+      <section class="status-card">
+        <h2>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><rect x="3" y="4" width="18" height="18" rx="2"></rect><line x1="16" y1="2" x2="16" y2="6"></line><line x1="8" y1="2" x2="8" y2="6"></line><line x1="3" y1="10" x2="21" y2="10"></line></svg>
+          Tomorrow (22.05)
+        </h2>
+        <p class="status-line">
+          <strong><a href="https://fooby.ch/de/rezepte/24560/winterliches-kuerbis-gnocchi" target="_blank" rel="noopener">Kürbis-Gnocchi mit Salbeibutter</a></strong>
+          <span class="muted">— inspiration from Fooby</span>
+        </p>
+      </section>
+
+      <section class="status-card">
+        <h2>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
+          Library
+        </h2>
+        <p class="status-line"><strong>25</strong> saved recipes</p>
+        <p class="status-line muted">Last backup: 19 h ago (04:14)</p>
+      </section>
+
+      <section class="status-card">
+        <h2>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"></rect><rect x="9" y="9" width="6" height="6"></rect><line x1="9" y1="1" x2="9" y2="4"></line><line x1="15" y1="1" x2="15" y2="4"></line><line x1="9" y1="20" x2="9" y2="23"></line><line x1="15" y1="20" x2="15" y2="23"></line><line x1="20" y1="9" x2="23" y2="9"></line><line x1="20" y1="14" x2="23" y2="14"></line><line x1="1" y1="9" x2="4" y2="9"></line><line x1="1" y1="14" x2="4" y2="14"></line></svg>
+          LLM
+        </h2>
+        <p class="status-line">
+          <strong>135</strong> calls
+          <span class="muted">this month</span>
+          (15 URL, 6 OCR, 114 translate)
+          —
+          <strong>~CHF 0.07</strong>
+        </p>
+      </section>
+
+      <section class="status-card">
+        <h2>
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><circle cx="12" cy="12" r="2"></circle><path d="M16.24 7.76a6 6 0 0 1 0 8.49m-8.48 0a6 6 0 0 1 0-8.49m11.31-2.82a10 10 0 0 1 0 14.14m-14.14 0a10 10 0 0 1 0-14.14"></path></svg>
+          Device
+        </h2>
+        <p class="status-line">Last seen 14 min ago (23:00)</p>
+        <p class="status-line">
+          <span class="status-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><rect x="2" y="7" width="16" height="10" rx="2"></rect><line x1="22" y1="11" x2="22" y2="13"></line><rect x="4" y="9" width="9" height="6" rx="0.5" fill="currentColor" stroke="none"></rect></svg></span>
+          Battery: <strong>76%</strong>
+          <span class="muted">(3.87 V)</span>
+        </p>
+        <p class="status-line">
+          <span class="status-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><path d="M5 12.55a11 11 0 0 1 14.08 0"></path><path d="M1.42 9a16 16 0 0 1 21.16 0"></path><path d="M8.53 16.11a6 6 0 0 1 6.95 0"></path><line x1="12" y1="20" x2="12.01" y2="20"></line></svg></span>
+          Signal: <strong>-58 dBm</strong>
+          <span class="muted">(good)</span>
+        </p>
+        <p class="status-line">
+          <span class="status-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"></path></svg></span>
+          Temp: <strong>21.4 °C</strong>
+        </p>
+        <p class="status-line">
+          <span class="status-icon"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="icon" aria-hidden="true"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"></path></svg></span>
+          Humidity: <strong>47 %</strong>
+        </p>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    function toggleTheme() {
+      var html = document.documentElement;
+      var current = html.dataset.theme ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var next = current === 'dark' ? 'light' : 'dark';
+      html.dataset.theme = next;
+      try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+    }
+  </script>
+</body>
+</html>
