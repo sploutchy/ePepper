@@ -154,10 +154,16 @@ inline), with the call breakdown as a muted line below.
 
 ### Login — single column, generous
 
-The wordmark fills the top at `clamp(48px, 6vw, 72px)`. The form is
-input + a small paste helper inline, followed by `Sign in →` as a
-quiet `button.link.accent`. **No hint paragraph below the form** — the
-field placeholder is enough.
+The wordmark fills the top at `clamp(48px, 6vw, 72px)`. Directly under
+it sits the access-code field with the merged paste/submit button
+(`.input-action-btn`) inline. **No tagline above the form, no hint
+below it.** The placeholder ("Access code") names the field; the
+wordmark establishes which app you're signing into. Anything between
+the wordmark and the field is noise.
+
+The only paragraph that ever shows up next to the form is the inline
+error (`<p class="error">…</p>`) on a failed sign-in, and it only
+appears when `error` is truthy.
 
 ---
 
