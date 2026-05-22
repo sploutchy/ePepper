@@ -176,14 +176,18 @@ is the wrong instinct — the editorial language doesn't have modals.
 
 ### Buttons
 
-**Three roles. That's it:**
+**Four roles. That's it:**
 
-1. `button.link.accent` — primary actions, paprika. Used on `Push to
-   display` (recipe), `Sign in →` (login), `Fetch →` (add URL).
-2. `button.link.danger` — destructive actions, danger red. Used on
-   `Delete this recipe` (recipe), `Clear` (status display).
+1. `button.link.accent` — primary actions, paprika, link-style (no
+   filled chrome). Used on `Push to display` (recipe).
+2. `button.link.danger` — destructive actions, danger red, link-style.
+   Used on `Delete this recipe` (recipe) and `Clear` (status display).
 3. `.iconbtn` — small square icon-only buttons in the topbar
    (Add / Status / Theme / Logout) and the page-nav strip.
+4. `.input-action-btn` — the merged paste/submit affordance next to
+   single-string text inputs (login access code, add URL). Lives
+   inline with the input as a square button. See the "Merged
+   paste / submit button" pattern below for the state machine.
 
 There is no filled-paprika CTA. The "Add comment" filled-dark button
 is the one exception — it's a sub-form action that wants a stronger

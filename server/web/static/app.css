@@ -13,15 +13,13 @@
   --surface-alt:   #F2EFE8;
   --text:          #1A1A1A;
   --text-dim:      #3A3835;
-  --muted:         #807A70;
+  --muted:         #6E695F;   /* ~5.0:1 on --bg, comfortably AA at 13 px */
   --faint:         #B6B0A4;
   --border:        #E4DFD4;
-  --border-strong: #1A1A1A;
   --accent:        #B83227;
   --accent-hover:  #962419;
   --accent-soft:   #F7E4E1;
   --on-accent:     #FFFFFF;
-  --success:       #3F6B3A;
   --warn:          #B07A0F;
   --danger:        #9B1C1C;
   --danger-soft:   #FDECEC;
@@ -53,12 +51,10 @@
   --muted:         #8E867A;
   --faint:         #5A554D;
   --border:        #2C2A26;
-  --border-strong: #F1ECE2;
   --accent:        #E5614F;
   --accent-hover:  #F1816F;
   --accent-soft:   #3A1C18;
   --on-accent:     #15110F;
-  --success:       #7AAE73;
   --warn:          #D9A742;
   --danger:        #F0817E;
   --danger-soft:   #3A1B1B;
@@ -74,12 +70,10 @@
     --muted:         #8E867A;
     --faint:         #5A554D;
     --border:        #2C2A26;
-    --border-strong: #F1ECE2;
     --accent:        #E5614F;
     --accent-hover:  #F1816F;
     --accent-soft:   #3A1C18;
     --on-accent:     #15110F;
-    --success:       #7AAE73;
     --warn:          #D9A742;
     --danger:        #F0817E;
     --danger-soft:   #3A1B1B;
@@ -702,6 +696,10 @@ html[data-theme="dark"] .list-select {
   height: auto;
   margin: 0 auto;
   background: #ffffff;
+  /* 1 px hairline contains the white BMP in dark mode so it doesn't
+     float as a slab of light on a graphite page. Same --border hue
+     used everywhere else, so the frame reads as "the panel". */
+  border: 1px solid var(--border);
   image-rendering: pixelated;
 }
 
@@ -861,10 +859,7 @@ html[data-theme="dark"] .list-select {
   margin: 0 0 28px;
   color: var(--muted);
   padding-bottom: 28px;
-  /* Same hairline color as every other separator in the app
-     (--border, not --border-strong). The dark editorial rule under
-     the title here was the only one in --border-strong and felt
-     heavier than its neighbours. */
+  /* Same hairline color as every other separator in the app. */
   border-bottom: 1px solid var(--border);
 }
 .recipe > p.muted a { color: var(--text); border-bottom: 1px solid var(--border); }
@@ -875,15 +870,18 @@ html[data-theme="dark"] .list-select {
   text-align: center;
 }
 
-/* Recipe meta line below the title — bullets are real characters that
-   can wrap, the segments themselves should never break mid-phrase.
-   .nb (no-break) is inline-block so it stays atomic; .meta-sep is the
-   bullet, rendered as its own inline so the space around it can
-   collapse onto either end of a line break. */
+/* Recipe meta line below the title — each segment is an inline-block
+   .nb so it can't break mid-phrase, and the bullet between segments is
+   a ::before pseudo on every segment after the first. Doing it via a
+   pseudo (instead of a separate .meta-sep element) glues the bullet to
+   the segment that *follows* it, so when the line wraps the bullet
+   travels to the new line with its segment instead of dangling alone
+   at the end of the previous line. */
 .recipe-meta .nb { display: inline-block; }
-.recipe-meta .meta-sep {
+.recipe-meta .nb + .nb::before {
+  content: "·";
   display: inline-block;
-  margin: 0 6px;
+  margin: 0 8px 0 0;
   opacity: 0.6;
 }
 /* Push to display, login Sign in, etc. all share this quiet link
@@ -1226,7 +1224,10 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   .card-meta { justify-content: flex-start; text-align: left; }
 
   .add-grid { grid-template-columns: 1fr; gap: 18px; }
-  .add-tile { padding: 24px; }
+  /* Inherit the desktop "padding: 24px 0" — the section already
+     respects the page gutter, so an extra horizontal inset here would
+     push the section icon away from the gutter line. */
+  .add-tile { padding: 22px 0; }
 
   .status-grid { gap: 22px; }
 
