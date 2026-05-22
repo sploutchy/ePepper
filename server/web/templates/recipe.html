@@ -7,27 +7,32 @@
 
 <article class="recipe">
   <h1>{{ r.title }}</h1>
-  <p class="muted">
+  {# Each segment is wrapped in <span class="nb"> so the line can break
+     between "from X · saved Y · cooked Z" but not inside any of those
+     phrases. The bullets become their own break points too. #}
+  <p class="muted recipe-meta">
     {% set src = source_name(r.url) %}
     {% if src %}
-      from
-      {% if r.url.startswith("http") -%}
-        <a href="{{ r.url }}" target="_blank" rel="noopener">{{ src }}</a>
-      {%- else -%}
-        {{ src }}
-      {%- endif %}
-      ·
-    {% endif %}
-    saved {{ fmt_saved(r.saved_at) }}
-    · {% if r.last_displayed_at -%}
-        {%- if r.displayed_count and r.displayed_count > 1 -%}
-          cooked {{ r.displayed_count }}×, last {{ fmt_saved(r.last_displayed_at) }}
+      <span class="nb">from
+        {% if r.url.startswith("http") -%}
+          <a href="{{ r.url }}" target="_blank" rel="noopener">{{ src }}</a>
         {%- else -%}
-          cooked {{ fmt_saved(r.last_displayed_at) }}
-        {%- endif %}
-      {%- else -%}
-        never cooked
+          {{ src }}
+        {%- endif -%}
+      </span>
+      <span class="meta-sep">·</span>
+    {% endif %}
+    <span class="nb">saved {{ fmt_saved(r.saved_at) }}</span>
+    <span class="meta-sep">·</span>
+    {% if r.last_displayed_at -%}
+      {%- if r.displayed_count and r.displayed_count > 1 %}
+        <span class="nb">cooked {{ r.displayed_count }}×, last {{ fmt_saved(r.last_displayed_at) }}</span>
+      {%- else %}
+        <span class="nb">cooked {{ fmt_saved(r.last_displayed_at) }}</span>
       {%- endif %}
+    {%- else %}
+      <span class="nb">never cooked</span>
+    {%- endif %}
   </p>
 
   <div class="actions">

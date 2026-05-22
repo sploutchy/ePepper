@@ -29,8 +29,16 @@
            placeholder="https://…"
            autocomplete="off"
            autofocus>
-    <button type="submit" class="primary icon-only" title="Fetch" aria-label="Fetch">
-      {{ icon("arrow-right", 20) }}
+    {# Paste-from-clipboard helper; the handler lives at the bottom of
+       this template and degrades silently when the API isn't available. #}
+    <button type="button" class="paste-btn" title="Paste" aria-label="Paste from clipboard">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="8" y="2" width="8" height="4" rx="1"/>
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+      </svg>
+    </button>
+    <button type="submit" class="link accent submit-arrow" title="Fetch" aria-label="Fetch">
+      Fetch →
     </button>
   </div>
 
@@ -67,12 +75,14 @@
   <h2>{{ icon("camera", 20) }} Snap a recipe</h2>
 
   <div class="file-row">
+    {# Camera icon already lives in the section h2 above; repeating it
+       inside the trigger label is visual noise. The label itself reads
+       "Tap to open camera" so the affordance is clear. #}
     <label class="file-input" title="Take a photo">
       <input type="file" name="file"
              accept="image/*"
              capture="environment"
              required>
-      {{ icon("camera", 18) }}
       <span class="file-input-name muted">Tap to open camera</span>
     </label>
   </div>
@@ -88,6 +98,25 @@
 </div> {# /.add-grid #}
 
 <script>
+  // Paste-from-clipboard for the URL input. Silent on failure
+  // (permission denied, insecure context, no clipboard).
+  document.addEventListener('click', async (e) => {
+    const btn = e.target.closest('.paste-btn');
+    if (!btn) return;
+    e.preventDefault();
+    const wrap = btn.closest('.file-row, .input-with-paste');
+    const input = wrap && wrap.querySelector('input[type=url], input[type=text], input[type=password]');
+    if (!input || !navigator.clipboard || !navigator.clipboard.readText) return;
+    try {
+      const text = await navigator.clipboard.readText();
+      if (text) {
+        input.value = text.trim();
+        input.dispatchEvent(new Event('input', { bubbles: true }));
+        input.focus();
+      }
+    } catch (_) {}
+  });
+
   // Auto-submit the form when the user picks/captures a file. The
   // native camera UI's "use photo" prompt is the confirmation step;
   // there's no useful second one we could add on this page.

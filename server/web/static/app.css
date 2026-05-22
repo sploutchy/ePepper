@@ -289,18 +289,14 @@ body.centered {
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-.login button[type="submit"] {
-  padding: 14px 22px;
-  background: var(--accent);
-  color: var(--on-accent);
-  border: 0;
-  border-radius: var(--r-md);
+/* Sign in matches the recipe-page Push / Delete link buttons — quiet,
+   no filled chrome. Aligned left so it sits below the input field
+   naturally. */
+.login button[type="submit"].link.accent {
+  align-self: flex-start;
   font-size: 16px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  transition: background .15s var(--ease);
+  padding: 10px 0;
 }
-.login button[type="submit"]:hover { background: var(--accent-hover); }
 
 .login-hint {
   font-size: 14px;
@@ -529,25 +525,28 @@ html[data-theme="dark"] .list-select {
   max-width: 56ch;
 }
 
+/* Flat list of add methods — same library-list pattern. Single column,
+   hairline-separated rows, no rounded-card chrome. */
 .add-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
 }
 
 .add-tile {
   margin: 0;
-  padding: 32px;
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
+  padding: 24px 0;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: 14px;
   position: relative;
   transition: border-color .2s var(--ease);
 }
-.add-tile:hover { border-color: var(--text-dim); }
+.add-tile:first-child { border-top: 1px solid var(--border); }
 
 .add-tile h2 {
   display: flex;
@@ -567,6 +566,43 @@ html[data-theme="dark"] .list-select {
   display: flex;
   gap: 8px;
   align-items: stretch;
+  flex-wrap: wrap;
+}
+
+/* Paste-from-clipboard helper next to text-ish inputs (login access
+   code, URL add). Sits flush with the input as a square icon button.
+   The handler degrades silently when the Clipboard API isn't
+   available (insecure context, denied permission), so the button can
+   stay in the markup unconditionally. */
+.input-with-paste {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+}
+.input-with-paste > input { flex: 1; min-width: 0; }
+.paste-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: auto;
+  min-width: 48px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  color: var(--muted);
+  cursor: pointer;
+  transition: color .15s var(--ease), border-color .15s var(--ease);
+}
+.paste-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+/* On the URL row the submit button is a text link rather than a filled
+   primary — push it to the right so it doesn't get glued to the paste
+   button. */
+.file-row .submit-arrow {
+  margin-left: auto;
+  padding: 10px 14px;
 }
 
 .add-tile input[type="url"] {
@@ -584,21 +620,9 @@ html[data-theme="dark"] .list-select {
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-.add-tile button.primary {
-  padding: 14px 18px;
-  background: var(--text);
-  color: var(--bg);
-  border: 0;
-  border-radius: var(--r-md);
-  font-weight: 600;
-  font-size: 15px;
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  transition: background .15s var(--ease);
-}
-.add-tile button.primary:hover { background: var(--text-dim); }
-.add-tile button.icon-only { padding: 14px; }
+/* (.add-tile button.primary / .icon-only rules removed — the URL row
+   now uses a paste-btn + a button.link.accent submit, neither needs
+   the filled-primary treatment.) */
 
 .file-input {
   flex: 1;
@@ -679,23 +703,37 @@ html[data-theme="dark"] .list-select {
   image-rendering: pixelated;
 }
 
+/* Flat list of status sections — same library-list pattern (rule
+   dividers, no card chrome). Each card is a row separated by hairlines,
+   first card grows a top hairline so the list reads as bounded. */
 .status-cards {
   display: flex;
   flex-direction: column;
-  gap: 22px;
+  gap: 0;
 }
 
 .status-card {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 24px 26px;
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 24px 0;
 }
+.status-card:first-child { border-top: 1px solid var(--border); }
+
+/* Section h2: small-caps label on the left, optional muted meta on the
+   right (only the Display card uses the meta slot, for "Updated …"). */
 .status-card h2 {
   display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 14px;
+}
+.status-card h2 .status-card-h-label {
+  display: inline-flex;
   align-items: center;
   gap: 10px;
-  margin: 0 0 14px;
   font-family: var(--font-body);
   font-size: 12px;
   font-weight: 700;
@@ -703,7 +741,16 @@ html[data-theme="dark"] .list-select {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.status-card h2 svg { color: var(--accent); }
+.status-card h2 .status-card-h-label svg { color: var(--accent); }
+.status-card h2 .status-card-h-meta {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
 
 .display-title {
   margin: 0 0 6px;
@@ -760,20 +807,8 @@ html[data-theme="dark"] .list-select {
 .status-actions {
   margin: 16px 0 0;
 }
-.status-actions button.danger {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  background: var(--danger-soft);
-  color: var(--danger);
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  font-weight: 600;
-  font-size: 14px;
-  transition: background .15s var(--ease);
-}
-.status-actions button.danger:hover { background: var(--accent-soft); border-color: var(--danger); }
+/* Clear button is now a link.danger — inherits everything from
+   button.link.danger; no card-specific override needed. */
 
 /* ----------  Recipe page  ---------- */
 .back {
@@ -820,16 +855,29 @@ html[data-theme="dark"] .list-select {
 
 .actions {
   margin: 0 0 28px;
+  text-align: center;
 }
-/* Push to display borrows the bottom "Delete this recipe" treatment —
-   quiet link-style, small icon, accent (not danger) color since pushing
-   isn't destructive. Inherits everything from button.link; only the
-   accent recolour lives here. */
-.actions button.link.accent {
+
+/* Recipe meta line below the title — bullets are real characters that
+   can wrap, the segments themselves should never break mid-phrase.
+   .nb (no-break) is inline-block so it stays atomic; .meta-sep is the
+   bullet, rendered as its own inline so the space around it can
+   collapse onto either end of a line break. */
+.recipe-meta .nb { display: inline-block; }
+.recipe-meta .meta-sep {
+  display: inline-block;
+  margin: 0 6px;
+  opacity: 0.6;
+}
+/* Push to display, login Sign in, etc. all share this quiet link
+   treatment — same chrome as "Delete this recipe" in the recipe footer
+   but accent-coloured because the action isn't destructive. Lives on
+   the generic button.link selector so it works everywhere. */
+button.link.accent {
   color: var(--accent);
   font-weight: 500;
 }
-.actions button.link.accent:hover {
+button.link.accent:hover {
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -1076,33 +1124,37 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
    an unstyled passthrough — styling it as a pill too stacks two fixed
    pills bottom-center, which double-renders the message and the dark
    pill chrome on every push. */
+/* Inline editorial banner — sits at the top of <main> (inside #toast)
+   instead of floating as a rounded pill. Same accent-left-bar pattern
+   as the comments / status banners so the whole confirmation language
+   is one design family. Auto-dismisses via the template's own setTimeout. */
 .toast {
-  position: fixed;
-  bottom: 24px;
-  left: 50%;
-  transform: translateX(-50%);
-  padding: 12px 22px;
-  background: var(--text);
-  color: var(--bg);
-  border-radius: 999px;
-  font-size: 14px;
-  z-index: 100;
-  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 18px;
+  margin: 0 0 24px;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  color: var(--text);
+  font-size: 15px;
+  line-height: 1.45;
 }
 .toast button {
-  background: var(--accent);
-  color: var(--accent-ink, #fff);
+  background: transparent;
   border: 0;
-  border-radius: 999px;
-  padding: 4px 12px;
+  color: var(--accent);
+  padding: 4px 8px;
   font: inherit;
   font-size: 13px;
   font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   cursor: pointer;
 }
+.toast button:hover { background: var(--surface); }
 
 /* ----------  Inline add-page error fragment  ----------
    Returned as a 400 HTML fragment into #add-result when URL parsing /
