@@ -48,6 +48,15 @@
     <p class="display-title muted">Idle.</p>
   {% endif %}
 
+  {# Live preview of the e-ink frame — nested inside the Display
+     section so there's no hairline between title and image, and the
+     page-nav + Clear controls below act on the visible page. #}
+  {% if display.hash %}
+    <div class="display-preview">
+      <img src="/image?v={{ display.hash }}" alt="Current display">
+    </div>
+  {% endif %}
+
   {% if display.type == "recipe" and display.total_pages > 1 %}
     {# Page navigation — mirrors the device's physical buttons so you can
        step through pages from the couch. Each tap re-renders this whole
@@ -97,15 +106,6 @@
     </form>
   {% endif %}
 </section>
-
-{# Live preview of the e-ink frame — sits between the Display card and
-   Tomorrow so the title and page nav read first, then the image. No
-   eyebrow label; the Display section above is its caption. #}
-{% if display.hash %}
-  <div class="display-preview">
-    <img src="/image?v={{ display.hash }}" alt="Current display">
-  </div>
-{% endif %}
 
 {# Tomorrow's preview — mirrors what the midnight scheduler will push.
    Format: "<linked title> — <why>" so the recipe name is the reading
@@ -168,12 +168,17 @@
   {% if llm.calls == 0 %}
     <p class="status-line muted">No calls this month yet.</p>
   {% else %}
-    <p class="status-line">
-      <strong>{{ llm.calls }}</strong> call{{ '' if llm.calls == 1 else 's' }}
+    {# Two-line stat: the monthly cost is the headline, the call
+       breakdown is the supporting detail. Same .display-title / muted
+       pairing the Display and Tomorrow cards use, so the LLM card
+       reads with the same weight hierarchy. #}
+    <p class="display-title">
+      <strong>{{ '≥ ' if llm.chf_partial else '~' }}{{ '%.2f' % llm.chf }} CHF</strong>
       <span class="muted">this month</span>
+    </p>
+    <p class="status-line muted">
+      {{ llm.calls }} call{{ '' if llm.calls == 1 else 's' }}
       ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
-      —
-      <strong>{{ '≥ ' if llm.chf_partial else '~' }}CHF {{ '%.2f' % llm.chf }}</strong>
     </p>
   {% endif %}
 </section>
