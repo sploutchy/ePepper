@@ -2,6 +2,22 @@
 {% block title %}ePepper · Library{% endblock %}
 
 {% block content %}
+{# Editorial page title. The meta line summarizes scope (count + current
+   sort/filter) so the page reads as a magazine index instead of a tool. #}
+<div class="library-header">
+  <h1>The Library</h1>
+  <span class="meta">
+    {{ saved_count }} recipe{{ '' if saved_count == 1 else 's' }}
+    {%- if q %} — search “{{ q }}”
+    {%- elif source %} — from {{ source|capitalize }}
+    {%- elif tag %} — #{{ tag }}
+    {%- elif sort == 'most_cooked' %} — most cooked
+    {%- elif sort == 'oldest' %} — least recently cooked
+    {%- else %} — recently cooked
+    {%- endif %}
+  </span>
+</div>
+
 {# One form holds the search input + sort + source + tag filters. HTMX fires
    on text input (debounced) and select changes, including all named fields
    so any control's change replays the full query. #}

@@ -22,6 +22,11 @@
   </div>
 {% endif %}
 
+{# Right column of the .status-grid — all five info cards live here.
+   .status-cards is a flex column with consistent gaps; on mobile the
+   parent grid collapses and this just stacks below the preview. #}
+<div class="status-cards">
+
 <section class="status-card">
   <h2>{{ icon("monitor", 18) }} Display</h2>
   {% if display.type == "recipe" %}
@@ -212,3 +217,5 @@
     <p class="status-line muted">Never seen.</p>
   {% endif %}
 </section>
+
+</div> {# /.status-cards #}

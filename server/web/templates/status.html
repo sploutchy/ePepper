@@ -9,10 +9,17 @@
   <script>setTimeout(() => document.getElementById('cleared-toast')?.remove(), 3000);</script>
 {% endif %}
 
+<div class="page-header">
+  <h1>Status</h1>
+  <p>What the kitchen device is showing right now, and a few signs of life from the system.</p>
+</div>
+
 {# Auto-refresh every 30s so battery / last-seen / display preview stay
    live without the user reloading. The whole status body is replaced —
-   cheap because it's a handful of small DOM nodes. #}
-<div id="status-body"
+   cheap because it's a handful of small DOM nodes. The .status-grid
+   class drives the editorial two-column layout (preview on the left,
+   cards on the right); it collapses to one column on mobile. #}
+<div id="status-body" class="status-grid"
      hx-get="/app/_status"
      hx-trigger="every 30s"
      hx-swap="innerHTML">

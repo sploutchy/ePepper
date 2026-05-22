@@ -9,12 +9,15 @@
      opt 4xx (and 5xx) back in so those errors land in #add-result. #}
   <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
   {# Mobile browser chrome (URL bar / status bar) follows the active theme. #}
-  <meta name="theme-color" content="#faf8f4" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#1c1a17" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="/app/static/manifest.webmanifest">
   <link rel="icon" href="/app/static/pepper.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/app/static/pepper.svg">
   <title>{% block title %}ePepper{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/app/static/app.css">
   {# Apply a saved manual override before paint. When no choice is saved,
      we leave data-theme unset so the CSS @media (prefers-color-scheme)
@@ -36,8 +39,15 @@
     <header class="topbar">
       <div class="topbar-inner">
         <a href="/app/" class="brand">
-          <img src="/app/static/pepper.svg" alt="" class="pepper">
-          ePepper
+          {# Inline so the pepper inherits text color (currentColor) and
+             swaps with the topbar text in dark mode. The favicon at
+             /app/static/pepper.svg stays paprika-fixed for the tab. #}
+          <svg class="pepper" viewBox="0 0 48 48" aria-hidden="true">
+            <path d="M14 18 C 6 18, 2 26, 4 36 C 6 46, 14 54, 22 54 C 30 54, 36 47, 36 38 C 36 30, 32 24, 26 21 C 22 19, 18 17, 14 18 Z" fill="currentColor"/>
+            <path d="M22 18 C 22 12, 26 9, 32 10" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+            <path d="M28 12 C 32 9, 36 10, 38 14 C 34 15, 30 14, 28 12 Z" fill="currentColor"/>
+          </svg>
+          <span><span class="brand-e">e</span>Pepper</span>
         </a>
         {# Inline SVGs (24×24, 2 px stroke, currentColor). Explicit
            width/height attributes belt-and-suspenders the CSS rule —
