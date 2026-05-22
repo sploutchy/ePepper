@@ -14,9 +14,3 @@ data/
 # IDE
 .vscode/
 .idea/
-
-# Node noise that agents may drop into design-exploration/ when running
-# their Playwright screenshot pipelines.
-design-exploration/**/node_modules/
-design-exploration/**/package.json
-design-exploration/**/package-lock.json
