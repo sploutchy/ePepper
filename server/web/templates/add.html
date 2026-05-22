@@ -5,7 +5,6 @@
 {% block content %}
 <div class="page-header">
   <h1>Add a recipe</h1>
-  <p>Two ways in. Paste a link, or snap a page from a cookbook. Both end up in the library.</p>
 </div>
 
 <div id="add-result"></div>
@@ -23,10 +22,7 @@
       hx-swap="innerHTML"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("link", 20) }} URL</h2>
-  <ul class="add-help muted">
-    <li>Paste a recipe link &rarr; parsed into the library.</li>
-  </ul>
+  <h2>{{ icon("link", 20) }} Paste a recipe link</h2>
 
   <div class="file-row">
     <input type="url" name="url" required
@@ -68,10 +64,7 @@
       hx-encoding="multipart/form-data"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("camera", 20) }} Photo</h2>
-  <ul class="add-help muted">
-    <li>Snap a recipe (or pick a file) &rarr; OCR'd into the library.</li>
-  </ul>
+  <h2>{{ icon("camera", 20) }} Snap a recipe</h2>
 
   <div class="file-row">
     <label class="file-input" title="Take a photo">

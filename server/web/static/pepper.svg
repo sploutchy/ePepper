@@ -1,8 +1,13 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" role="img" aria-label="ePepper">
-  <!-- Inked pepper glyph. Paprika fill so it reads as the brand on a
-       browser tab / PWA tile, where currentColor would resolve to black.
-       The inline copy used in the header overrides this via currentColor. -->
-  <path d="M14 18 C 6 18, 2 26, 4 36 C 6 46, 14 54, 22 54 C 30 54, 36 47, 36 38 C 36 30, 32 24, 26 21 C 22 19, 18 17, 14 18 Z" fill="#B83227"/>
-  <path d="M22 18 C 22 12, 26 9, 32 10" fill="none" stroke="#B83227" stroke-width="3" stroke-linecap="round"/>
-  <path d="M28 12 C 32 9, 36 10, 38 14 C 34 15, 30 14, 28 12 Z" fill="#B83227"/>
+  <!-- Brand favicon: just the leading italic "e" of the ePepper wordmark,
+       paprika-fixed so it reads on a browser tab regardless of theme.
+       The visible logo in the header uses the full text wordmark; the
+       favicon collapses it to a single letter for tab-size legibility. -->
+  <text x="24" y="36"
+        text-anchor="middle"
+        font-family="Georgia, 'Times New Roman', serif"
+        font-size="44"
+        font-style="italic"
+        font-weight="400"
+        fill="#B83227">e</text>
 </svg>

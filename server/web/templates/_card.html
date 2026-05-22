@@ -4,7 +4,6 @@
    source_name   — status_helpers.source_name
    current_recipe_id — id of the recipe currently on the panel, or None
 #}
-{% from "_icons.html" import icon %}
 <li>
   <a href="/app/recipes/{{ r.id }}" class="card">
     <div class="card-title">
@@ -26,11 +25,10 @@
           never cooked
         {%- endif -%}
       </span>
+      {# "On air" indicator: a pulsing paprika dot + label. The dot is
+         drawn by .card-badge::before so the markup stays trivial. #}
       {% if r.id == current_recipe_id %}
-        <span class="card-badge" title="Currently on display">
-          {{ icon("monitor", 14) }}
-          <span class="iconbtn-label">on display</span>
-        </span>
+        <span class="card-badge" title="Currently on display">on display</span>
       {% endif %}
     </div>
   </a>

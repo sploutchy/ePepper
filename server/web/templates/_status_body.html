@@ -119,20 +119,22 @@
    yet (typical on a fresh deploy that hasn't seen its first midnight). #}
 <section class="status-card">
   <h2>{{ icon("calendar", 18) }} Tomorrow ({{ next_anniversary_date }})</h2>
+  {# Use the same .display-title treatment as the Display card above so
+     the "what's queued" line reads with identical weight and color. #}
   {% if next_anniversary %}
-    <p class="status-line">
+    <p class="display-title">
       <strong><a href="/app/recipes/{{ next_anniversary.id }}">{{ next_anniversary.title }}</a></strong>
-      <span class="muted">—
-        {%- if next_anniversary_years_ago == 1 %} cooked last year
-        {%- elif next_anniversary_years_ago and next_anniversary_years_ago > 1 %} cooked {{ next_anniversary_years_ago }} years ago
-        {%- else %} past anniversary
+      <span class="muted">
+        {%- if next_anniversary_years_ago == 1 %}cooked last year
+        {%- elif next_anniversary_years_ago and next_anniversary_years_ago > 1 %}cooked {{ next_anniversary_years_ago }} years ago
+        {%- else %}past anniversary
         {%- endif %}
       </span>
     </p>
   {% elif fooby_preview %}
-    <p class="status-line">
+    <p class="display-title">
       <strong><a href="{{ fooby_preview.url }}" target="_blank" rel="noopener">{{ fooby_preview.title }}</a></strong>
-      <span class="muted">— inspiration from Fooby</span>
+      <span class="muted">inspiration from Fooby</span>
     </p>
   {% else %}
     <p class="status-line muted">
