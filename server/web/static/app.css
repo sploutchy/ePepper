@@ -769,6 +769,14 @@ html[data-theme="dark"] .list-select {
   letter-spacing: 0.04em;
   margin-top: 4px;
 }
+/* .display-title.inline-meta — keep the qualifier on the same line as
+   the headline. Used by the LLM cost line ("~0.04 CHF this month"),
+   where the "this month" is short enough to fit beside the cost. */
+.display-title.inline-meta .muted {
+  display: inline;
+  margin-top: 0;
+  margin-left: 10px;
+}
 
 .status-card > p { margin: 0 0 6px; font-size: 15px; }
 .status-card > p:last-child { margin-bottom: 0; }

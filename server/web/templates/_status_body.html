@@ -157,33 +157,6 @@
   {% endif %}
 </section>
 
-{# LLM call ledger for the current calendar month. Headline only —
-   one line: total calls + URL/OCR/translate split + estimated CHF.
-   The `chf_partial` flag fires when a model in the period isn't in
-   the pricing table; surface that as a "≥" prefix so the user knows
-   the estimate undercounts. #}
-{% if llm.enabled %}
-<section class="status-card">
-  <h2><span class="status-card-h-label">{{ icon("cpu", 18) }} LLM</span></h2>
-  {% if llm.calls == 0 %}
-    <p class="status-line muted">No calls this month yet.</p>
-  {% else %}
-    {# Two-line stat: the monthly cost is the headline, the call
-       breakdown is the supporting detail. Same .display-title / muted
-       pairing the Display and Tomorrow cards use, so the LLM card
-       reads with the same weight hierarchy. #}
-    <p class="display-title">
-      <strong>{{ '≥ ' if llm.chf_partial else '~' }}{{ '%.2f' % llm.chf }} CHF</strong>
-      <span class="muted">this month</span>
-    </p>
-    <p class="status-line muted">
-      {{ llm.calls }} call{{ '' if llm.calls == 1 else 's' }}
-      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
-    </p>
-  {% endif %}
-</section>
-{% endif %}
-
 <section class="status-card">
   {# "Last seen X" rides on the h2 title row (right-aligned, muted),
      mirroring the Display card's "Updated …". The overdue chip stays
@@ -229,5 +202,29 @@
     <p class="status-line muted">Never seen.</p>
   {% endif %}
 </section>
+
+{# LLM call ledger for the current calendar month. Cost as the
+   .display-title headline ("~0.04 CHF this month", inline-meta keeps
+   the qualifier next to the number), then the call breakdown as a
+   muted detail line below. The `chf_partial` flag fires when a model
+   in the period isn't in the pricing table; surface that as a "≥"
+   prefix so the user knows the estimate undercounts. #}
+{% if llm.enabled %}
+<section class="status-card">
+  <h2><span class="status-card-h-label">{{ icon("cpu", 18) }} LLM</span></h2>
+  {% if llm.calls == 0 %}
+    <p class="status-line muted">No calls this month yet.</p>
+  {% else %}
+    <p class="display-title inline-meta">
+      <strong>{{ '≥ ' if llm.chf_partial else '~' }}{{ '%.2f' % llm.chf }} CHF</strong>
+      <span class="muted">this month</span>
+    </p>
+    <p class="status-line muted">
+      {{ llm.calls }} call{{ '' if llm.calls == 1 else 's' }}
+      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
+    </p>
+  {% endif %}
+</section>
+{% endif %}
 
 </div> {# /.status-cards #}
