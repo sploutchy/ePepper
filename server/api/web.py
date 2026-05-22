@@ -310,6 +310,14 @@ async def search_partial(
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
     ctx = _list_context(request, q, offset, sort, source, tag)
+    # `is_partial` toggles the OOB swap of the library-header meta line
+    # (count + active sort/filter label). Suppressed on infinite-scroll
+    # appends (offset > 0) — those don't change the filter state, so
+    # an OOB rewrite would just flicker.
+    ctx["is_partial"] = offset == 0
+    # _list_context skips the page-level globals (saved_count, etc.)
+    # because cards don't need them; the OOB meta does, so add it.
+    ctx["saved_count"] = library.count_saved()
     template = "_list_append.html" if offset > 0 else "_list.html"
     return templates.TemplateResponse(request, template, ctx)
 

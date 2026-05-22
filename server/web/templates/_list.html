@@ -1,3 +1,8 @@
+{# OOB-swap the library-header meta line so the count + sort/filter label
+   stay in sync with the active dropdown state. Only emitted when the
+   route flagged this as a partial render; the initial index.html render
+   already includes _lib_meta.html in place. #}
+{% if is_partial %}<span id="lib-meta" class="meta" hx-swap-oob="true">{% include "_lib_meta.html" %}</span>{% endif %}
 {% if not recipes %}
   {% if q %}
     <p class="muted empty">No matches for “{{ q }}”.</p>

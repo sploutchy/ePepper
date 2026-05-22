@@ -151,9 +151,7 @@ button { cursor: pointer; }
 }
 
 .brand {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 10px;
+  display: inline-block;
   color: var(--text);
   font-family: var(--font-display);
   font-weight: 700;
@@ -167,11 +165,12 @@ button { cursor: pointer; }
   font-style: italic;
   font-weight: 400;
   color: var(--accent);
-}
-.brand .pepper {
-  width: 18px; height: 18px;
-  color: var(--accent);
-  align-self: center;
+  /* Italic e tilts away from the upright P; pull "Pepper" back so the
+     wordmark reads as one glyph cluster, not two words separated by air.
+     (.brand was inline-flex with gap:10px to position a pepper SVG that
+     no longer exists — that gap was the real culprit; this nudge handles
+     the residual optical gap from italic slant.) */
+  margin-right: -0.06em;
 }
 
 .topnav {
@@ -251,9 +250,6 @@ body.centered {
   text-align: left;
 }
 .login h1 {
-  display: flex;
-  align-items: center;
-  gap: 14px;
   font-family: var(--font-display);
   font-size: clamp(48px, 6vw, 72px);
   font-weight: 700;
@@ -263,14 +259,11 @@ body.centered {
   margin: 0 0 8px;
   color: var(--text);
 }
-.login h1 .pepper {
-  width: 44px; height: 44px;
-  color: var(--accent);
-}
 .login h1 .brand-e {
   font-style: italic;
   font-weight: 400;
   color: var(--accent);
+  margin-right: -0.04em;
 }
 .login > p { margin: 0 0 28px; color: var(--muted); font-size: 17px; }
 
@@ -640,21 +633,31 @@ html[data-theme="dark"] .list-select {
 .spinning svg { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-/* ----------  Status  ---------- */
+/* ----------  Status  ----------
+   Single-column layout: the e-ink preview gets the full width up top
+   (capped at the BMP's intrinsic 800 px so it renders at actual size
+   on desktop), then the status cards stack below. The 2-col grid the
+   redesign initially had squeezed the 800×480 frame into a 590 px
+   sidebar, which distorted it visually. */
 .status-grid {
-  display: grid;
-  grid-template-columns: 1.05fr 0.95fr;
-  gap: 32px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  align-items: stretch;
 }
 
+/* The e-ink frame is 800×480 1-bit BMP. No card chrome — the image is
+   the content. max-width: 800 px caps it at native pixel size on
+   desktop (so it doesn't get upscaled in a wide column), and width:
+   100% lets it scale down proportionally below that. Pixelated keeps
+   the dot pattern crisp at any size. min-height is intentionally
+   absent — the old 320 px floor stretched landscape frames into
+   squares. */
 .display-preview {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  padding: 18px;
-  position: sticky;
-  top: 92px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
 }
 .display-preview::before {
   content: "Now on the e-ink";
@@ -667,13 +670,13 @@ html[data-theme="dark"] .list-select {
   margin-bottom: 12px;
 }
 .display-preview img {
+  display: block;
+  max-width: 800px;
   width: 100%;
   height: auto;
-  display: block;
-  border-radius: var(--r-md);
+  margin: 0 auto;
   background: #ffffff;
-  border: 1px solid var(--border);
-  min-height: 320px;
+  image-rendering: pixelated;
 }
 
 .status-cards {
@@ -730,7 +733,10 @@ html[data-theme="dark"] .list-select {
 
 .status-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .status-line strong { color: var(--text); }
-.status-icon { display: inline-flex; color: var(--accent); }
+/* Per-line metric icons (battery/wifi/thermo/droplet on the Device card,
+   etc.) — muted so they read as "label decoration", not as primary
+   attention pulls the way the section-title accent icons do. */
+.status-icon { display: inline-flex; color: var(--muted); }
 
 .page-nav {
   display: flex;
@@ -813,27 +819,20 @@ html[data-theme="dark"] .list-select {
 .recipe > p.muted a:hover { color: var(--accent); border-bottom-color: var(--accent); }
 
 .actions {
-  margin: 0 0 36px;
+  margin: 0 0 28px;
 }
-.actions button.primary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 14px 24px;
-  /* Soft-paprika tint, paprika ink — matches the Clear button on the
-     status page. Less shouty than a fully filled accent, but the
-     hierarchy still reads as the primary action on the page. */
+/* Push to display borrows the bottom "Delete this recipe" treatment —
+   quiet link-style, small icon, accent (not danger) color since pushing
+   isn't destructive. Inherits everything from button.link; only the
+   accent recolour lives here. */
+.actions button.link.accent {
+  color: var(--accent);
+  font-weight: 500;
+}
+.actions button.link.accent:hover {
   background: var(--accent-soft);
   color: var(--accent);
-  border: 1px solid transparent;
-  border-radius: var(--r-md);
-  font-weight: 600;
-  font-size: 15px;
-  letter-spacing: 0.01em;
-  transition: background .15s var(--ease), transform .15s var(--ease);
 }
-.actions button.primary:hover { border-color: var(--accent); background: var(--accent-soft); }
-.actions button.primary:active { transform: translateY(1px); }
 
 .recipe-body {
   display: grid;
@@ -1072,12 +1071,11 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
 }
 
 /* ----------  Toast  ----------
-   #toast is the persistent slot in <main>; .toast wraps the actual
-   notification. Both rules give the inline-pill look — #toast:not(:empty)
-   covers the case where the rendered fragment is a bare text node (e.g.
-   the "Pushed" confirmation from /push), .toast covers the templated
-   confirmations that already wrap themselves (cleared/undo/add). */
-#toast:not(:empty),
+   Every confirmation injected into #toast wraps itself in `.toast`
+   (_toast.html, undo banner, cleared banner). So #toast itself stays
+   an unstyled passthrough — styling it as a pill too stacks two fixed
+   pills bottom-center, which double-renders the message and the dark
+   pill chrome on every push. */
 .toast {
   position: fixed;
   bottom: 24px;
@@ -1138,8 +1136,17 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
 
 /* ----------  Responsive  ---------- */
 @media (max-width: 900px) {
-  main { padding: 36px var(--gutter) 80px; }
+  /* Tighter top padding on mobile — the 56 px desktop breathing room
+     plus the page-header's own margin pushed every title nearly off
+     the first fold. Same lower padding to keep scroll-room at bottom. */
+  main { padding: 18px var(--gutter) 80px; }
   .topbar-inner { padding: 16px var(--gutter); }
+  .library-header { margin-bottom: 18px; }
+  .page-header    { margin-bottom: 22px; }
+  /* Back link on recipe pages — was a 32 px wedge below the chip,
+     which dominated the viewport before the recipe title even
+     appeared. */
+  .back { margin-bottom: 14px; }
   .brand { font-size: 22px; }
   .iconbtn-label { display: none; }
   .iconbtn { padding: 8px 10px; }
@@ -1152,8 +1159,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   .add-grid { grid-template-columns: 1fr; gap: 18px; }
   .add-tile { padding: 24px; }
 
-  .status-grid { grid-template-columns: 1fr; gap: 22px; }
-  .display-preview { position: static; }
+  .status-grid { gap: 22px; }
 
   .recipe-body { grid-template-columns: 1fr; gap: 36px; }
   .recipe-sidebar { position: static; }
@@ -1168,12 +1174,10 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   :root { --gutter: 20px; }
   .topbar-inner { padding: 14px var(--gutter); }
   .brand { font-size: 20px; }
-  .brand .pepper { width: 16px; height: 16px; }
   .topnav { gap: 0; }
   .iconbtn { padding: 8px; }
   .recipe > h1 { font-size: 40px; }
   .steps li { grid-template-columns: 36px 1fr; gap: 12px; }
   .steps li::before { font-size: 26px; }
   .login h1 { font-size: 44px; }
-  .login h1 .pepper { width: 30px; height: 30px; }
 }
