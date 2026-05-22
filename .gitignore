@@ -14,3 +14,7 @@ data/
 # IDE
 .vscode/
 .idea/
+
+# Design exploration work-in-progress (agents writing in background).
+# Will be removed and the output committed once all agents finish.
+design-exploration/
