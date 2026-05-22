@@ -679,17 +679,15 @@ html[data-theme="dark"] .list-select {
    the dot pattern crisp at any size. min-height is intentionally
    absent — the old 320 px floor stretched landscape frames into
    squares. */
-/* The preview sits as a row inside .status-cards — between Display and
-   Tomorrow. Picks up the same hairline-separator + vertical padding
-   as the surrounding cards so it reads as one of the rows, not a
-   floating image. No eyebrow label: the Display section above is its
-   caption. */
+/* The preview is nested inside the Display .status-card, sitting between
+   the title row and the page-nav / Clear controls. No border or extra
+   chrome — the section's bottom hairline is enough — just margin so the
+   image has breathing room above and below. */
 .display-preview {
   background: transparent;
   border: 0;
-  border-bottom: 1px solid var(--border);
-  padding: 24px 0;
-  margin: 0;
+  padding: 0;
+  margin: 18px 0;
 }
 .display-preview img {
   display: block;
