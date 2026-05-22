@@ -12,19 +12,9 @@
   </div>
 {% endif %}
 
-{# Live preview of the display — full-bleed hero so the 800×480 frame
-   reads at a useful size. /image is cookie-authed for the browser; the
-   hash query param doubles as a cache buster so the 30 s refresh
-   always pulls the current frame. #}
-{% if display.hash %}
-  <div class="display-preview">
-    <img src="/image?v={{ display.hash }}" alt="Current display">
-  </div>
-{% endif %}
-
-{# Right column of the .status-grid — all five info cards live here.
-   .status-cards is a flex column with consistent gaps; on mobile the
-   parent grid collapses and this just stacks below the preview. #}
+{# Flat list of status rows — Display card, then the e-ink preview
+   sandwiched between Display and Tomorrow (so the title and metadata
+   land first, then the visual), then the rest of the cards. #}
 <div class="status-cards">
 
 <section class="status-card">
@@ -52,9 +42,6 @@
             {{ src }}
           {%- endif %}
         </span>
-      {% endif %}
-      {% if display.total_pages > 1 %}
-        <span class="muted">— page {{ display.page }} of {{ display.total_pages }}</span>
       {% endif %}
     </p>
   {% else %}
@@ -104,11 +91,21 @@
           hx-post="/app/display/clear"
           hx-confirm="Clear the display?">
       {# Same link-style treatment as "Delete this recipe" on the recipe
-         page — danger red, no filled chrome. #}
+         page — danger red, no filled chrome. Centered via
+         .status-actions in app.css. #}
       <button class="link danger" type="submit">{{ icon("trash", 14) }} Clear</button>
     </form>
   {% endif %}
 </section>
+
+{# Live preview of the e-ink frame — sits between the Display card and
+   Tomorrow so the title and page nav read first, then the image. No
+   eyebrow label; the Display section above is its caption. #}
+{% if display.hash %}
+  <div class="display-preview">
+    <img src="/image?v={{ display.hash }}" alt="Current display">
+  </div>
+{% endif %}
 
 {# Tomorrow's preview — mirrors what the midnight scheduler will push.
    Format: "<linked title> — <why>" so the recipe name is the reading
@@ -183,12 +180,20 @@
 {% endif %}
 
 <section class="status-card">
-  <h2><span class="status-card-h-label">{{ icon("radio", 18) }} Device</span></h2>
+  {# "Last seen X" rides on the h2 title row (right-aligned, muted),
+     mirroring the Display card's "Updated …". The overdue chip stays
+     inline next to the timestamp so it reads as a qualifier on the
+     same fact. #}
+  <h2>
+    <span class="status-card-h-label">{{ icon("radio", 18) }} Device</span>
+    {% if device.last_seen %}
+      <span class="status-card-h-meta">
+        Last seen {{ humanize_ago(device.last_seen) }}
+        {% if is_overdue %}<span class="warn-inline">{{ icon("alert-triangle", 14) }} overdue</span>{% endif %}
+      </span>
+    {% endif %}
+  </h2>
   {% if device.last_seen %}
-    <p class="status-line">
-      Last seen {{ humanize_ago(device.last_seen) }}
-      {% if is_overdue %}<span class="warn-inline">{{ icon("alert-triangle", 14) }} overdue</span>{% endif %}
-    </p>
     {% if device.battery_mv %}
       <p class="status-line">
         <span class="status-icon">{{ icon("battery-low" if is_low_battery else "battery", 18) }}</span>
