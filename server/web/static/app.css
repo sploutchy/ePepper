@@ -1,833 +1,1179 @@
+/* =========================================================================
+   ePepper — Lean Editorial
+   ========================================================================= */
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+
+/* ----------  Tokens  ---------- */
 :root {
-  /* Tells the UA that both light and dark are supported so form controls,
-     scrollbars, and the default canvas background follow the active theme
-     instead of staying white. The override below picks the active one. */
   color-scheme: light dark;
 
-  --bg:           #faf8f4;
-  --fg:           #2a2620;
-  --muted:        #807a70;
-  --border:       #e4dfd2;
+  /* Light palette (defaults) */
+  --bg:            #FBFAF7;
+  --surface:       #FFFFFF;
+  --surface-alt:   #F2EFE8;
+  --text:          #1A1A1A;
+  --text-dim:      #3A3835;
+  --muted:         #807A70;
+  --faint:         #B6B0A4;
+  --border:        #E4DFD4;
+  --border-strong: #1A1A1A;
+  --accent:        #B83227;
+  --accent-hover:  #962419;
+  --accent-soft:   #F7E4E1;
+  --on-accent:     #FFFFFF;
+  --success:       #3F6B3A;
+  --warn:          #B07A0F;
+  --danger:        #9B1C1C;
+  --danger-soft:   #FDECEC;
 
-  --card-bg:      #ffffff;
-  --comment-bg:   #f3eedf;   /* warm cream, distinct from the white textarea */
+  /* Typography */
+  --font-display: 'Fraunces', 'Times New Roman', Georgia, serif;
+  --font-body:    'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
 
-  --primary:      #3d7a4d;   /* forest green — push, sign-in, save */
-  --primary-soft: #d4e3cd;
-  --primary-fg:   #ffffff;
+  /* Layout */
+  --page-max:     1140px;
+  --read-max:     680px;
+  --gutter:       clamp(20px, 4vw, 56px);
+  --vrhythm:      1.65;
 
-  --danger:       #a85a3d;   /* terracotta — delete */
-  --danger-soft:  #ebd0c4;
-  --danger-fg:    #ffffff;
-
-  --neutral:      #3d3a35;   /* charcoal — default buttons */
-  --neutral-fg:   #faf8f4;
-
-  --warn-bg:      #fbeed3;
-  --warn-fg:      #6a4a00;
-  --warn-border:  #e5c97a;
-
-  --radius:       10px;
-  --gap:          14px;
-  --shadow:       0 1px 2px rgba(0,0,0,0.04);
-
+  /* Radii / motion */
+  --r-sm:  6px;
+  --r-md:  10px;
+  --r-lg:  18px;
+  --ease:  cubic-bezier(.2,.6,.2,1);
 }
 
-/* Lock the UA color-scheme to the active theme when the user has overridden
-   it, so dark mode's form controls don't render light (and vice versa). */
-:root[data-theme="dark"] { color-scheme: dark; }
-:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"], html[data-theme="dark"] {
+  --bg:            #121110;
+  --surface:       #1B1A18;
+  --surface-alt:   #23211E;
+  --text:          #F1ECE2;
+  --text-dim:      #CFC8BC;
+  --muted:         #8E867A;
+  --faint:         #5A554D;
+  --border:        #2C2A26;
+  --border-strong: #F1ECE2;
+  --accent:        #E5614F;
+  --accent-hover:  #F1816F;
+  --accent-soft:   #3A1C18;
+  --on-accent:     #15110F;
+  --success:       #7AAE73;
+  --warn:          #D9A742;
+  --danger:        #F0817E;
+  --danger-soft:   #3A1B1B;
+}
 
-/* Dark mode — same palette intent (warm + a green primary), but inverted.
-   Two entry points:
-     1. OS dark mode, no manual override → @media block below.
-     2. Explicit data-theme="dark" from the toggle → :root selector below.
-   Both copy the same custom-property values so the CSS-only path works
-   even when the inline init script doesn't run. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg:           #1c1a17;
-    --fg:           #ece6da;
-    --muted:        #9d958a;
-    --border:       #3a3631;
-
-    --card-bg:      #26221e;
-    --comment-bg:   #2f2a23;
-
-    --primary:      #6fae7a;
-    --primary-soft: #2c4a33;
-    --primary-fg:   #14130f;
-
-    --danger:       #d28365;
-    --danger-soft:  #4a2e22;
-    --danger-fg:    #14130f;
-
-    --neutral:      #c8c1b4;
-    --neutral-fg:   #14130f;
-
-    --warn-bg:      #3c2f15;
-    --warn-fg:      #f0d28a;
-    --warn-border:  #6a5424;
-
-    --shadow:       0 1px 2px rgba(0,0,0,0.4);
+    --bg:            #121110;
+    --surface:       #1B1A18;
+    --surface-alt:   #23211E;
+    --text:          #F1ECE2;
+    --text-dim:      #CFC8BC;
+    --muted:         #8E867A;
+    --faint:         #5A554D;
+    --border:        #2C2A26;
+    --border-strong: #F1ECE2;
+    --accent:        #E5614F;
+    --accent-hover:  #F1816F;
+    --accent-soft:   #3A1C18;
+    --on-accent:     #15110F;
+    --success:       #7AAE73;
+    --warn:          #D9A742;
+    --danger:        #F0817E;
+    --danger-soft:   #3A1B1B;
   }
 }
-:root[data-theme="dark"] {
-  --bg:           #1c1a17;
-  --fg:           #ece6da;
-  --muted:        #9d958a;
-  --border:       #3a3631;
 
-  --card-bg:      #26221e;
-  --comment-bg:   #2f2a23;
+/* ----------  Reset + base  ---------- */
+*, *::before, *::after { box-sizing: border-box; }
+html, body { margin: 0; padding: 0; }
+html { -webkit-text-size-adjust: 100%; }
 
-  --primary:      #6fae7a;
-  --primary-soft: #2c4a33;
-  --primary-fg:   #14130f;
-
-  --danger:       #d28365;
-  --danger-soft:  #4a2e22;
-  --danger-fg:    #14130f;
-
-  --neutral:      #c8c1b4;
-  --neutral-fg:   #14130f;
-
-  --warn-bg:      #3c2f15;
-  --warn-fg:      #f0d28a;
-  --warn-border:  #6a5424;
-
-  --shadow:       0 1px 2px rgba(0,0,0,0.4);
-}
-
-* { box-sizing: border-box; }
-
-html, body {
-  margin: 0;
-  padding: 0;
+body {
   background: var(--bg);
-  color: var(--fg);
-  font: 17px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 17px;
+  line-height: var(--vrhythm);
+  font-feature-settings: "ss01", "cv11", "ss03";
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
 }
 
-body.centered {
-  display: grid;
-  place-items: center;
-  min-height: 100dvh;
+img, svg { display: block; max-width: 100%; }
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color .15s var(--ease);
+}
+a:hover { color: var(--accent-hover); text-decoration: underline; }
+
+::selection {
+  background: var(--accent);
+  color: var(--on-accent);
 }
 
-main {
-  max-width: 760px;
-  margin: 0 auto;
-  padding: var(--gap);
+button, input, select, textarea { font: inherit; color: inherit; }
+
+button { cursor: pointer; }
+
+/* Focus */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
 }
 
-a { color: var(--primary); text-decoration: none; }
-a:hover { text-decoration: underline; }
-
-.muted { color: var(--muted); font-size: 0.92em; }
-.error { color: var(--danger); }
-
-/* Brand icon — inline SVG so we don't depend on system emoji fonts. */
-.pepper {
-  width: 1.2em;
-  height: 1.2em;
-  vertical-align: -0.2em;
-  margin-right: 4px;
-}
-
-/* Top bar — background spans the viewport, but the inner row is capped
-   at the same max-width and side padding as <main> so the brand and the
-   nav buttons line up with the column below. */
+/* ----------  Topbar / masthead  ---------- */
 .topbar {
-  background: var(--card-bg);
   border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: saturate(140%) blur(8px);
 }
+
 .topbar-inner {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 22px var(--gutter) 18px;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  max-width: 760px;
-  margin: 0 auto;
-  padding: 10px var(--gap);
+  gap: 24px;
 }
+
 .brand {
-  font-weight: 700;
-  font-size: 1.1em;
-  color: var(--fg);
   display: inline-flex;
-  align-items: center;
-}
-.logout-form { margin: 0; }
-.link {
-  background: none;
-  border: 0;
-  color: var(--muted);
-  padding: 4px 6px;
-  font: inherit;
-  cursor: pointer;
-}
-.link:hover { color: var(--fg); text-decoration: underline; }
-
-/* Login */
-.login {
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  width: min(360px, 90vw);
-  text-align: center;
-  box-shadow: var(--shadow);
-}
-.login h1 {
-  margin: 0 0 6px;
-  display: inline-flex;
-  align-items: center;
-}
-.login form {
-  margin-top: 16px;
-  display: grid;
+  align-items: baseline;
   gap: 10px;
+  color: var(--text);
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 26px;
+  font-variation-settings: "opsz" 36, "SOFT" 50;
+  letter-spacing: -0.01em;
+  line-height: 1;
 }
-.login-hint {
-  margin-top: 16px;
-  font-size: 0.85em;
-  line-height: 1.4;
+.brand:hover { color: var(--text); text-decoration: none; }
+.brand .brand-e {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--accent);
 }
-.login-hint code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em;
-  background: rgba(0,0,0,0.06);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-:root[data-theme="dark"] .login-hint code { background: rgba(255,255,255,0.08); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .login-hint code { background: rgba(255,255,255,0.08); }
-}
-
-/* Inputs */
-input[type=search], input[type=password], textarea {
-  width: 100%;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card-bg);
-  font: inherit;
-  color: var(--fg);
-}
-input:focus, textarea:focus {
-  outline: 2px solid var(--primary-soft);
-  outline-offset: 1px;
-  border-color: var(--primary);
+.brand .pepper {
+  width: 18px; height: 18px;
+  color: var(--accent);
+  align-self: center;
 }
 
-/* Buttons */
-button {
-  background: var(--neutral);
-  color: var(--neutral-fg);
-  border: 0;
-  border-radius: var(--radius);
-  padding: 9px 16px;
-  font: inherit;
-  font-weight: 600;
-  cursor: pointer;
-  transition: background 0.12s ease, filter 0.12s ease;
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-button:hover { filter: brightness(1.08); }
-
-/* Inline SVG icons sized + aligned with surrounding text. Each macro
-   call already sets width/height; this just keeps them from getting
-   squashed by flex parents and aligns with text baselines for cases
-   where they sit outside flex containers. */
-.icon { flex-shrink: 0; vertical-align: -3px; }
-
-button.primary {
-  background: var(--primary);
-  color: var(--primary-fg);
-}
-button.danger {
-  background: var(--danger);
-  color: var(--danger-fg);
-}
-button.link {
-  background: transparent;
-  color: var(--muted);
-  padding: 4px 6px;
-  font-weight: 500;
-}
-button.link:hover { filter: none; color: var(--fg); }
-button.link.danger {
-  color: var(--danger);
-}
-button.link.danger:hover { color: var(--danger); filter: brightness(1.15); }
-
-/* Search */
-.search { margin-bottom: var(--gap); }
-
-/* Library list controls — search input plus two sort/filter selects on
-   one row. The search input grows to fill, the selects keep their
-   natural width. Wraps to a new row on phones if the three controls
-   can't fit; everything stays usable. */
-.list-controls {
+.topnav {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-bottom: var(--gap);
-}
-.list-search { flex: 1 1 220px; }
-.list-select {
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card-bg);
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-.list-select:focus {
-  outline: 2px solid var(--primary-soft);
-  outline-offset: 1px;
-  border-color: var(--primary);
-}
-
-/* "Currently on display" badge on the matching library card. */
-.card-badge {
-  display: inline-flex;
   align-items: center;
   gap: 4px;
-  margin-left: auto;
-  font-size: 0.85em;
-  color: var(--primary);
+}
+.topnav .iconbtn { color: var(--text-dim); }
+
+.iconbtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-dim);
+  border-radius: var(--r-sm);
+  font-size: 14px;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  transition: background .15s var(--ease), color .15s var(--ease), border-color .15s var(--ease);
+}
+.iconbtn:hover {
+  color: var(--text);
+  background: var(--surface-alt);
+  text-decoration: none;
+}
+.iconbtn svg { flex: none; }
+.iconbtn-label { white-space: nowrap; }
+
+.logout-form { margin: 0; }
+.logout-form button { background: transparent; }
+
+/* Theme icons */
+.theme-icon-light { display: inline-block; }
+.theme-icon-dark  { display: none; }
+:root[data-theme="dark"] .theme-icon-light,
+html[data-theme="dark"] .theme-icon-light { display: none; }
+:root[data-theme="dark"] .theme-icon-dark,
+html[data-theme="dark"] .theme-icon-dark { display: inline-block; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .theme-icon-light { display: none; }
+  :root:not([data-theme="light"]) .theme-icon-dark { display: inline-block; }
+}
+
+/* ----------  Main canvas  ---------- */
+main {
+  max-width: var(--page-max);
+  margin: 0 auto;
+  padding: 56px var(--gutter) 96px;
+}
+
+/* ----------  Utility  ---------- */
+.muted { color: var(--muted); }
+.eyebrow {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+/* ----------  Login  ---------- */
+body.centered {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+
+.login {
+  width: 100%;
+  max-width: 440px;
+  text-align: left;
+}
+.login h1 {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-family: var(--font-display);
+  font-size: clamp(48px, 6vw, 72px);
+  font-weight: 700;
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.login h1 .pepper {
+  width: 44px; height: 44px;
+  color: var(--accent);
+}
+.login h1 .brand-e {
+  font-style: italic;
+  font-weight: 400;
+  color: var(--accent);
+}
+.login > p { margin: 0 0 28px; color: var(--muted); font-size: 17px; }
+
+.login form {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.login input[type="password"] {
+  width: 100%;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-md);
+  font-size: 17px;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.login input[type="password"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.login button[type="submit"] {
+  padding: 14px 22px;
+  background: var(--accent);
+  color: var(--on-accent);
+  border: 0;
+  border-radius: var(--r-md);
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background .15s var(--ease);
+}
+.login button[type="submit"]:hover { background: var(--accent-hover); }
+
+.login-hint {
+  font-size: 14px;
+  line-height: 1.6;
+  margin: 0;
+}
+.login-hint code {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  background: var(--surface-alt);
+  padding: 1px 6px;
+  border-radius: 4px;
+  color: var(--text);
+}
+
+/* ----------  List controls (library search) ---------- */
+.list-controls {
+  display: grid;
+  grid-template-columns: 1fr auto auto;
+  gap: 10px;
+  align-items: stretch;
+  margin: 0 0 36px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.list-search,
+.list-select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  padding: 12px 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-md);
+  font-size: 15px;
+  font-family: var(--font-body);
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.list-search:focus,
+.list-select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.list-search::placeholder { color: var(--faint); }
+
+.list-select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%23807A70' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6l5 5 5-5'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  background-size: 14px 14px;
+  padding-right: 38px;
+}
+:root[data-theme="dark"] .list-select,
+html[data-theme="dark"] .list-select {
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238E867A' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6l5 5 5-5'/%3E%3C/svg%3E");
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .list-select {
+    background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238E867A' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M3 6l5 5 5-5'/%3E%3C/svg%3E");
+  }
+}
+
+/* ----------  Library list  ---------- */
+.library-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+  margin-bottom: 28px;
+}
+.library-header h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+  font-size: clamp(40px, 5.5vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  margin: 0;
+}
+.library-header .meta {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
   font-weight: 600;
 }
 
-/* Recipe list */
 .recipes {
   list-style: none;
   margin: 0;
   padding: 0;
-  display: grid;
-  gap: 10px;
+  counter-reset: recipe;
 }
+
+.recipes > li {
+  border-bottom: 1px solid var(--border);
+}
+.recipes > li:first-child { border-top: 1px solid var(--border); }
+
 .card {
-  display: block;
-  background: var(--card-bg);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  color: inherit;
-  box-shadow: var(--shadow);
-  transition: border-color 0.12s ease;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 24px;
+  padding: 22px 4px;
+  color: var(--text);
+  text-decoration: none;
+  transition: padding-left .2s var(--ease), background .2s var(--ease);
+  position: relative;
+}
+.card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity .2s var(--ease);
 }
 .card:hover {
-  border-color: var(--primary);
   text-decoration: none;
+  padding-left: 18px;
+  background: linear-gradient(to right, var(--surface-alt), transparent 60%);
 }
+.card:hover::before { opacity: 1; }
+
 .card-title {
-  font-weight: 600;
   display: flex;
-  align-items: baseline;
-  gap: 8px;
-  flex-wrap: wrap;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
 }
-/* "from X" chip next to the recipe title — styled like .muted so it
-   matches the "saved …" line below the title visually. Selector is
-   .card-title-scoped so it outranks the parent's font-weight: 600 even
-   on Firefox Android, which otherwise synthesizes a fake bold from the
-   inherited weight. font-synthesis-weight: none belt-and-braces blocks
-   the synthesis path even when the explicit weight is ignored. */
-.card-title .card-source {
-  font-size: 0.92em;
-  font-weight: 400;
-  font-synthesis-weight: none;
+.card-title > span:first-child {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variation-settings: "opsz" 36, "SOFT" 50;
+  font-size: 22px;
+  line-height: 1.2;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.card-source {
+  font-size: 12px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
   color: var(--muted);
+  font-weight: 600;
 }
+
 .card-meta {
   display: flex;
-  gap: 10px;
   align-items: center;
-  margin-top: 4px;
-}
-.loader, .more {
-  text-align: center;
-  padding: 14px;
+  gap: 14px;
+  font-size: 13px;
   color: var(--muted);
-}
-.empty { padding: 24px 0; text-align: center; }
-
-/* Onboarding empty state — shown when the library has nothing in it.
-   More inviting than the bare "Nothing saved yet." muted line. */
-.empty-onboarding {
-  background: var(--card-bg);
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  padding: 24px;
-  margin: 24px 0;
-  text-align: center;
-}
-.empty-onboarding p { margin: 6px 0; }
-.empty-onboarding code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em;
-  background: rgba(0,0,0,0.06);
-  padding: 1px 6px;
-  border-radius: 4px;
-}
-:root[data-theme="dark"] .empty-onboarding code { background: rgba(255,255,255,0.08); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .empty-onboarding code { background: rgba(255,255,255,0.08); }
-}
-
-/* Recipe page footer holds the (de-emphasized) delete button. Sits well
-   below the notes so it's reachable but doesn't pull the eye. */
-.recipe-footer {
-  margin-top: 36px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  text-align: center;
-}
-.recipe-footer .link.danger {
-  font-size: 0.9em;
-}
-
-/* Recipe detail */
-.back {
-  display: inline-block;
-  margin-bottom: 8px;
-  color: var(--muted);
-}
-.recipe h1 { margin: 4px 0 6px; line-height: 1.2; }
-.recipe h2 {
-  margin: 24px 0 8px;
-  font-size: 1.05em;
-  color: var(--muted);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-}
-.recipe h3 {
-  margin: 18px 0 6px;
-  font-size: 1em;
-  color: var(--primary);
-}
-.ingredients, .steps { padding-left: 22px; }
-.ingredients li, .steps li { margin: 4px 0; }
-
-.actions {
-  display: flex;
-  gap: 8px;
-  flex-wrap: wrap;
-  margin: 12px 0 6px;
-}
-
-
-/* Comments — distinct warm-cream background so they don't blend with the
-   white textarea below. Left-border accent gives a quoted-note feel. */
-.comments {
-  list-style: none;
-  padding: 0;
-  margin: 0 0 12px;
-  display: grid;
-  gap: 6px;
-}
-.comments li {
-  background: var(--comment-bg);
-  border: 1px solid transparent;
-  border-left: 3px solid var(--primary);
-  border-radius: 6px;
-  padding: 8px 12px;
-  display: flex;
-  gap: 8px;
-  align-items: flex-start;
-  justify-content: space-between;
-}
-.comment-body { white-space: pre-wrap; }
-.add-comment {
-  display: grid;
-  gap: 8px;
-  margin-top: 6px;
-}
-
-/* Toast / notice — same inline pill shape as .add-error, success-coloured.
-   Used by the recipe page "pushed to display" confirmation, the index
-   undo-after-delete bar, and the status page action confirmations. The
-   container is at the top of <main> so each notification appears above
-   the page's content, like form errors do on the add page. */
-#toast:empty { display: none; }
-.toast {
-  background: var(--primary-soft);
-  border: 1px solid var(--primary);
-  color: var(--fg);
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  margin: 0 0 12px;
-  display: flex;
-  gap: 12px;
-  align-items: center;
-}
-#undo-toast button {
-  background: var(--primary);
-  color: var(--primary-fg);
-  padding: 6px 10px;
-  font-size: 0.9em;
-}
-
-/* Top-bar nav — single right-aligned group of equal-sized icon buttons. */
-.topnav {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  margin-left: auto;
-}
-.iconbtn {
-  /* Equal 36 px hit-area baseline for every header control. Icon-only on
-     mobile (min-width = padded SVG width); labels appear ≥ 640 px and
-     let the button grow to fit. SVG children inherit currentColor. */
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-width: 36px;
-  height: 36px;
-  padding: 0 8px;
-  background: transparent;
-  color: var(--muted);
-  border: 0;
-  border-radius: 8px;
-  cursor: pointer;
-  font: inherit;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-.iconbtn:hover,
-.iconbtn:focus-visible {
-  color: var(--fg);
-  background: var(--border);
-  text-decoration: none;
-  filter: none;
-  outline: none;
-}
-.iconbtn:active { transform: translateY(1px); }
-.iconbtn svg {
-  width: 20px;
-  height: 20px;
-  display: block;
-}
-
-/* Theme toggle: two SVGs sit side-by-side, the inactive one is hidden.
-   The companion label is a single span whose ::before text swaps along
-   with the icon — keeps the markup flat (no wrapper spans) and dodges a
-   Firefox issue where nested inline-flex containers occasionally
-   collapsed the SVG to 0×0. */
-.theme-toggle .theme-icon-dark { display: none; }
-.theme-toggle .theme-icon-light { display: block; }
-.theme-toggle .theme-label::before { content: "Light"; }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .theme-toggle .theme-icon-dark { display: block; }
-  :root:not([data-theme="light"]) .theme-toggle .theme-icon-light { display: none; }
-  :root:not([data-theme="light"]) .theme-toggle .theme-label::before { content: "Dark"; }
-}
-:root[data-theme="dark"] .theme-toggle .theme-icon-dark { display: block; }
-:root[data-theme="dark"] .theme-toggle .theme-icon-light { display: none; }
-:root[data-theme="dark"] .theme-toggle .theme-label::before { content: "Dark"; }
-
-/* Labels are hidden in the icon-only mobile layout; the breakpoint
-   matches the point where the header has comfortable room. */
-.iconbtn-label { display: none; }
-@media (min-width: 640px) {
-  .iconbtn-label { display: inline; }
-}
-
-/* Add page — URL and Photo are equal-weight cards, stacked. The URL
-   input lives inside a .file-row so the input + submit button line up
-   the same way as the photo tile's file picker + button. */
-.add-tile input[type=url] {
-  flex: 1;
-  min-width: 0;
-  padding: 12px 14px;
-  font-size: 1.05em;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  background: var(--card-bg);
-  color: var(--fg);
-}
-.add-tile input[type=url]:focus {
-  outline: 2px solid var(--primary-soft);
-  outline-offset: 1px;
-  border-color: var(--primary);
-}
-
-/* Submit button with only an icon — square-ish so it pairs visually with
-   the tall URL input / file row instead of growing on default padding. */
-.icon-only {
-  padding: 0;
-  width: 44px;
-  height: 44px;
-  justify-content: center;
-  flex-shrink: 0;
-}
-
-/* File picker — the native <input type=file> ::file-selector-button label
-   ("Browse" / "Choose file") is UA-controlled and untranslatable from CSS.
-   So hide the input and present our own paperclip-icon label + filename. */
-.file-row {
-  display: flex;
-  gap: 10px;
-  align-items: stretch;
-  flex-wrap: wrap;
-}
-.file-input {
-  flex: 1;
-  min-width: 0;
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  padding: 10px 14px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius);
-  cursor: pointer;
-  color: var(--muted);
-  background: var(--card-bg);
-  transition: border-color 0.12s ease, color 0.12s ease;
-}
-.file-input:hover,
-.file-input:focus-within {
-  border-color: var(--primary);
-  border-style: solid;
-  color: var(--fg);
-}
-.file-input input[type=file] {
-  /* Stretched transparent overlay so the UA's Browse / Choose-file
-     button never renders, but the input still receives clicks (anywhere
-     on the label) and is keyboard-focusable. The clip+absolute pattern
-     wasn't reliably hiding the UA chrome on Firefox. */
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  margin: 0;
-  padding: 0;
-  border: 0;
-  opacity: 0;
-  cursor: pointer;
-}
-.file-input-name {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  text-align: right;
   white-space: nowrap;
-  flex: 1;
-  font-size: 0.95em;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+/* "On air" indicator on the library card for the recipe currently on
+   the e-ink panel. Borderless: paprika label + a pulsing paprika dot
+   drawn by ::before, like a recording-light. */
+.card-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  color: var(--accent);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.card-badge::before {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 var(--accent);
+  animation: ePepper-onair-pulse 2s ease-out infinite;
+}
+@keyframes ePepper-onair-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55); }
+  70%  { box-shadow: 0 0 0 7px rgba(184, 50, 39, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(184, 50, 39, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .card-badge::before { animation: none; }
+}
+
+.loader {
+  padding: 32px 4px;
+  color: var(--muted);
+  font-style: italic;
+  text-align: center;
+  border-bottom: 0 !important;
+}
+
+/* ----------  Add page  ---------- */
+.page-header {
+  margin-bottom: 40px;
+}
+.page-header h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+  font-size: clamp(40px, 5.5vw, 64px);
+  line-height: 1;
+  letter-spacing: -0.025em;
+  margin: 0 0 12px;
+}
+.page-header p {
+  font-size: 17px;
+  color: var(--muted);
+  margin: 0;
+  max-width: 56ch;
+}
+
+.add-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 28px;
 }
 
 .add-tile {
-  /* Defensive: explicit display + var() fallbacks so Firefox renders the
-     tile even if a CSS variable lookup or grid layout misbehaves. The
-     prior version lost background/border/shadow on Firefox; the most
-     likely cause was the file-selector-button pseudo nested in the
-     descendant chain confusing the parser, so that rule is now standalone
-     below. */
-  background: var(--card-bg, #ffffff);
-  border: 1px solid var(--border, #e4dfd2);
-  border-radius: var(--radius, 10px);
-  padding: 14px;
+  margin: 0;
+  padding: 32px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  box-shadow: var(--shadow, 0 1px 2px rgba(0,0,0,0.04));
+  gap: 20px;
+  position: relative;
+  transition: border-color .2s var(--ease);
 }
-.add-tile + .add-tile {
-  /* Breathing room between the URL and Photo cards so they don't fuse
-     into a single rectangle when the page is narrow. */
-  margin-top: 14px;
-}
+.add-tile:hover { border-color: var(--text-dim); }
+
 .add-tile h2 {
-  margin: 0;
-  font-size: 1em;
-  color: var(--fg);
   display: flex;
   align-items: center;
-  gap: 8px;
-}
-.add-tile p { margin: 0; font-size: 0.9em; }
-.add-tile input[type=file] {
-  font: inherit;
-  color: var(--fg);
-  width: 100%;
-}
-/* Standalone rule (was nested under .add-tile input[type=file]); some
-   browsers parse the chained pseudo less reliably. */
-input[type=file]::file-selector-button {
-  background: var(--neutral);
-  color: var(--neutral-fg);
-  border: 0;
-  border-radius: 8px;
-  padding: 6px 12px;
-  font: inherit;
+  gap: 10px;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 17px;
   font-weight: 600;
-  margin-right: 10px;
-  cursor: pointer;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text);
 }
-/* In-flight dim is applied to the form's inputs / button only (not the
-   tile itself), so the progress strip below stays at full readable
-   opacity. CSS `opacity` on the parent would multiply into the child
-   and can't be cancelled — hence the per-element approach. */
-.add-tile.htmx-request .file-row,
-.add-tile.htmx-request h2,
-.add-tile.htmx-request .add-help { opacity: 0.55; }
+.add-tile h2 svg { color: var(--accent); }
 
-/* Progress strip — hidden by default, revealed while htmx has a
-   request in flight. Stays full-opacity so the spinner + message read
-   as the foreground state, not part of the disabled chrome. */
+.file-row {
+  display: flex;
+  gap: 8px;
+  align-items: stretch;
+}
+
+.add-tile input[type="url"] {
+  flex: 1;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  color: var(--text);
+  border-radius: var(--r-md);
+  font-size: 15px;
+}
+.add-tile input[type="url"]:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+.add-tile button.primary {
+  padding: 14px 18px;
+  background: var(--text);
+  color: var(--bg);
+  border: 0;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 15px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background .15s var(--ease);
+}
+.add-tile button.primary:hover { background: var(--text-dim); }
+.add-tile button.icon-only { padding: 14px; }
+
+.file-input {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  border-radius: var(--r-md);
+  cursor: pointer;
+  transition: border-color .15s var(--ease), background .15s var(--ease);
+}
+.file-input:hover { border-color: var(--accent); background: var(--accent-soft); }
+.file-input input[type="file"] {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px; overflow: hidden;
+  clip: rect(0,0,0,0); white-space: nowrap; border: 0;
+}
+.file-input svg { color: var(--accent); }
+.file-input-name { font-size: 14px; }
+
 .add-progress {
   display: none;
   align-items: center;
-  gap: 8px;
-  font-size: 0.9em;
-  color: var(--fg);
+  gap: 10px;
+  font-size: 14px;
+  color: var(--muted);
 }
-.add-tile.htmx-request .add-progress { display: flex; }
+.htmx-request .add-progress { display: inline-flex; }
+.spinning svg { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 
-.spinning {
-  display: inline-flex;
-  animation: ePepper-spin 1s linear infinite;
-}
-@keyframes ePepper-spin {
-  to { transform: rotate(360deg); }
-}
-.add-help {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: 0.9em;
+/* ----------  Status  ---------- */
+.status-grid {
   display: grid;
-  gap: 2px;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: 32px;
+  align-items: start;
 }
 
-.add-error {
-  background: var(--danger-soft);
-  border: 1px solid var(--danger);
-  color: var(--danger);
-  padding: 10px 14px;
-  border-radius: var(--radius);
-  margin: 10px 0;
+.display-preview {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 18px;
+  position: sticky;
+  top: 92px;
 }
-.add-error code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.92em;
-  background: rgba(0,0,0,0.06);
-  padding: 1px 5px;
-  border-radius: 4px;
-}
-:root[data-theme="dark"] .add-error code { background: rgba(255,255,255,0.08); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .add-error code { background: rgba(255,255,255,0.08); }
-}
-:root[data-theme="dark"] .add-error { color: var(--fg); }
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .add-error { color: var(--fg); }
-}
-
-/* Status page */
-.status-card {
-  /* Same defensive treatment as .add-tile — explicit display + var()
-     fallbacks so a single variable miss can't blank the whole card. */
+.display-preview::before {
+  content: "Now on the e-ink";
   display: block;
-  background: var(--card-bg, #ffffff);
-  border: 1px solid var(--border, #e4dfd2);
-  border-radius: var(--radius, 10px);
-  padding: 16px;
-  margin: 14px 0;
-  box-shadow: var(--shadow, 0 1px 2px rgba(0,0,0,0.04));
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 12px;
+}
+.display-preview img {
+  width: 100%;
+  height: auto;
+  display: block;
+  border-radius: var(--r-md);
+  background: #ffffff;
+  border: 1px solid var(--border);
+  min-height: 320px;
+}
+
+.status-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.status-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  padding: 24px 26px;
 }
 .status-card h2 {
-  margin: 0 0 10px;
-  font-size: 1.05em;
-  color: var(--muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  display: flex;
-  align-items: center;
-  gap: 8px;
+  color: var(--text-dim);
 }
-.status-line {
-  margin: 4px 0;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-/* Display card's title row uses plain inline flow so title + source +
-   page indicator all stay on the same line until the text genuinely
-   overflows. */
-.display-title { margin: 4px 0; }
-.status-icon {
-  display: inline-flex;
-  align-items: center;
-  color: var(--muted);
-}
-.status-actions { margin-top: 12px; }
+.status-card h2 svg { color: var(--accent); }
 
-/* Page nav — sits under the display preview when the current recipe spans
-   multiple pages. Same icon buttons used in the topbar so the visual
-   vocabulary stays consistent; the page indicator sits in the middle. */
+.display-title {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  font-variation-settings: "opsz" 36, "SOFT" 50;
+  letter-spacing: -0.005em;
+}
+.display-title strong { font-weight: 600; }
+.display-title strong a { color: var(--text); }
+.display-title strong a:hover { color: var(--accent); }
+.display-title .muted {
+  display: block;
+  font-family: var(--font-body);
+  font-style: normal;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  margin-top: 4px;
+}
+
+.status-card > p { margin: 0 0 6px; font-size: 15px; }
+.status-card > p:last-child { margin-bottom: 0; }
+.status-card .muted { font-size: 14px; }
+
+.status-line { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.status-line strong { color: var(--text); }
+.status-icon { display: inline-flex; color: var(--accent); }
+
 .page-nav {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 6px;
-  margin: 10px 0 4px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+}
+.page-nav .iconbtn {
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
 }
 .page-nav-indicator {
-  min-width: 56px;
-  text-align: center;
+  margin: 0 8px;
+  font-size: 13px;
   font-variant-numeric: tabular-nums;
 }
 
-.status-banner {
-  background: var(--warn-bg);
-  color: var(--warn-fg);
-  border: 1px solid var(--warn-border);
-  border-radius: var(--radius);
-  padding: 12px 14px;
-  margin: 10px 0;
+.status-actions {
+  margin: 16px 0 0;
+}
+.status-actions button.danger {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--danger-soft);
+  color: var(--danger);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 14px;
+  transition: background .15s var(--ease);
+}
+.status-actions button.danger:hover { background: var(--accent-soft); border-color: var(--danger); }
+
+/* ----------  Recipe page  ---------- */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 32px;
+}
+.back:hover { color: var(--accent); text-decoration: none; }
+
+.recipe {
   display: grid;
-  gap: 4px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+}
+
+.recipe > h1 {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-variation-settings: "opsz" 144, "SOFT" 50;
+  font-size: clamp(44px, 7vw, 84px);
+  line-height: 1;
+  letter-spacing: -0.03em;
+  margin: 0 0 18px;
+  max-width: 14ch;
+  color: var(--text);
+}
+
+.recipe > p.muted {
+  font-size: 14px;
+  letter-spacing: 0.04em;
+  margin: 0 0 28px;
+  color: var(--muted);
+  padding-bottom: 28px;
+  border-bottom: 1px solid var(--border-strong);
+}
+.recipe > p.muted a { color: var(--text); border-bottom: 1px solid var(--border); }
+.recipe > p.muted a:hover { color: var(--accent); border-bottom-color: var(--accent); }
+
+.actions {
+  margin: 0 0 36px;
+}
+.actions button.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 14px 24px;
+  /* Soft-paprika tint, paprika ink — matches the Clear button on the
+     status page. Less shouty than a fully filled accent, but the
+     hierarchy still reads as the primary action on the page. */
+  background: var(--accent-soft);
+  color: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+  transition: background .15s var(--ease), transform .15s var(--ease);
+}
+.actions button.primary:hover { border-color: var(--accent); background: var(--accent-soft); }
+.actions button.primary:active { transform: translateY(1px); }
+
+.recipe-body {
+  display: grid;
+  grid-template-columns: 240px minmax(0, 1fr);
+  gap: 64px;
+  align-items: start;
+}
+
+.recipe h2 {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 16px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.recipe h3 {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-variation-settings: "opsz" 36, "SOFT" 50;
+  font-size: 22px;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+  margin: 28px 0 14px;
+  color: var(--text);
+}
+.recipe h3:first-of-type { margin-top: 0; }
+
+.recipe-sidebar {
+  position: sticky;
+  top: 92px;
+}
+
+.ingredients {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.ingredients li {
+  padding: 7px 0;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.ingredients li::before {
+  content: "";
+  flex: none;
+  width: 5px;
+  height: 5px;
+  background: var(--accent);
+  border-radius: 1px;
+  transform: translateY(-3px);
+}
+
+.steps {
+  list-style: none;
+  counter-reset: step;
+  margin: 0 0 24px;
+  padding: 0;
+}
+.steps li {
+  counter-increment: step;
+  display: grid;
+  grid-template-columns: 56px 1fr;
+  gap: 18px;
+  padding: 14px 0 18px;
+  border-bottom: 1px solid var(--border);
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text);
+}
+.steps li:last-child { border-bottom: 0; }
+.steps li::before {
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-style: italic;
+  font-variation-settings: "opsz" 96, "SOFT" 50;
+  font-size: 36px;
+  line-height: 1;
+  color: var(--accent);
+  letter-spacing: -0.02em;
+}
+
+/* Notes / comments */
+.comments {
+  list-style: none;
+  margin: 0 0 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.comments li {
+  position: relative;
+  background: var(--accent-soft);
+  border-left: 3px solid var(--accent);
+  padding: 14px 44px 14px 18px;
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.comments li.muted {
+  background: transparent;
+  border-left-color: var(--border);
+  color: var(--muted);
+  font-style: italic;
+}
+.comment-body { display: block; }
+.comments li button.link.danger {
+  position: absolute;
+  top: 6px;
+  right: 10px;
+  background: transparent;
+  border: 0;
+  color: var(--muted);
+  font-size: 18px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color .15s var(--ease), background .15s var(--ease);
+}
+.comments li button.link.danger:hover {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+
+.add-comment {
+  display: grid;
+  gap: 10px;
+}
+.add-comment textarea {
+  width: 100%;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-md);
+  font-size: 15px;
+  font-family: var(--font-body);
+  resize: vertical;
+  min-height: 64px;
+  line-height: 1.5;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.add-comment textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
+}
+.add-comment button {
+  justify-self: end;
+  padding: 10px 20px;
+  background: var(--text);
+  color: var(--bg);
+  border: 0;
+  border-radius: var(--r-md);
+  font-weight: 600;
+  font-size: 14px;
+}
+.add-comment button:hover { background: var(--text-dim); }
+
+.recipe-footer {
+  margin-top: 56px;
+  padding-top: 28px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+button.link {
+  background: transparent;
+  border: 0;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+}
+button.link.danger {
+  color: var(--danger);
+  font-weight: 500;
+}
+button.link.danger:hover { background: var(--danger-soft); color: var(--danger); }
+
+/* Sections under instructions */
+.instructions-block { /* container for sub-sectioned instructions */ }
+
+/* ----------  Status alert banner & inline warning chip  ----------
+   Editorial callout for low-battery / overdue alerts on the status page,
+   plus the small inline chip rendered next to a Device "last seen" line
+   when the heartbeat is overdue. Designed to fit the warn token family
+   in both modes (--warn = amber 700 light, amber 400 dark). */
+.status-banner {
+  /* Sits above the two-column .status-grid; span both columns when
+     present so it doesn't get squeezed into a single cell. */
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+  padding: 14px 18px;
+  background: transparent;
+  color: var(--text);
+  border-left: 3px solid var(--warn);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  font-size: 15px;
+  line-height: 1.55;
 }
 .status-banner strong {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  color: var(--warn);
+  font-weight: 600;
 }
 .warn-inline {
-  margin-left: 6px;
-  color: var(--warn-fg);
-  background: var(--warn-bg);
-  padding: 1px 6px;
-  border-radius: 6px;
-  font-size: 0.85em;
   display: inline-flex;
   align-items: center;
   gap: 4px;
+  margin-left: 6px;
+  padding: 1px 8px;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  border-radius: 999px;
+  font-size: 0.85em;
+  font-weight: 500;
 }
 
-/* Display preview — sits inline inside <main>, capped by its 760 px
-   column. A thin border + radius frames the BMP without imposing a
-   distinct background (which previously broke the page's colour
-   continuity, especially in dark mode). The image's own white pixels
-   carry the look of the e-ink panel. */
-.display-preview {
-  margin: 10px 0 14px;
-  display: flex;
-  justify-content: center;
+/* ----------  Toast  ----------
+   #toast is the persistent slot in <main>; .toast wraps the actual
+   notification. Both rules give the inline-pill look — #toast:not(:empty)
+   covers the case where the rendered fragment is a bare text node (e.g.
+   the "Pushed" confirmation from /push), .toast covers the templated
+   confirmations that already wrap themselves (cleared/undo/add). */
+#toast:not(:empty),
+.toast {
+  position: fixed;
+  bottom: 24px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 12px 22px;
+  background: var(--text);
+  color: var(--bg);
+  border-radius: 999px;
+  font-size: 14px;
+  z-index: 100;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
 }
-.display-preview img {
-  max-width: 100%;
-  height: auto;
-  display: block;
-  image-rendering: pixelated;
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
+.toast button {
+  background: var(--accent);
+  color: var(--accent-ink, #fff);
+  border: 0;
+  border-radius: 999px;
+  padding: 4px 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* ----------  Inline add-page error fragment  ----------
+   Returned as a 400 HTML fragment into #add-result when URL parsing /
+   OCR fails. Sits above the two .add-tile cards. */
+.add-error {
+  background: var(--danger-soft, #FDECEC);
+  border-left: 3px solid var(--danger, #9B1C1C);
+  border-radius: 0 var(--r-md) var(--r-md) 0;
+  color: var(--text);
+  padding: 14px 18px;
+  margin: 0 0 22px;
+  font-size: 15px;
+  line-height: 1.55;
+}
+.add-error code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+}
+:root[data-theme="dark"] .add-error code { background: rgba(255, 255, 255, 0.08); }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .add-error code { background: rgba(255, 255, 255, 0.08); }
+}
+
+/* ----------  htmx indicator helpers ---------- */
+.htmx-indicator { opacity: 0; }
+.htmx-request .htmx-indicator { opacity: 1; transition: opacity .2s ease-in; }
+.htmx-request.htmx-indicator   { opacity: 1; transition: opacity .2s ease-in; }
+
+/* ----------  Responsive  ---------- */
+@media (max-width: 900px) {
+  main { padding: 36px var(--gutter) 80px; }
+  .topbar-inner { padding: 16px var(--gutter); }
+  .brand { font-size: 22px; }
+  .iconbtn-label { display: none; }
+  .iconbtn { padding: 8px 10px; }
+
+  .list-controls { grid-template-columns: 1fr; }
+  .card { grid-template-columns: 1fr; gap: 8px; }
+  .card-title > span:first-child { font-size: 19px; }
+  .card-meta { justify-content: flex-start; text-align: left; }
+
+  .add-grid { grid-template-columns: 1fr; gap: 18px; }
+  .add-tile { padding: 24px; }
+
+  .status-grid { grid-template-columns: 1fr; gap: 22px; }
+  .display-preview { position: static; }
+
+  .recipe-body { grid-template-columns: 1fr; gap: 36px; }
+  .recipe-sidebar { position: static; }
+  .recipe > h1 { font-size: clamp(38px, 11vw, 60px); max-width: 100%; }
+  .steps li { grid-template-columns: 44px 1fr; gap: 14px; font-size: 16px; }
+  .steps li::before { font-size: 30px; }
+
+  .library-header { flex-direction: column; align-items: flex-start; gap: 6px; }
+}
+
+@media (max-width: 540px) {
+  :root { --gutter: 20px; }
+  .topbar-inner { padding: 14px var(--gutter); }
+  .brand { font-size: 20px; }
+  .brand .pepper { width: 16px; height: 16px; }
+  .topnav { gap: 0; }
+  .iconbtn { padding: 8px; }
+  .recipe > h1 { font-size: 40px; }
+  .steps li { grid-template-columns: 36px 1fr; gap: 12px; }
+  .steps li::before { font-size: 26px; }
+  .login h1 { font-size: 44px; }
+  .login h1 .pepper { width: 30px; height: 30px; }
 }

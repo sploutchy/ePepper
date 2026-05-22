@@ -3,7 +3,7 @@
 {% block title %}{{ r.title }} · ePepper{% endblock %}
 
 {% block content %}
-<a href="/app/" class="back">← Library</a>
+<a href="/app/" class="back">Library</a>
 
 <article class="recipe">
   <h1>{{ r.title }}</h1>
@@ -35,35 +35,45 @@
             hx-post="/app/recipes/{{ r.id }}/push"
             hx-target="#toast"
             hx-swap="innerHTML">
-      {{ icon("monitor", 18) }} Display
+      {{ icon("monitor", 18) }} Push to display
     </button>
   </div>
 
-  {% set ings = ingredients(r.recipe) %}
-  {% if ings %}
-    <h2>Ingredients</h2>
-    <ul class="ingredients">
-      {% for i in ings %}<li>{{ i }}</li>{% endfor %}
-    </ul>
-  {% endif %}
+  {# Magazine-style two-column body on desktop: ingredients pin into a
+     sticky left aside, instructions + notes flow in the main column.
+     The grid collapses to a single column at ≤ 900px (see .recipe-body
+     responsive rules) and the sidebar's sticky behaviour is dropped. #}
+  <div class="recipe-body">
+    {% set ings = ingredients(r.recipe) %}
+    {% if ings %}
+      <aside class="recipe-sidebar">
+        <h2>Ingredients</h2>
+        <ul class="ingredients">
+          {% for i in ings %}<li>{{ i }}</li>{% endfor %}
+        </ul>
+      </aside>
+    {% endif %}
 
-  {% set groups = instruction_groups(r.recipe) %}
-  {% if groups %}
-    <h2>Instructions</h2>
-    {% for g in groups %}
-      {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
-      {% if g.steps %}
-        <ol class="steps">
-          {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
-        </ol>
+    <section class="recipe-main">
+      {% set groups = instruction_groups(r.recipe) %}
+      {% if groups %}
+        <h2>Instructions</h2>
+        {% for g in groups %}
+          {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
+          {% if g.steps %}
+            <ol class="steps">
+              {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
+            </ol>
+          {% endif %}
+        {% endfor %}
       {% endif %}
-    {% endfor %}
-  {% endif %}
 
-  <h2>Notes</h2>
-  <div id="comments">
-    {% set r_id = r.id %}
-    {% include "_comments.html" %}
+      <h2>Notes</h2>
+      <div id="comments">
+        {% set r_id = r.id %}
+        {% include "_comments.html" %}
+      </div>
+    </section>
   </div>
 
   {# Delete sits at the very bottom, styled as a quiet link so it's reachable

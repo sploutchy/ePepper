@@ -3,14 +3,20 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
+  <link rel="icon" href="/app/static/pepper.svg" type="image/svg+xml">
   <title>ePepper · Sign in</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/app/static/app.css">
 </head>
 <body class="centered">
   <main class="login">
     <h1>
-      <img src="/app/static/pepper.svg" alt="" class="pepper">
-      ePepper
+      <span class="brand-e">e</span>Pepper
     </h1>
     <p class="muted">Enter your access code to unlock the recipe library.</p>
     {% if error %}<p class="error">That code doesn't match — try again.</p>{% endif %}
@@ -20,10 +26,6 @@
              autocomplete="current-password">
       <button type="submit">Sign in</button>
     </form>
-    <p class="login-hint muted">
-      Your access code is the <code>API_KEY</code> set on the server.
-      Sessions stay signed in for 30 days.
-    </p>
   </main>
 </body>
 </html>

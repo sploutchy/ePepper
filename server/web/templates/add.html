@@ -3,7 +3,15 @@
 {% block title %}Add recipe · ePepper{% endblock %}
 
 {% block content %}
+<div class="page-header">
+  <h1>Add a recipe</h1>
+</div>
+
 <div id="add-result"></div>
+
+{# Two-tile grid: URL and Photo sit side-by-side on desktop, stack on
+   mobile (see .add-grid in app.css). #}
+<div class="add-grid">
 
 {# URL paste — fetched server-side, parsed via recipe-scrapers with an
    LLM fallback for sites the scrapers don't know. Same card chrome as
@@ -14,10 +22,7 @@
       hx-swap="innerHTML"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("link", 20) }} URL</h2>
-  <ul class="add-help muted">
-    <li>Paste a recipe link &rarr; parsed into the library.</li>
-  </ul>
+  <h2>{{ icon("link", 20) }} Paste a recipe link</h2>
 
   <div class="file-row">
     <input type="url" name="url" required
@@ -59,10 +64,7 @@
       hx-encoding="multipart/form-data"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("camera", 20) }} Photo</h2>
-  <ul class="add-help muted">
-    <li>Snap a recipe (or pick a file) &rarr; OCR'd into the library.</li>
-  </ul>
+  <h2>{{ icon("camera", 20) }} Snap a recipe</h2>
 
   <div class="file-row">
     <label class="file-input" title="Take a photo">
@@ -82,6 +84,8 @@
     <span>🤖 Converting the recipe with an LLM…</span>
   </div>
 </form>
+
+</div> {# /.add-grid #}
 
 <script>
   // Auto-submit the form when the user picks/captures a file. The
