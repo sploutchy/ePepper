@@ -23,7 +23,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: SSH to VPS and rebuild container
-        uses: appleboy/ssh-action@v1.2.2
+        uses: appleboy/ssh-action@v1.2.5
         with:
           host: epepper.fyx.ch
           username: debian
