@@ -318,9 +318,11 @@ body.centered {
   grid-template-columns: 1fr auto auto;
   gap: 10px;
   align-items: stretch;
-  margin: 0 0 36px;
-  padding-bottom: 24px;
-  border-bottom: 1px solid var(--border);
+  /* No border-bottom or padding-bottom — the first recipe row already
+     draws a top hairline, so adding one here stacked two lines with a
+     wide gap between them. The recipe list's own borders carry the
+     separation now. */
+  margin: 0 0 24px;
 }
 
 .list-search,
@@ -677,21 +679,17 @@ html[data-theme="dark"] .list-select {
    the dot pattern crisp at any size. min-height is intentionally
    absent — the old 320 px floor stretched landscape frames into
    squares. */
+/* The preview sits as a row inside .status-cards — between Display and
+   Tomorrow. Picks up the same hairline-separator + vertical padding
+   as the surrounding cards so it reads as one of the rows, not a
+   floating image. No eyebrow label: the Display section above is its
+   caption. */
 .display-preview {
   background: transparent;
   border: 0;
-  padding: 0;
+  border-bottom: 1px solid var(--border);
+  padding: 24px 0;
   margin: 0;
-}
-.display-preview::before {
-  content: "Now on the e-ink";
-  display: block;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--muted);
-  margin-bottom: 12px;
 }
 .display-preview img {
   display: block;
@@ -788,10 +786,12 @@ html[data-theme="dark"] .list-select {
 .page-nav {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 6px;
   margin-top: 16px;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
+  /* No top border / top padding — that hairline separated the display
+     info from the buttons, but the buttons themselves are visually
+     bounded and the extra rule felt like noise. */
 }
 .page-nav .iconbtn {
   padding: 8px;
@@ -806,6 +806,7 @@ html[data-theme="dark"] .list-select {
 
 .status-actions {
   margin: 16px 0 0;
+  text-align: center;
 }
 /* Clear button is now a link.danger — inherits everything from
    button.link.danger; no card-specific override needed. */
@@ -848,7 +849,11 @@ html[data-theme="dark"] .list-select {
   margin: 0 0 28px;
   color: var(--muted);
   padding-bottom: 28px;
-  border-bottom: 1px solid var(--border-strong);
+  /* Same hairline color as every other separator in the app
+     (--border, not --border-strong). The dark editorial rule under
+     the title here was the only one in --border-strong and felt
+     heavier than its neighbours. */
+  border-bottom: 1px solid var(--border);
 }
 .recipe > p.muted a { color: var(--text); border-bottom: 1px solid var(--border); }
 .recipe > p.muted a:hover { color: var(--accent); border-bottom-color: var(--accent); }
