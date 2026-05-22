@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="ePepper">
+  <!-- Brutalist pepper mark: a chili pepper rendered as a single
+       hard geometric form. Stem is a small bar; body is a tapered
+       polygon. Designed to read at 24px and remain stark at 256px. -->
+  <g fill="none" stroke="currentColor" stroke-width="3" stroke-linejoin="miter" stroke-linecap="square">
+    <!-- frame -->
+    <rect x="3" y="3" width="58" height="58"/>
+    <!-- stem bar -->
+    <path d="M28 14 L36 14" stroke-width="4"/>
+    <!-- pepper body (tapered) -->
+    <path d="M22 18 L42 18 L40 30 L37 42 L34 52 L30 52 L27 42 L24 30 Z" fill="currentColor" stroke="none"/>
+    <!-- inner highlight slice (negative) -->
+    <path d="M30 24 L34 24 L33 36 L31 36 Z" fill="var(--bg, #F4F1EA)" stroke="none"/>
+  </g>
+</svg>

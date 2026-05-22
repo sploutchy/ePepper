@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 64" role="img" aria-label="ePepper">
+  <!-- Pepper glyph: a stylized small inked pepper that stands in for the lowercase 'e' dot/leaf -->
+  <g transform="translate(8 8)">
+    <!-- pepper body -->
+    <path d="M14 12
+             C 6 12, 2 19, 4 28
+             C 6 38, 14 46, 22 46
+             C 30 46, 36 39, 36 30
+             C 36 22, 32 16, 26 13
+             C 22 11, 18 11, 14 12 Z"
+          fill="currentColor"/>
+    <!-- highlight notch (negative space) -->
+    <path d="M10 22 C 11 19, 14 17, 17 17 C 14 19, 12 22, 12 26"
+          fill="none" stroke="var(--logo-bg, #FBFAF7)" stroke-width="2" stroke-linecap="round"/>
+    <!-- stem -->
+    <path d="M22 12 C 22 6, 26 3, 32 4"
+          fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round"/>
+    <!-- tiny leaf -->
+    <path d="M28 6 C 32 3, 36 4, 38 8 C 34 9, 30 8, 28 6 Z"
+          fill="currentColor"/>
+  </g>
+
+  <!-- Wordmark "ePepper" — Fraunces with the italic 'e' set apart for editorial feel.
+       Falls back gracefully to a serif if Fraunces hasn't loaded. -->
+  <text x="62" y="44"
+        font-family="Fraunces, 'Times New Roman', serif"
+        font-size="34"
+        font-weight="700"
+        fill="currentColor"
+        letter-spacing="-0.02em">
+    <tspan font-style="italic" font-weight="400">e</tspan><tspan>Pepper</tspan>
+  </text>
+</svg>

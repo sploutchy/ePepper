@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Pasta e Fagioli · ePepper</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="icon" href="../logo.svg" type="image/svg+xml">
+  <script>
+    (function() {
+      try {
+        var saved = localStorage.getItem('epepper-theme');
+        if (saved === 'dark' || saved === 'light') {
+          document.documentElement.dataset.theme = saved;
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a href="/app/" class="brand">
+        <img src="../logo.svg" alt="" class="pepper">
+        ePepper
+      </a>
+      <nav class="topnav">
+        <a href="/app/add" class="iconbtn" title="Add a recipe" aria-label="Add a recipe">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span class="iconbtn-label">Add</span>
+        </a>
+        <a href="/app/status" class="iconbtn" title="Status" aria-label="Status">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+          <span class="iconbtn-label">Status</span>
+        </a>
+        <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/></svg>
+          <span class="iconbtn-label">Light</span>
+        </button>
+        <form action="/app/logout" method="post" class="logout-form">
+          <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5"/><path d="M21 12H9"/></svg>
+            <span class="iconbtn-label">Logout</span>
+          </button>
+        </form>
+      </nav>
+    </div>
+  </header>
+
+  <main>
+    <div id="toast"></div>
+
+    <a href="/app/" class="back">← Library</a>
+
+    <article class="recipe">
+      <header class="recipe-head">
+        <h1>Pasta e Fagioli</h1>
+        <div class="recipe-meta">
+          <span>FROM <strong>Nonna</strong></span>
+          <span>SAVED <strong>last year</strong></span>
+          <span>COOKED <strong>3×</strong>, last <strong>9 months ago</strong></span>
+        </div>
+        <div class="actions">
+          <button class="primary">
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
+            Display
+          </button>
+        </div>
+      </header>
+
+      <div class="recipe-body">
+        <aside class="recipe-aside">
+          <h2>Ingredients</h2>
+          <ul class="ingredients">
+            <li>300 g fagioli borlotti secchi</li>
+            <li>1 carota</li>
+            <li>1 costa di sedano</li>
+            <li>1 cipolla</li>
+            <li>1 spicchio d'aglio</li>
+            <li>2 cucchiai di concentrato di pomodoro</li>
+            <li>1 crosta di Parmigiano</li>
+            <li>200 g ditalini</li>
+            <li>Olio EVO, sale, pepe, rosmarino</li>
+          </ul>
+        </aside>
+
+        <section class="recipe-main">
+          <h2>Instructions</h2>
+          <ol class="steps">
+            <li>Ammollare i fagioli per 12 ore in acqua fredda.</li>
+            <li>Soffriggere il battuto di carota, sedano, cipolla e aglio.</li>
+            <li>Unire il concentrato, i fagioli scolati, la crosta, acqua a coprire.</li>
+            <li>Cuocere 90 minuti finché i fagioli sono morbidi.</li>
+            <li>Frullare metà della zuppa, rimettere nel resto: densità giusta.</li>
+            <li>Cuocere la pasta direttamente nella zuppa.</li>
+            <li>Servire con olio crudo e pepe nero.</li>
+          </ol>
+
+          <div class="recipe-notes">
+            <h2>Notes</h2>
+            <div id="comments">
+              <ul class="comments">
+                <li>
+                  <span class="comment-body">Il giorno dopo è sempre meglio.</span>
+                  <button class="link danger" aria-label="Delete this note">×</button>
+                </li>
+              </ul>
+              <form class="add-comment">
+                <textarea name="body" rows="2" placeholder="Aggiungi una nota…" required></textarea>
+                <button type="submit">Add note</button>
+              </form>
+            </div>
+          </div>
+
+          <div class="recipe-footer">
+            <button class="link danger js-delete-recipe">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/></svg>
+              Delete this recipe
+            </button>
+          </div>
+        </section>
+      </div>
+    </article>
+  </main>
+
+  <script>
+    function toggleTheme() {
+      var html = document.documentElement;
+      var current = html.dataset.theme ||
+        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      var next = current === 'dark' ? 'light' : 'dark';
+      html.dataset.theme = next;
+      try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+    }
+  </script>
+</body>
+</html>
