@@ -21,11 +21,41 @@
     <p class="muted">Enter your access code to unlock the recipe library.</p>
     {% if error %}<p class="error">That code doesn't match — try again.</p>{% endif %}
     <form action="/app/login" method="post">
-      <input type="password" name="api_key" autofocus required
-             placeholder="Access code"
-             autocomplete="current-password">
-      <button type="submit">Sign in</button>
+      <div class="input-with-paste">
+        <input type="password" name="api_key" autofocus required
+               placeholder="Access code"
+               autocomplete="current-password">
+        {# Paste-from-clipboard helper. Falls back silently when the
+           Clipboard API is unavailable (file://, non-HTTPS, blocked). #}
+        <button type="button" class="paste-btn" title="Paste" aria-label="Paste from clipboard">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="8" y="2" width="8" height="4" rx="1"/>
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+          </svg>
+        </button>
+      </div>
+      <button type="submit" class="link accent">Sign in →</button>
     </form>
   </main>
+  <script>
+    // Paste-from-clipboard for any input next to a .paste-btn. Silent
+    // on failure (permission denied, insecure context, no clipboard).
+    document.addEventListener('click', async (e) => {
+      const btn = e.target.closest('.paste-btn');
+      if (!btn) return;
+      e.preventDefault();
+      const wrap = btn.closest('.input-with-paste, .file-row');
+      const input = wrap && wrap.querySelector('input[type=password], input[type=url], input[type=text]');
+      if (!input || !navigator.clipboard || !navigator.clipboard.readText) return;
+      try {
+        const text = await navigator.clipboard.readText();
+        if (text) {
+          input.value = text.trim();
+          input.dispatchEvent(new Event('input', { bubbles: true }));
+          input.focus();
+        }
+      } catch (_) {}
+    });
+  </script>
 </body>
 </html>

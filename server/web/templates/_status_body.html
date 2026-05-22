@@ -28,11 +28,15 @@
 <div class="status-cards">
 
 <section class="status-card">
-  <h2>{{ icon("monitor", 18) }} Display</h2>
+  {# Title row: section h2 left, "Updated …" muted right. Hides on the
+     first deploy (updated_at == 0) so we don't render bare "Updated —". #}
+  <h2>
+    <span class="status-card-h-label">{{ icon("monitor", 18) }} Display</span>
+    {% if display.updated_at %}
+      <span class="status-card-h-meta">Updated {{ fmt_updated }}</span>
+    {% endif %}
+  </h2>
   {% if display.type == "recipe" %}
-    {# Title · from Source · — page X of Y, all on one line. Inline flow
-       (not flex) so the page indicator stays beside the title until the
-       text actually overflows. #}
     <p class="display-title">
       {% if display.recipe_id %}
         <strong><a href="/app/recipes/{{ display.recipe_id }}">{{ display.title }}</a></strong>
@@ -55,12 +59,6 @@
     </p>
   {% else %}
     <p class="display-title muted">Idle.</p>
-  {% endif %}
-  {# Show the "Updated" timestamp whenever the display state has actually
-     been touched. Suppress only at first start (updated_at == 0), when
-     the em-dash placeholder would render as bare "Updated —". #}
-  {% if display.updated_at %}
-    <p class="muted">Updated {{ fmt_updated }}</p>
   {% endif %}
 
   {% if display.type == "recipe" and display.total_pages > 1 %}
@@ -105,7 +103,9 @@
     <form class="status-actions"
           hx-post="/app/display/clear"
           hx-confirm="Clear the display?">
-      <button class="danger" type="submit">{{ icon("trash", 18) }} Clear</button>
+      {# Same link-style treatment as "Delete this recipe" on the recipe
+         page — danger red, no filled chrome. #}
+      <button class="link danger" type="submit">{{ icon("trash", 14) }} Clear</button>
     </form>
   {% endif %}
 </section>
@@ -118,7 +118,7 @@
    Falls back to a generic muted hint when the cache hasn't populated
    yet (typical on a fresh deploy that hasn't seen its first midnight). #}
 <section class="status-card">
-  <h2>{{ icon("calendar", 18) }} Tomorrow ({{ next_anniversary_date }})</h2>
+  <h2><span class="status-card-h-label">{{ icon("calendar", 18) }} Tomorrow ({{ next_anniversary_date }})</span></h2>
   {# Use the same .display-title treatment as the Display card above so
      the "what's queued" line reads with identical weight and color. #}
   {% if next_anniversary %}
@@ -144,7 +144,7 @@
 </section>
 
 <section class="status-card">
-  <h2>{{ icon("book", 18) }} Library</h2>
+  <h2><span class="status-card-h-label">{{ icon("book", 18) }} Library</span></h2>
   <p class="status-line">
     <strong>{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
   </p>
@@ -167,7 +167,7 @@
    the estimate undercounts. #}
 {% if llm.enabled %}
 <section class="status-card">
-  <h2>{{ icon("cpu", 18) }} LLM</h2>
+  <h2><span class="status-card-h-label">{{ icon("cpu", 18) }} LLM</span></h2>
   {% if llm.calls == 0 %}
     <p class="status-line muted">No calls this month yet.</p>
   {% else %}
@@ -183,7 +183,7 @@
 {% endif %}
 
 <section class="status-card">
-  <h2>{{ icon("radio", 18) }} Device</h2>
+  <h2><span class="status-card-h-label">{{ icon("radio", 18) }} Device</span></h2>
   {% if device.last_seen %}
     <p class="status-line">
       Last seen {{ humanize_ago(device.last_seen) }}
