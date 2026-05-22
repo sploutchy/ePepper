@@ -289,14 +289,9 @@ body.centered {
   box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
-/* Sign in matches the recipe-page Push / Delete link buttons — quiet,
-   no filled chrome. Aligned left so it sits below the input field
-   naturally. */
-.login button[type="submit"].link.accent {
-  align-self: flex-start;
-  font-size: 16px;
-  padding: 10px 0;
-}
+/* (No .login button override — Sign in now lives inside .input-action
+   as the merged paste/submit button next to the access-code field. See
+   .input-action / .input-action-btn above.) */
 
 .login-hint {
   font-size: 14px;
@@ -571,41 +566,52 @@ html[data-theme="dark"] .list-select {
   flex-wrap: wrap;
 }
 
-/* Paste-from-clipboard helper next to text-ish inputs (login access
-   code, URL add). Sits flush with the input as a square icon button.
-   The handler degrades silently when the Clipboard API isn't
-   available (insecure context, denied permission), so the button can
-   stay in the markup unconditionally. */
-.input-with-paste {
+/* .input-action — merged Paste/Submit affordance.
+   One button next to a text-ish input (login access code, URL add).
+   When the field is empty the button is a paste-from-clipboard helper;
+   when the field has a value the button submits the parent form.
+   The state attribute switches the icon (clipboard ↔ arrow) and the
+   colour treatment (quiet outline ↔ accent outline). The button stays
+   the same shape and position so flipping state doesn't shift layout.
+   See input-action.js for the state machine; the JS degrades to a
+   plain submit button if the Clipboard API isn't available. */
+.input-action {
   display: flex;
   align-items: stretch;
   gap: 8px;
 }
-.input-with-paste > input { flex: 1; min-width: 0; }
-.paste-btn {
+.input-action > input { flex: 1; min-width: 0; }
+.input-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: auto;
   min-width: 48px;
-  padding: 0 12px;
+  padding: 0 14px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   color: var(--muted);
   cursor: pointer;
-  transition: color .15s var(--ease), border-color .15s var(--ease);
+  transition: color .15s var(--ease), border-color .15s var(--ease),
+              background .15s var(--ease);
 }
-.paste-btn:hover { color: var(--accent); border-color: var(--accent); }
+.input-action-btn:hover { color: var(--accent); border-color: var(--accent); }
+.input-action-btn[data-state="submit"] {
+  /* Filled-paprika outline signals "ready to submit". Same accent
+     family as button.link.accent — just sized to match the input. */
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.input-action-btn[data-state="submit"]:hover { background: var(--accent-soft); }
 
-/* On the URL row the submit button is a text link rather than a filled
-   primary — push it to the right so it doesn't get glued to the paste
-   button. */
-.file-row .submit-arrow {
-  margin-left: auto;
-  padding: 10px 14px;
-}
+/* Icon swap. Both SVGs are in the markup; one is hidden depending on
+   state. Block instead of inline-flex so the SVG fills the centered
+   button uniformly. */
+.input-action-btn .state-paste,
+.input-action-btn .state-submit { display: none; }
+.input-action-btn[data-state="paste"]  .state-paste  { display: block; }
+.input-action-btn[data-state="submit"] .state-submit { display: block; }
 
 .add-tile input[type="url"] {
   flex: 1;

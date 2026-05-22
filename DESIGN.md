@@ -189,13 +189,28 @@ There is no filled-paprika CTA. The "Add comment" filled-dark button
 is the one exception — it's a sub-form action that wants a stronger
 affordance than the link-style.
 
-### Paste-from-clipboard helper
+### Merged paste / submit button (`.input-action`)
 
-Square outline button next to text inputs that benefit from a one-tap
-paste (login access code, add-URL field). Uses
-`navigator.clipboard.readText()` and degrades silently when the
-Clipboard API isn't available (insecure context, denied permission),
-so the button can stay in the markup unconditionally.
+Forms that take a single short string (login access code, add-URL
+field) get **one button** next to the input, not two. The button
+switches state based on whether the field is empty:
+
+- **Empty field** → Paste affordance (clipboard icon, quiet outline).
+  Click reads `navigator.clipboard.readText()` into the field. The
+  button is `type=button` so it doesn't submit on accidental keyboard
+  activation.
+- **Field has a value** → Submit affordance (arrow icon, paprika
+  outline). Click submits the parent form (native or HTMX).
+
+Markup always ships as `type=submit` so a no-JS visitor (or a password
+manager autofilling the field) still gets a working button. The JS
+in `input-action.js` downgrades to paste mode only after observing
+the field is empty.
+
+The Clipboard API degrades silently when unavailable (insecure context,
+denied permission). In that case the button stays as it was (paste-state
+icon visible, but clicking does nothing useful) — manual typing still
+works and flips it to submit normally.
 
 ### h2 title-row meta
 
