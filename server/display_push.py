@@ -18,9 +18,10 @@ def push_recipe_to_display(row: dict) -> bool:
     previous display content is preserved in the failure case (atomic commit
     inside `display_state.set_recipe`).
 
-    On success, bumps `last_displayed_at` + `displayed_count` on the
-    library row so the "recently cooked" sort and anniversary scheduler
-    track actual usage.
+    Arms a pending bump of `last_displayed_at` + `displayed_count` that
+    fires on the first device fetch of the new image (see the /image
+    handler), so "recently cooked" reflects when the panel actually
+    pulled the recipe rather than when the server installed it.
     """
     comments = [c["body"] for c in library.get_comments(row["id"])]
     try:
@@ -33,5 +34,4 @@ def push_recipe_to_display(row: dict) -> bool:
     except Exception:
         log.exception("Failed to render recipe id=%s to display", row.get("id"))
         return False
-    library.touch_displayed(row["id"])
     return True

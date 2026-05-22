@@ -91,6 +91,11 @@ async def image(request: Request, page: int = Query(None, ge=1)):
     if bmp_data is None:
         return Response(status_code=204)  # no content yet
 
+    if _is_device_fetch(request):
+        pending = display_state.consume_pending_displayed_bump()
+        if pending is not None:
+            library.touch_displayed(pending)
+
     state = display_state.get()
     return Response(
         content=bmp_data,
@@ -102,6 +107,25 @@ async def image(request: Request, page: int = Query(None, ge=1)):
             "X-Total-Pages": str(state["total_pages"]),
         },
     )
+
+
+_DEVICE_UA_PREFIX = "ePepper-device/"
+
+
+def _is_device_fetch(request: Request) -> bool:
+    """Distinguish ESP32 /image fetches from browser status-page previews.
+
+    The firmware sets `User-Agent: ePepper-device/<version>`; that's the
+    strict signal. Lenient fallback: a Bearer-authed request from an
+    unknown UA is also treated as the device, so firmware in the field
+    that predates the UA change still bumps last_displayed_at.
+    TODO: drop the Bearer fallback once all panels run firmware that
+    sets the ePepper-device user agent.
+    """
+    ua = request.headers.get("user-agent", "")
+    if ua.startswith(_DEVICE_UA_PREFIX):
+        return True
+    return request.headers.get("Authorization", "").startswith("Bearer ")
 
 
 @app.post("/page/next")
