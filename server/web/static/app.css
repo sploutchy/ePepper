@@ -1110,7 +1110,7 @@ button.link.accent:hover {
   border-top: 1px solid var(--border);
   text-align: center;
 }
-button.link {
+button.link, a.link {
   background: transparent;
   border: 0;
   font-size: 13px;
