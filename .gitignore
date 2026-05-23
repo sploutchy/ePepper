@@ -11,6 +11,9 @@ venv/
 # Data
 data/
 
+# Firmware artifacts pushed from CI for the /app/flash page
+firmware/
+
 # IDE
 .vscode/
 .idea/
