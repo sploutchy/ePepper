@@ -111,9 +111,9 @@ labelled-icon-buttons read as "Notion clone", which is the SaaS-
 dashboard composition the concept explicitly rejects. The masthead
 treatment is the fix.
 
-### Library — magazine contents page
+### Repertoire — magazine contents page
 
-The library reads as a **tiered magazine contents page**, not a
+The repertoire reads as a **tiered magazine contents page**, not a
 database table dump.
 
 - Recipes are grouped by recency into named tiers — **This week /
@@ -190,11 +190,11 @@ becomes a top block, instructions flow below, the back chip tightens.
 
 `LINK` and `SNAP` are two **rows separated by hairlines**, not
 rounded cards. Each row carries a **small-caps section eyebrow**
-(same `.status-card-h-label` treatment used by `DISPLAY` / `LIBRARY`
+(same `.status-card-h-label` treatment used by `DISPLAY` / `REPERTOIRE`
 on the Status page — Inter 12 px, 700, 0.18 em tracking, paprika
 icon, text-dim text). Below the eyebrow sits a quiet muted help
-line ("Paste a recipe link to add it to the library." / "Snap a
-cookbook page to add it to the library.") in body type, then the
+line ("Paste a recipe link to add it to the repertoire." / "Snap a
+cookbook page to add it to the repertoire.") in body type, then the
 input affordance.
 
 The earlier round used a serif-ish `h2` with sentence-case ("Paste a
@@ -206,11 +206,11 @@ explanatory help text instead of restating the action verb.
 
 ### Status — flat list with the e-ink frame nested
 
-Status sections (`DISPLAY`, `TOMORROW`, `LIBRARY`, `DEVICE`, `LLM`) are
+Status sections (`DISPLAY`, `TOMORROW`, `REPERTOIRE`, `DEVICE`, `LLM`) are
 the same hairline-separated rows. Each section's h2 has an optional
 meta slot on the right (right-aligned, muted) — used by **Display**
 for `Updated 26 min ago`, by **Device** for `Last seen X` plus the
-overdue chip, and by **Library** for `Backed up X` (so the backup
+overdue chip, and by **Repertoire** for `Backed up X` (so the backup
 freshness reads with the same vocabulary as the device freshness
 instead of being a separate body line below).
 
@@ -344,7 +344,7 @@ shipping:
 - **Multi-color accents.** One accent. Paprika. The danger red is a
   separate semantic, used only for destructive verbs.
 - **Pepper icon next to the wordmark.** The typography is the mark.
-- **Card backgrounds on the add / status / library rows.** Hairlines
+- **Card backgrounds on the add / status / repertoire rows.** Hairlines
   carry the separation.
 - **System-font fallbacks for headings.** Fraunces is the design.
   Inter is the design. The mono is the design.

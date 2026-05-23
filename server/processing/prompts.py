@@ -112,7 +112,7 @@ def ocr_user(hint: str | None) -> str:
 # in French and vice versa. Output is intentionally compact (~120 output
 # tokens for a typical recipe) so per-recipe cost is well under one
 # centime.
-TRANSLATE_SYSTEM = """You generate search keywords for a recipe library.
+TRANSLATE_SYSTEM = """You generate search keywords for a recipe repertoire.
 
 The user gives you a recipe's title and ingredient list in its native
 language. You return the same content as NOUN-FORM search keywords in

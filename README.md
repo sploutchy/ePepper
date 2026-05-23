@@ -13,7 +13,7 @@ on their anniversary.
    │              │  browse, sort, push          │   python-telegram-bot)   │
    ├──────────────┤                              │                          │
    │  Telegram    │  URL / photo                 │  ▸ display state         │
-   │  bot         │ ───────────────────────────► │  ▸ recipe library        │
+   │  bot         │ ───────────────────────────► │  ▸ recipe repertoire     │
    │              │  /search /status /comment    │    (SQLite + FTS)        │
    └──────────────┘ ◄── alerts + backup ──────── │  ▸ anniversary +         │
                                                  │    Fooby fallback        │
@@ -50,8 +50,8 @@ on their anniversary.
 
 - **Two control surfaces.** A PWA-installable web app at `/app/` and a
   Telegram bot — pick whichever fits the moment. Both can add recipes
-  (URL or image), search the library, add notes, and push to the display.
-- **Library.** Saved recipes persist in SQLite with FTS5 full-text
+  (URL or image), search the repertoire, add notes, and push to the display.
+- **Repertoire.** Saved recipes persist in SQLite with FTS5 full-text
   search over title + ingredients + notes. Sort by "recently cooked"
   (default), "most cooked", or "least recently cooked", filter by
   source (a website, a named cookbook), paginate via infinite scroll.
@@ -60,7 +60,7 @@ on their anniversary.
 - **Source provenance.** Each recipe carries a source — a website
   host or a named cookbook (`cookbook://<name>/<slug>` URLs, produced
   by the screenshot prompt with the LLM inferring `<name>` from
-  visible branding in the photo). The source surfaces on the library
+  visible branding in the photo). The source surfaces on the repertoire
   cards, the recipe detail page, the bot's `/status`, and inline on
   the e-ink panel (with the "from" word localised).
 - **Anniversary scheduler.** At local midnight, picks a recipe you
@@ -74,7 +74,7 @@ on their anniversary.
   overdue.
 - **Backup to Telegram.** The midnight scheduler tick uploads a
   gzipped SQLite snapshot to a configurable Telegram chat — but only
-  when the library has changed since the previous upload. Quiet days
+  when the repertoire has changed since the previous upload. Quiet days
   produce no message; busy days produce one. Unlimited versioned
   history at no storage cost.
 - **Dark mode.** Follows the OS preference automatically (with a
@@ -120,7 +120,7 @@ Generate a strong `API_KEY` once:
 python3 -c "import secrets; print(secrets.token_urlsafe(32))"
 ```
 
-The container mounts `./data:/app/data` for the SQLite library. Set
+The container mounts `./data:/app/data` for the SQLite repertoire. Set
 up `BACKUP_CHAT_ID` (see below) for off-host versioned backups.
 
 Runtime: Python 3.12 in the bundled Dockerfile.
@@ -156,17 +156,17 @@ Two input formats, both surfaces accept both:
 **From Telegram:** paste a URL into the chat, or send a photo (optional
 caption is forwarded to the OCR LLM as a hint).
 
-Adding via the web lands the recipe in the library immediately. Adding
+Adding via the web lands the recipe in the repertoire immediately. Adding
 via the Telegram bot pushes to the panel right away; tap 💾 **Save** on
-the resulting message to keep it in the library.
+the resulting message to keep it in the repertoire.
 
-### Browsing the library
+### Browsing the repertoire
 
 The web app's home page (`/app/`) is the main browse surface:
 
 - **Search** by title, ingredients, or notes (FTS5, accent-insensitive).
 - **Sort** by **Recently cooked** (default), **Most cooked**, or
-  **Least recently cooked** — the library tracks every push so what
+  **Least recently cooked** — the repertoire tracks every push so what
   surfaces is what you actually cook, not what you once meant to.
 - **Filter** to a specific source (Fooby, BBC, a named cookbook, …).
 - **Currently-on-display badge.** The recipe live on the panel is
@@ -183,7 +183,7 @@ keyboard.
 
 From the web app, open a recipe and click **Display**. From the bot,
 tap the result number in a `/search` reply, or paste a URL the
-library already knows.
+repertoire already knows.
 
 The panel renders title + ingredients + numbered steps across as
 many pages as fit (a tall recipe might be 2–3 pages). Notes get
@@ -225,7 +225,7 @@ Three physical buttons:
 
 - Tap a recipe URL into the web app or the bot; it lands on the panel.
 - Cook from the panel — buttons cycle pages.
-- The recipe goes into the library automatically (web Add) or as soon
+- The recipe goes into the repertoire automatically (web Add) or as soon
   as you tap 💾 Save on the bot's push message. Every push to the
   panel bumps its cook count.
 - A year later, the anniversary scheduler resurfaces it at midnight.
@@ -242,7 +242,7 @@ Three physical buttons:
 | `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
 | `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty = anyone can talk to the bot (only safe for a truly private bot). **Note:** empty also means low-battery and stale-heartbeat alerts have no one to notify and are silently skipped. |
 | `API_PORT` | Server port (default: `8080`). |
-| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the library hasn't changed since the previous one. Unset = backups disabled. |
+| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the repertoire hasn't changed since the previous one. Unset = backups disabled. |
 | `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
 | `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
 | `DEVICE_WAKE_HOUR_LOCAL` | *Optional, default `6`.* Wall-clock hour (0–23) the e-ink panel aligns its daily timer wake to — so the panel is fresh when you walk into the kitchen at breakfast instead of drifting via a flat 24 h offset from the last button press. The server returns the seconds-until-next-hit as `next_wake_in_s` on every `/version` query. |
@@ -260,11 +260,11 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   days idle and you re-authenticate. `Secure` means you must serve
   `/app/` over HTTPS or the login won't stick.
 - **Pages:**
-  - `/app/` — library list (search, sort, source filter, infinite
+  - `/app/` — repertoire list (search, sort, source filter, infinite
     scroll, on-display badge).
   - `/app/add` — URL paste or recipe-photo upload.
   - `/app/recipes/<id>` — recipe detail (notes, push, delete).
-  - `/app/status` — live panel preview, panel state, library
+  - `/app/status` — live panel preview, panel state, repertoire
     stats + last backup, device readings.
 - **Dark mode.** Follows OS preference automatically; a `☀/☾`
   toggle in the header overrides and persists in `localStorage`.
@@ -274,19 +274,19 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   let you install to the home screen as a standalone app. The SW
   pre-caches the static shell (`app.css`, `htmx.min.js`, the pepper
   icon, the manifest); HTML and API responses are always
-  network-first so the library never goes stale.
+  network-first so the repertoire never goes stale.
 
 The login cookie also unlocks `/version`, `/image`, etc. for the
 browser, so you can debug the device by opening those URLs after
 signing in.
 
-### Recipe library (SQLite)
+### Recipe repertoire (SQLite)
 
 Recipes persist to `data/recipes.db` (stdlib `sqlite3`, no extra
 dependency) **only when you explicitly save them**. The bot's URL/JSON
 paste pushes the recipe to the panel and stashes it in memory; tapping
-💾 Save commits it to the library. The web Add flow saves the recipe
-to the library immediately and leaves the panel alone (click *Display*
+💾 Save commits it to the repertoire. The web Add flow saves the recipe
+to the repertoire immediately and leaves the panel alone (click *Display*
 to push). An image push is never persisted.
 
 Schema:
@@ -299,28 +299,28 @@ Schema:
 `saved_at` is the canonical "first saved" timestamp — never moves once
 set. `last_displayed_at` is bumped every time the row is pushed to the
 panel (web *Display* button, bot `/surprise`, `/search` push, anniversary
-scheduler, …) and drives the library's "recently cooked" sort + the
+scheduler, …) and drives the repertoire's "recently cooked" sort + the
 anniversary picker. NULL is a first-class state ("never cooked") — rows
-in a library upgraded from before this column existed start NULL and only
+in a repertoire upgraded from before this column existed start NULL and only
 get populated when something pushes them, so existing recipes show up as
-**never cooked** in the library list and on the detail page until you
+**never cooked** in the repertoire list and on the detail page until you
 display one. In the "recently cooked" sort they sink to the bottom; in
 the "least recently cooked" sort they float to the top (nothing is more
 stale than a recipe you've never cooked).
 
 `displayed_count` is incremented alongside `last_displayed_at`, so the
-library knows how many times you've cooked each recipe. The library card
+repertoire knows how many times you've cooked each recipe. The repertoire card
 and detail page render `cooked N×, last <when>` (or just `cooked <when>`
 after a single cook), where `<when>` is a humanised relative phrase —
 `yesterday`, `3 days ago`, `last week`, `last month`, `2 years ago`, etc.
 The bot's search results and surprise card share the same wording via
 `status_helpers.humanize_date`. There's a **Most cooked** sort option in
-the library header. Counts start at 0 for everything on
+the repertoire header. Counts start at 0 for everything on
 upgrade; only future pushes accumulate.
 
 Note: pushing a recipe to the panel is the only thing that bumps these
 columns. Adding a recipe via the web `/app/add` page just lands it in
-the library; the panel doesn't change until you click **Display** on
+the repertoire; the panel doesn't change until you click **Display** on
 its detail page. The bot's URL-paste flow is the exception — that's a
 "send to display" command by design.
 
@@ -340,7 +340,7 @@ participate in the `UNIQUE` index:
   photos that yielded no usable source name.
 
 `source` mirrors the displayed source name in lowercase
-(`fooby`, `nos-recettes-preferees`, …) and is what the library page's
+(`fooby`, `nos-recettes-preferees`, …) and is what the repertoire page's
 source-filter dropdown matches against. It's derived from the recipe's
 URL/scheme on insert and stored as a regular column on `recipes`. URL
 canonicalisation and FTS rebuild run idempotently, so a snapshot from
@@ -365,7 +365,7 @@ Fooby's French "Inspirations de la semaine" block from
 [fooby.ch/fr.html](https://fooby.ch/fr.html) and picks one recipe URL
 rotated by ISO weekday, so each slot reappears on the same weekday
 every week. The picked recipe is rendered transiently (not added to
-the library); paste its URL into the web app or bot to keep it. If
+the repertoire); paste its URL into the web app or bot to keep it. If
 the Fooby fetch or parse fails, the display is left unchanged.
 
 ### Backup to Telegram
@@ -444,7 +444,7 @@ and *(b)* receiving the device-health alerts.
 | `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
 | `/surprise` | Push a random saved recipe to the display. |
 | `/clear` | Clear the panel (renders a blank white frame). |
-| `/status` | Sectioned device + library snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
+| `/status` | Sectioned device + repertoire snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
 | `/start` | Brief welcome + how to send recipes. |
 | `/help` | Full command reference. |
 

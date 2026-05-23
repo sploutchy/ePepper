@@ -26,7 +26,7 @@ if not API_KEY:
     )
 
 # Public web app URL (optional). When set, the bot's /start and /help
-# include a clickable link to the web library; otherwise the path is
+# include a clickable link to the web repertoire; otherwise the path is
 # described in plain text. Trailing slashes are trimmed.
 WEB_URL: str = os.environ.get("WEB_URL", "").rstrip("/")
 
