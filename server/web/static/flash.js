@@ -192,7 +192,7 @@ if (!("usb" in navigator)) {
     startBtn.disabled = true;
     logEl.textContent = "";
     try {
-      log("Select the ePepper device in the picker (it must be in download mode — hold BOOT, tap RESET, then release BOOT).");
+      log("Select the ePepper device in the picker.");
       // Espressif's USB vendor ID. The S3 ROM bootloader uses 0x1001;
       // some app firmwares use other PIDs under the same vendor, so we
       // filter on vendor only and let the user pick.
