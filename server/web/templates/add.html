@@ -22,7 +22,8 @@
       hx-swap="innerHTML"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("link", 20) }} Paste a recipe link</h2>
+  <h2><span class="status-card-h-label">{{ icon("link", 18) }} Link</span></h2>
+  <p class="add-tile-help muted">Paste a recipe link to add it to the library.</p>
 
   {# Merged paste/submit affordance — one button next to the input
      that flips between Paste (when empty) and Fetch (when filled).
@@ -77,7 +78,8 @@
       hx-encoding="multipart/form-data"
       hx-disabled-elt="find button"
       hx-indicator="this">
-  <h2>{{ icon("camera", 20) }} Snap a recipe</h2>
+  <h2><span class="status-card-h-label">{{ icon("camera", 18) }} Snap</span></h2>
+  <p class="add-tile-help muted">Snap a cookbook page to add it to the library.</p>
 
   <div class="file-row">
     {# Camera icon already lives in the section h2 above; repeating it

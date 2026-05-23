@@ -408,15 +408,19 @@ html[data-theme="dark"] .list-select {
 
 .card {
   display: grid;
-  grid-template-columns: 1fr auto;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas: "title meta badge";
   align-items: baseline;
-  gap: 24px;
+  gap: 4px 24px;
   padding: 22px 4px;
   color: var(--text);
   text-decoration: none;
   transition: padding-left .2s var(--ease), background .2s var(--ease);
   position: relative;
 }
+.card-title  { grid-area: title; }
+.card-meta   { grid-area: meta; }
+.card-badge  { grid-area: badge; align-self: center; }
 .card::before {
   content: "";
   position: absolute;
@@ -492,13 +496,25 @@ html[data-theme="dark"] .list-select {
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 0 var(--accent);
-  animation: ePepper-onair-pulse 2s ease-out infinite;
+  /* Pulse the dot itself (scale + opacity) plus an outward ripple via
+     box-shadow. The scale gives the eye an unmissable beat; the ripple
+     adds the polished "on-air" softness. The ripple colour is fixed
+     paprika RGB — close enough for both themes; rgba in keyframes can't
+     reference --accent. */
+  box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55);
+  animation: ePepper-onair-pulse 1.6s ease-in-out infinite;
 }
 @keyframes ePepper-onair-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55); }
-  70%  { box-shadow: 0 0 0 7px rgba(184, 50, 39, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(184, 50, 39, 0); }
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55);
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.6;
+    box-shadow: 0 0 0 6px rgba(184, 50, 39, 0);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .card-badge::before { animation: none; }
@@ -555,19 +571,20 @@ html[data-theme="dark"] .list-select {
 }
 .add-tile:first-child { border-top: 1px solid var(--border); }
 
+/* h2 mirrors .status-card h2: a small-caps section label (.status-card-h-label
+   set in the markup) — the LINK / SNAP eyebrow — followed by a quiet
+   help line (.add-tile-help) below in muted body type. Reset the
+   browser h2 metrics so the only visual weight is the small-caps span. */
 .add-tile h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin: 0;
-  font-family: var(--font-body);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
 }
-.add-tile h2 svg { color: var(--accent); }
+.add-tile-help {
+  margin: 0;
+  font-size: 14px;
+}
 
 .file-row {
   display: flex;
@@ -746,7 +763,9 @@ html[data-theme="dark"] .list-select {
   gap: 12px;
   margin: 0 0 14px;
 }
-.status-card h2 .status-card-h-label {
+/* Used in the Status page section headers AND in the Add page tile headers
+   (LINK / SNAP). Unscoped so any h2 can carry this small-caps eyebrow. */
+.status-card-h-label {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -757,7 +776,7 @@ html[data-theme="dark"] .list-select {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.status-card h2 .status-card-h-label svg { color: var(--accent); }
+.status-card-h-label svg { color: var(--accent); }
 .status-card h2 .status-card-h-meta {
   font-family: var(--font-body);
   font-size: 11px;
@@ -887,17 +906,16 @@ html[data-theme="dark"] .list-select {
 }
 
 /* Recipe meta line below the title — each segment is an inline-block
-   .nb so it can't break mid-phrase, and the bullet between segments is
-   a ::before pseudo on every segment after the first. Doing it via a
-   pseudo (instead of a separate .meta-sep element) glues the bullet to
-   the segment that *follows* it, so when the line wraps the bullet
-   travels to the new line with its segment instead of dangling alone
-   at the end of the previous line. */
+   .nb so it can't break mid-phrase. The bullet between segments is a
+   ::after pseudo *inside* each non-last segment, so when the meta line
+   wraps the bullet stays glued to the end of the previous line instead
+   of dangling at the start of the new line. The wrap point is the real
+   whitespace between adjacent .nb spans. */
 .recipe-meta .nb { display: inline-block; }
-.recipe-meta .nb + .nb::before {
+.recipe-meta .nb:not(:last-child)::after {
   content: "·";
   display: inline-block;
-  margin: 0 8px 0 0;
+  margin: 0 0 0 8px;
   opacity: 0.6;
 }
 /* Push to display, login Sign in, etc. all share this quiet link
@@ -1309,10 +1327,36 @@ html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block
   font-size: 16px;
   line-height: 1.55;
   color: var(--text);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
 }
 .comments--marginalia li.muted {
   border-left-color: var(--border);
   color: var(--muted);
+  display: block;  /* no delete button on the empty-state row */
+}
+.comments--marginalia .comment-body { flex: 1; min-width: 0; }
+/* Quiet × icon, only inks-up on hover or keyboard focus so the marginalia
+   reads cleanly when not being acted on. */
+.comment-delete {
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  margin: 1px 0 0;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s var(--ease), color .15s var(--ease);
+  flex-shrink: 0;
+  font-style: normal;
+}
+.comments--marginalia li:hover .comment-delete,
+.comment-delete:focus-visible { opacity: 1; }
+.comment-delete:hover { color: var(--danger); }
+@media (hover: none) {
+  /* Touch devices have no hover — keep the affordance visible (low-key) */
+  .comment-delete { opacity: 0.5; }
 }
 
 
@@ -1356,9 +1400,17 @@ html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block
   .iconbtn { padding: 8px 10px; }
 
   .list-controls { grid-template-columns: 1fr; }
-  .card { grid-template-columns: 1fr; gap: 8px; }
+  /* Mobile: title fills the row, badge pins top-right on the same row,
+     meta drops to its own row below — keeps the on-air indicator
+     readable next to the title even when the card stacks. */
+  .card {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "title badge" "meta meta";
+    gap: 8px 12px;
+  }
   .card-title > span:first-child { font-size: 19px; }
   .card-meta { justify-content: flex-start; text-align: left; }
+  .card-badge { align-self: start; }
 
   .add-grid { grid-template-columns: 1fr; gap: 18px; }
   /* Inherit the desktop "padding: 24px 0" — the section already
