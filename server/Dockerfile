@@ -1,8 +1,11 @@
 FROM python:3.12-slim
 
-# Install fonts
+# Install fonts. fonts-dejavu (not -core) ships the italic variants we need
+# for the recipe-page renderer: DejaVuSerif-BoldItalic for the hung folio /
+# page indicator and DejaVuSerif-Italic for sub-headings. The -core package
+# only ships upright weights and would force a less-editorial fallback.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends fonts-dejavu-core && \
+    apt-get install -y --no-install-recommends fonts-dejavu && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

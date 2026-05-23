@@ -85,10 +85,19 @@ LLM_TRANSLATE_MODEL: str = (
 )
 
 
-# Fonts (DejaVu Sans, installed via apt in Docker)
+# Fonts (DejaVu, installed via apt in Docker — see Dockerfile).
+# The renderer pairs DejaVu Sans (UI, body, section labels) with
+# DejaVu Serif Bold (titles, hung folio, sub-headings). The italic
+# variants carry the "editorial flourish" — page-indicator hung folio,
+# sub-headings — translating the web app's italic-Fraunces vocabulary
+# into something that still reads at 1-bit. fonts-dejavu (not -core)
+# is required for the *Italic.ttf files.
 FONT_DIR: str = "/usr/share/fonts/truetype/dejavu"
 FONT_REGULAR: str = os.path.join(FONT_DIR, "DejaVuSans.ttf")
 FONT_BOLD: str = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
+FONT_SERIF_BOLD: str = os.path.join(FONT_DIR, "DejaVuSerif-Bold.ttf")
+FONT_SERIF_BOLD_ITALIC: str = os.path.join(FONT_DIR, "DejaVuSerif-BoldItalic.ttf")
+FONT_SERIF_ITALIC: str = os.path.join(FONT_DIR, "DejaVuSerif-Italic.ttf")
 
 # Layout
 MARGIN: int = 20
