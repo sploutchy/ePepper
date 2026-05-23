@@ -36,6 +36,18 @@
     {%- endif %}
   </p>
 
+  <div class="actions">
+    {# Same link-style treatment as "Delete this recipe" in the footer —
+       quiet, no filled chrome. Push isn't destructive so we colour with
+       --accent (paprika) instead of --danger. #}
+    <button class="link accent"
+            hx-post="/app/recipes/{{ r.id }}/push"
+            hx-target="#toast"
+            hx-swap="innerHTML">
+      {{ icon("monitor", 14) }} Push to display
+    </button>
+  </div>
+
   {# Magazine-style two-column body on desktop: ingredients pin into a
      sticky left aside, instructions + notes flow in the main column.
      The grid collapses to a single column at ≤ 900px (see .recipe-body
@@ -71,20 +83,6 @@
         {% include "_comments.html" %}
       </div>
     </section>
-  </div>
-
-  {# Push to display now lives at the foot of the recipe as a one-line
-     editorial sign-off — small-caps Inter, paprika, no icon. The verb is
-     the most important on the page; placing it as the last thing the
-     reader sees converts the recipe into an action rather than burying
-     the action under the title. #}
-  <div class="push-coda">
-    <button class="push-coda-btn"
-            hx-post="/app/recipes/{{ r.id }}/push"
-            hx-target="#toast"
-            hx-swap="innerHTML">
-      Cook this tonight <span class="push-coda-arrow" aria-hidden="true">→</span>
-    </button>
   </div>
 
   {# Delete sits at the very bottom, styled as a quiet link so it's reachable
