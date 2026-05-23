@@ -22,10 +22,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Derive server host
+        # SERVER_URL secret holds the full URL (e.g. https://epepper.fyx.ch);
+        # appleboy/ssh-action wants just the hostname.
+        env:
+          SERVER_URL: ${{ secrets.SERVER_URL }}
+        run: |
+          host="${SERVER_URL#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+          echo "SERVER_HOST=$host" >> "$GITHUB_ENV"
+
       - name: SSH to VPS and rebuild container
         uses: appleboy/ssh-action@v1.2.5
         with:
-          host: epepper.fyx.ch
+          host: ${{ env.SERVER_HOST }}
           username: debian
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
@@ -60,9 +71,11 @@ jobs:
             sudo docker compose up -d --build
 
       - name: Healthcheck
+        env:
+          SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
           for i in $(seq 1 12); do
-            if curl -fsS --max-time 5 https://epepper.fyx.ch/ \
+            if curl -fsS --max-time 5 "${SERVER_URL%/}/" \
                  | grep -q '"status":"ok"'; then
               echo "Healthy after attempt $i"
               exit 0

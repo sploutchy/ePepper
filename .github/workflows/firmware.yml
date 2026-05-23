@@ -55,19 +55,20 @@ jobs:
         # flashable.
         #
         # Required repo secrets (Settings → Secrets and variables → Actions):
-        #   WIFI_SSID, WIFI_PASSWORD, API_KEY
+        #   WIFI_SSID, WIFI_PASSWORD, API_KEY, SERVER_URL
         env:
           WIFI_SSID: ${{ secrets.WIFI_SSID }}
           WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
           API_KEY: ${{ secrets.API_KEY }}
+          SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
           cp include/config.h.example include/config.h
-          if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ] && [ -n "${API_KEY:-}" ]; then
+          if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ] && [ -n "${API_KEY:-}" ] && [ -n "${SERVER_URL:-}" ]; then
             python3 - <<'PY'
           import json, os, pathlib, re
           p = pathlib.Path("include/config.h")
           src = p.read_text()
-          for name in ("WIFI_SSID", "WIFI_PASSWORD", "API_KEY"):
+          for name in ("WIFI_SSID", "WIFI_PASSWORD", "API_KEY", "SERVER_URL"):
               val = os.environ[name]
               # Callable replacement so re.sub doesn't interpret backslashes
               # in the secret as backreferences. json.dumps gives a safely
