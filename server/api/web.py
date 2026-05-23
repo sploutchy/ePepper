@@ -737,6 +737,7 @@ async def flash_page(request: Request):
     _require_auth(request)
     manifest_present = (_FIRMWARE_DIR / "manifest.json").exists()
     return templates.TemplateResponse(
+        request,
         "flash.html",
         {**_context_globals(request), "manifest_present": manifest_present},
     )
