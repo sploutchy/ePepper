@@ -21,22 +21,6 @@
     </div>
   {% endif %}
 {% else %}
-  {# Lead line — promote the on-display recipe to a one-line standalone
-     entry above the tiers. Mirrors a magazine contents page that opens
-     with the cover story. #}
-  {% set lead = namespace(r=None) %}
-  {% for r in recipes %}
-    {% if r.id == current_recipe_id and not lead.r %}{% set lead.r = r %}{% endif %}
-  {% endfor %}
-  {% if lead.r %}
-    <div class="library-lead">
-      <span class="library-lead-eyebrow">On display</span>
-      <a href="/app/recipes/{{ lead.r.id }}" class="library-lead-link">{{ lead.r.title }}</a>
-      {% set src = source_name(lead.r.url) %}
-      {% if src %}<span class="library-lead-source">from {{ src }}</span>{% endif %}
-    </div>
-  {% endif %}
-
   {# Bucket recipes by the humanized "last cooked" phrase. fmt_saved()
      returns deterministic strings ("yesterday", "4 days ago", "last
      week", "2 weeks ago", "last month", "5 months ago", "last year",

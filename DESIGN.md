@@ -109,18 +109,19 @@ treatment is the fix.
 The library reads as a **tiered magazine contents page**, not a
 database table dump.
 
-- The currently-on-display recipe is promoted to a one-line **lead**
-  at the top: a small-caps paprika `ON DISPLAY` eyebrow, then the
-  recipe title in display serif, then a tracked-uppercase source
-  label. One hairline below it.
-- The remaining recipes are grouped by recency into named tiers —
-  **This week / This month / Earlier this year / Older** — each
-  introduced by a small-caps date eyebrow with a hairline on top.
+- Recipes are grouped by recency into named tiers — **This week /
+  This month / Earlier this year / Older** — each introduced by a
+  small-caps date eyebrow with a hairline on top.
 - Inside each tier, rows still use the editorial vocabulary: serif
   title, tracked small-caps source, right-aligned `cooked Nx, last X
   days ago` in muted body type. Hairlines between rows.
-- Sorting / filter dropdowns sit above the lead with no extra
-  divider — the lead's own bottom hairline carries the gap.
+- The currently-on-display recipe is **not** promoted to a separate
+  lead row at the top. The on-air dot inside its list row is enough
+  of a signal — a dedicated lead made the page feel like a
+  newsletter, and the row-level indicator already does the job
+  without competing with the tier rhythm.
+- Sorting / filter dropdowns sit above the first tier with no extra
+  divider — the first tier's own top hairline carries the gap.
 
 The bucketing uses string matching against `fmt_saved()`'s
 deterministic phrases (`"days ago"`, `"last week"`, `"weeks ago"`,
@@ -153,11 +154,13 @@ The "Save note" affordance under the textarea is a small paprika
 text link, right-aligned, matching the rest of the link-style button
 family — never a filled chrome pill.
 
-The `Push to display` action is the recipe's **editorial sign-off**
-at the very foot, after the notes block and before the delete link:
-small-caps Inter `COOK THIS TONIGHT →`, paprika, centered, wrapped
-in `--border` hairlines above and below. It reads as a closing
-flourish, not as a buried inline action.
+The `Push to display` action is a **quiet link-style button**
+(`button.link.accent`), centered under the recipe meta and above the
+two-column body. It matches `Delete this recipe` in the footer, just
+paprika instead of danger red. (A previous round tried it as a
+small-caps coda at the very foot of the recipe; that buried the most
+important verb on the page, so it's back to its placement under the
+title.)
 
 Mobile collapses the two-column to one, the ingredients section
 becomes a top block, instructions flow below, the back chip tightens.

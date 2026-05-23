@@ -1313,73 +1313,11 @@ html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block
 }
 
 
-/* ----------  Push-to-display coda (proposal 4)  ----------
-   The "push" verb now lives at the foot of the recipe as an editorial
-   sign-off rather than a button hovering above the body. Small-caps
-   Inter, paprika, single arrow glyph. No filled chrome — sits on the
-   page like the credit-line at the end of a feature. */
-.push-coda {
-  margin-top: 56px;
-  padding-top: 32px;
-  border-top: 1px solid var(--border);
-  text-align: center;
-}
-.push-coda-btn {
-  background: transparent;
-  border: 0;
-  padding: 4px 8px;
-  font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--accent);
-  cursor: pointer;
-}
-.push-coda-btn:hover { color: var(--accent-hover); }
-.push-coda-arrow { margin-left: 8px; font-weight: 400; }
-
-
-/* ----------  Library tiers + lead line (proposal 5)  ----------
+/* ----------  Library tiers (proposal 5, without the lead)  ----------
    Magazine-contents-page tiering: a small-caps date eyebrow with a
-   hairline above each time bucket, and the on-display recipe promoted
-   above the tiers as a one-line lead. */
-.library-lead {
-  padding: 18px 0 22px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 8px;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 12px;
-}
-.library-lead-eyebrow {
-  font-family: var(--font-body);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--accent);
-}
-.library-lead-link {
-  font-family: var(--font-display);
-  font-size: 26px;
-  font-weight: 600;
-  font-variation-settings: "opsz" 60, "SOFT" 50;
-  color: var(--text);
-  text-decoration: none;
-  letter-spacing: -0.01em;
-}
-.library-lead-link:hover { color: var(--accent); text-decoration: none; }
-.library-lead-source {
-  font-family: var(--font-body);
-  font-size: 12px;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted);
-  font-weight: 600;
-}
-
+   hairline above each time bucket. The lead row that used to promote
+   the on-display recipe to the top was removed — the existing on-air
+   dot inside the list row carries that signal well enough. */
 .library-tier-h {
   font-family: var(--font-body);
   font-size: 11px;
@@ -1437,11 +1375,19 @@ html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block
 }
 
 @media (max-width: 540px) {
-  :root { --gutter: 20px; }
-  .topbar-inner { padding: 14px var(--gutter); }
-  .brand { font-size: 20px; }
+  :root { --gutter: 16px; }
+  /* Topbar tightens hard on phones — the masthead-nav links don't fit
+     beside the wordmark at default tracking/separator spacing on a 390 px
+     viewport. Every horizontal value shrinks by the smallest amount
+     that buys legibility back. */
+  .topbar-inner { padding: 12px var(--gutter); gap: 10px; }
+  .brand { font-size: 19px; }
   .topnav { gap: 0; }
   .iconbtn { padding: 8px; }
+  .masthead-nav .masthead-link { letter-spacing: 0.1em; font-size: 11px; }
+  .masthead-nav .masthead-link + .masthead-link::before,
+  .masthead-nav .masthead-link + .logout-form::before { margin: 0 6px; }
+  .masthead-theme { margin-left: 10px; }
   .recipe > h1 { font-size: 40px; }
   .steps li { grid-template-columns: 36px 1fr; gap: 12px; }
   .steps li::before { font-size: 26px; }
