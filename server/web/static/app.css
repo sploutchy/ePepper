@@ -1225,7 +1225,10 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   gap: 0;
   align-items: baseline;
 }
-.masthead-nav .logout-form { display: inline-flex; }
+/* `display: contents` so the logout button becomes a direct flex child of
+   .masthead-nav — `align-items: baseline` on the inline-flex form was
+   shifting LOGOUT a couple of pixels above ADD/STATUS in the masthead. */
+.masthead-nav .logout-form { display: contents; }
 .masthead-nav .masthead-link {
   background: transparent;
   border: 0;
