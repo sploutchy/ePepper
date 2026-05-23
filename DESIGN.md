@@ -99,6 +99,13 @@ Inter text links (`ADD · STATUS · LOGOUT`) separated by middle dots,
 then a wider gap, then the theme glyph as a lone icon — no separator
 before it. No icons next to the link labels.
 
+The theme glyph is a **Feather-style SVG** (sun in light mode,
+moon in dark) — not the Unicode ☀/☾ characters, which sit at
+visibly different vertical positions in Inter / system fonts
+(matching ink-bboxes; the eye still reads the crescent as higher
+than the sun's center). The 24×24 viewBox is shared so the swap is
+pixel-stable and the glyph baseline-aligns with the text links.
+
 This is the rule the redesign quietly violated for a while —
 labelled-icon-buttons read as "Notion clone", which is the SaaS-
 dashboard composition the concept explicitly rejects. The masthead
@@ -120,6 +127,13 @@ database table dump.
   of a signal — a dedicated lead made the page feel like a
   newsletter, and the row-level indicator already does the job
   without competing with the tier rhythm.
+- The on-air badge (`on display`) sits in its **own grid cell on
+  the far right** of the row, pulled out of `.card-meta` so it
+  pins to the row's right edge regardless of the cooked-text
+  length. On mobile the badge stays on the title's row (top-right);
+  the cooked-text drops to a row below. The paprika dot pulses
+  via a 1.6 s scale + opacity loop so the "on air" reading is
+  unmissable from across the room.
 - Sorting / filter dropdowns sit above the first tier with no extra
   divider — the first tier's own top hairline carries the gap.
 
@@ -137,9 +151,12 @@ numerals** (`01`, `02`, `03` …). Sub-headings inside instructions
 restart the count per section.
 
 Meta line under the title (`from X · saved Y · cooked Z`) wraps
-between segments but never inside one — each phrase is an inline-block
-no-break span. The hairline below the meta is the same `--border` as
-every other separator on the page.
+between segments but never inside one — each phrase is an
+inline-block no-break span. The bullet separator is a `::after`
+pseudo on every non-last segment so that, when the meta wraps to
+two lines, the `·` stays at the end of the previous line and never
+dangles at the start of the new one. The hairline below the meta
+is the same `--border` as every other separator on the page.
 
 **Ingredient lines do not get paprika bullet squares.** They get a
 thin leading hairline indent and that's it. The brand accent is
@@ -148,11 +165,15 @@ ingredient line dilutes the numerals and breaks the concept's
 "means something when it appears" rule.
 
 **Notes are marginalia**, not alert boxes. Each note is a single
-paprika hairline on the left + italic body, no fill, no dismiss `×`.
-They read as the cook's pencil notes in the margin of a cookbook.
-The "Save note" affordance under the textarea is a small paprika
-text link, right-aligned, matching the rest of the link-style button
-family — never a filled chrome pill.
+paprika hairline on the left + italic body, no fill. A small
+muted `×` sits at the right of every note for delete; it stays at
+opacity 0 until the row is hovered (or focused via keyboard), and
+keeps a light low-opacity tap target on touch devices that don't
+have hover. They still read as the cook's pencil notes in the
+margin — the delete affordance only inks-up when you reach for
+it. The "Save note" affordance under the textarea is a small
+paprika text link, right-aligned, matching the rest of the
+link-style button family — never a filled chrome pill.
 
 The `Push to display` action is a **quiet link-style button**
 (`button.link.accent`), centered under the recipe meta and above the
@@ -167,22 +188,31 @@ becomes a top block, instructions flow below, the back chip tightens.
 
 ### Add — flat list of methods
 
-`Paste a recipe link` and `Snap a recipe` are two **rows separated by
-hairlines**, not rounded cards. Each row has a sans-serif h2 with a
-paprika section icon, then the input affordance. The URL row gets a
-paste-from-clipboard helper next to the input.
+`LINK` and `SNAP` are two **rows separated by hairlines**, not
+rounded cards. Each row carries a **small-caps section eyebrow**
+(same `.status-card-h-label` treatment used by `DISPLAY` / `LIBRARY`
+on the Status page — Inter 12 px, 700, 0.18 em tracking, paprika
+icon, text-dim text). Below the eyebrow sits a quiet muted help
+line ("Paste a recipe link to add it to the library." / "Snap a
+cookbook page to add it to the library.") in body type, then the
+input affordance.
 
-Tile h2s use **Inter** (normal case, 17 px, weight 600), not Fraunces
-— the magazine serif is reserved for content titles, not form section
-labels.
+The earlier round used a serif-ish `h2` with sentence-case ("Paste a
+recipe link") — but it competed with the page `h1` for weight and
+didn't reuse the Status page's section vocabulary. Re-using the
+small-caps eyebrow lets Add read as the same kind of structured
+list of sections that Status uses, and frees the body type for
+explanatory help text instead of restating the action verb.
 
 ### Status — flat list with the e-ink frame nested
 
 Status sections (`DISPLAY`, `TOMORROW`, `LIBRARY`, `DEVICE`, `LLM`) are
 the same hairline-separated rows. Each section's h2 has an optional
 meta slot on the right (right-aligned, muted) — used by **Display**
-for `Updated 26 min ago` and by **Device** for `Last seen X` plus the
-overdue chip.
+for `Updated 26 min ago`, by **Device** for `Last seen X` plus the
+overdue chip, and by **Library** for `Backed up X` (so the backup
+freshness reads with the same vocabulary as the device freshness
+instead of being a separate body line below).
 
 The **e-ink preview is nested inside the Display section**, between
 the title row and the page-nav / Clear controls. There's no caption /

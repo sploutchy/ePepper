@@ -141,20 +141,18 @@
 </section>
 
 <section class="status-card">
-  <h2><span class="status-card-h-label">{{ icon("book", 18) }} Library</span></h2>
+  <h2>
+    <span class="status-card-h-label">{{ icon("book", 18) }} Library</span>
+    {% if backup_enabled %}
+      <span class="status-card-h-meta">
+        {% if last_backup_at %}Backed up {{ humanize_ago(last_backup_at) }}
+        {% else %}Never backed up{% endif %}
+      </span>
+    {% endif %}
+  </h2>
   <p class="status-line">
     <strong>{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
   </p>
-  {% if backup_enabled %}
-    <p class="status-line muted">
-      Last backup:
-      {% if last_backup_at %}
-        {{ humanize_ago(last_backup_at) }}
-      {% else %}
-        never
-      {% endif %}
-    </p>
-  {% endif %}
 </section>
 
 <section class="status-card">

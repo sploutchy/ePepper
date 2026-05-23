@@ -25,11 +25,11 @@
           never cooked
         {%- endif -%}
       </span>
-      {# "On air" indicator: a pulsing paprika dot + label. The dot is
-         drawn by .card-badge::before so the markup stays trivial. #}
-      {% if r.id == current_recipe_id %}
-        <span class="card-badge" title="Currently on display">on display</span>
-      {% endif %}
     </div>
+    {# "On air" indicator pulled out of .card-meta so it can pin to the
+       far right of the row (its own grid cell). #}
+    {% if r.id == current_recipe_id %}
+      <span class="card-badge" title="Currently on display">on display</span>
+    {% endif %}
   </a>
 </li>
