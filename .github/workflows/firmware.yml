@@ -1,0 +1,69 @@
+name: Firmware
+
+# Build the ESP32 firmware and publish the resulting binaries as an artifact.
+# Path filter keeps server-only / doc-only commits from rebuilding the firmware.
+# Use the "Run workflow" button in the Actions tab for manual builds.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'esp32/**'
+      - '.github/workflows/firmware.yml'
+  pull_request:
+    paths:
+      - 'esp32/**'
+      - '.github/workflows/firmware.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: esp32
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            esp32/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('esp32/platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Stage config.h
+        # config.h is gitignored (holds WiFi creds + API key). For CI we just
+        # need the file to exist so the build can resolve the include; the
+        # placeholder values from the example are fine since we never flash
+        # this binary.
+        run: cp include/config.h.example include/config.h
+
+      - name: Build firmware
+        run: pio run -e reterminal_e1001
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: epepper-firmware-${{ github.sha }}
+          path: |
+            esp32/.pio/build/reterminal_e1001/firmware.bin
+            esp32/.pio/build/reterminal_e1001/firmware.elf
+            esp32/.pio/build/reterminal_e1001/bootloader.bin
+            esp32/.pio/build/reterminal_e1001/partitions.bin
+          if-no-files-found: error
