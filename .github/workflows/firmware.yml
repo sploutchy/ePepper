@@ -48,11 +48,41 @@ jobs:
         run: pip install --upgrade platformio
 
       - name: Stage config.h
-        # config.h is gitignored (holds WiFi creds + API key). For CI we just
-        # need the file to exist so the build can resolve the include; the
-        # placeholder values from the example are fine since we never flash
-        # this binary.
-        run: cp include/config.h.example include/config.h
+        # config.h is gitignored (holds WiFi creds + API key). Start from the
+        # example, then overlay the production values from repo secrets so the
+        # artifact is flashable as-is. Forks / PRs without secrets fall back
+        # to placeholders — the build still validates, but the binary isn't
+        # flashable.
+        #
+        # Required repo secrets (Settings → Secrets and variables → Actions):
+        #   WIFI_SSID, WIFI_PASSWORD, API_KEY
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+          API_KEY: ${{ secrets.API_KEY }}
+        run: |
+          cp include/config.h.example include/config.h
+          if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ] && [ -n "${API_KEY:-}" ]; then
+            python3 - <<'PY'
+          import json, os, pathlib, re
+          p = pathlib.Path("include/config.h")
+          src = p.read_text()
+          for name in ("WIFI_SSID", "WIFI_PASSWORD", "API_KEY"):
+              val = os.environ[name]
+              # Callable replacement so re.sub doesn't interpret backslashes
+              # in the secret as backreferences. json.dumps gives a safely
+              # quoted C-string literal for any ASCII payload.
+              src = re.sub(
+                  rf'(#define\s+{name}\s+)"[^"]*"',
+                  lambda m, v=val: m.group(1) + json.dumps(v),
+                  src,
+              )
+          p.write_text(src)
+          PY
+            echo "config.h built with production secrets"
+          else
+            echo "::warning::No production secrets set — building with placeholder config (artifact not flashable)"
+          fi
 
       - name: Build firmware
         run: pio run -e reterminal_e1001
