@@ -275,6 +275,13 @@ def render_recipe(
             instructions.append({"type": "step", "text": item})
         else:
             instructions.append(item)
+    # Defensive: some LLM extractions emit a section heading before every
+    # step (e.g. "Preparation" repeated per item), which would draw an
+    # underlined italic heading per line AND restart the step counter to 1
+    # each time. Drop a heading whose text matches the most recent kept
+    # heading, and collapse runs of consecutive headings to the last one
+    # before a step.
+    instructions = _dedupe_section_headings(instructions)
 
     all_blocks: list[dict] = []
     # Sub-headings restart the step counter (matches the web app and the
@@ -487,6 +494,36 @@ def render_recipe(
     _draw_button_glyphs(draw, page, total_pages)
 
     return img, total_pages
+
+
+def _dedupe_section_headings(items: list[dict]) -> list[dict]:
+    """Strip degenerate heading repetition before the renderer touches it.
+
+    Two patterns get collapsed:
+      - "Preparation" → step → "Preparation" → step → … (same-text heading
+        re-emitted per step). Only the first heading is kept; the rest are
+        dropped so all steps land under one section with continuous numbering.
+      - "Prep" → "Cook" → step (consecutive headings with no step between).
+        Only the last is kept — it's the one that actually introduces the
+        upcoming step.
+
+    Empty-text headings are dropped outright.
+    """
+    out: list[dict] = []
+    last_heading_text: str | None = None
+    for item in items:
+        if item.get("type") == "heading":
+            text = (item.get("text") or "").strip()
+            if not text or text == last_heading_text:
+                continue
+            if out and out[-1].get("type") == "heading":
+                out[-1] = {"type": "heading", "text": text}
+            else:
+                out.append({"type": "heading", "text": text})
+            last_heading_text = text
+        else:
+            out.append(item)
+    return out
 
 
 def _wrap_to_width(text: str, font, max_w: int) -> list[str]:
