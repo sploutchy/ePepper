@@ -49,7 +49,7 @@ _PENDING_MAX = 32
 _pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
 
 # Notes the user typed *before* saving a pending recipe — populated by
-# /comment when the active display content isn't yet in the library.
+# /comment when the active display content isn't yet in the repertoire.
 # Tapping "Save & add note" drains both `_pending` and this map together.
 _pending_notes: dict[str, str] = {}
 
@@ -160,7 +160,7 @@ _BOT_COMMANDS: list[tuple[str, str]] = [
     ("search", "Find a saved recipe"),
     ("surprise", "Pick a random saved recipe"),
     ("comment", "Add a note to the displayed recipe"),
-    ("status", "Device + library status"),
+    ("status", "Device + repertoire status"),
     ("clear", "Clear the display"),
     ("help", "Show all commands"),
 ]
@@ -241,21 +241,21 @@ def _web_app_line() -> str:
         return (
             f"🌐 <b>Web app:</b> "
             f"<a href=\"{html.escape(WEB_URL)}/app/\">{html.escape(WEB_URL)}/app/</a> "
-            "(same API_KEY logs you in) — sort, filter, and browse the full library."
+            "(same API_KEY logs you in) — sort, filter, and browse the full repertoire."
         )
     return (
         "🌐 <b>Web app:</b> open <code>/app/</code> on your server "
-        "(same API_KEY logs you in) — sort, filter, and browse the full library."
+        "(same API_KEY logs you in) — sort, filter, and browse the full repertoire."
     )
 
 
 _START_TEXT = (
     "🫑 <b>ePepper — your kitchen recipe display</b>\n\n"
     "<b>Send me:</b>\n"
-    "• A photo of a recipe — OCR'd into the library automatically\n"
+    "• A photo of a recipe — OCR'd into your repertoire automatically\n"
     "• A recipe URL (just paste the link) — falls back to an LLM if the "
     "site isn't a known one\n\n"
-    "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your library. "
+    "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your repertoire. "
     "Use the device's <b>physical buttons</b> to cycle between recipe "
     "pages.\n\n"
     "{web_line}\n\n"
@@ -282,7 +282,7 @@ _HELP_TEXT = (
     "<b>➕ Add a recipe</b>\n"
     "Just paste a URL or send a photo of a cookbook / magazine page.\n"
     "  /recipe &lt;url&gt; — force-parse a URL\n\n"
-    "<b>📚 Library</b>\n"
+    "<b>📚 Repertoire</b>\n"
     "Tap 💾 Save under a push to keep a recipe.\n"
     "  /search &lt;query&gt; — find a saved recipe (paginated)\n"
     "  /surprise — pick a random saved recipe\n"
@@ -291,7 +291,7 @@ _HELP_TEXT = (
     "Physical buttons cycle pages.\n"
     "  /clear — clear the panel\n\n"
     "<b>ℹ️ Info</b>\n"
-    "  /status — device + library snapshot\n"
+    "  /status — device + repertoire snapshot\n"
 )
 
 
@@ -379,8 +379,8 @@ def _build_status_text() -> str:
         display_lines.append(html.escape(state["type"]))
     sections.append("\n".join(display_lines))
 
-    # Library section
-    library_lines = [f"<b>📚 Library</b>", f"{library.count_saved()} saved recipes"]
+    # Repertoire section
+    library_lines = [f"<b>📚 Repertoire</b>", f"{library.count_saved()} saved recipes"]
     if backup.is_enabled():
         last_ts = backup.get_last_backup_at()
         backup_text = humanize_ago(last_ts) if last_ts else "never"
@@ -515,7 +515,7 @@ async def cmd_comment(update: Update, context) -> None:
 
 def _cooked_label(row: dict) -> str:
     """Match the 'cooked N×, last <when>' / 'never cooked' phrasing used
-    across the web library cards so the bot's search results, surprise
+    across the web repertoire cards so the bot's search results, surprise
     card, and status all describe the same recipe the same way. `<when>`
     is the same humanised phrase (`2 days ago`, `last week`, …) the web
     cards render via `humanize_date`."""
@@ -587,7 +587,7 @@ def _render_search_page(
 
 
 async def cmd_search(update: Update, context) -> None:
-    """Full-text search the saved recipe library; tap a result to push it."""
+    """Full-text search the saved recipe repertoire; tap a result to push it."""
     if not _is_allowed(update.effective_user.id):
         return
 
@@ -684,7 +684,7 @@ async def cmd_surprise(update: Update, context) -> None:
     row = library.random_recipe()
     if row is None:
         await update.message.reply_text(
-            "Your library is empty — save a recipe first."
+            "Your repertoire is empty — save a recipe first."
         )
         return
     log.info("Surprise picked: id=%d title=%r", row["id"], row["title"])
@@ -710,11 +710,11 @@ async def on_surprise_again(update: Update, context) -> None:
 
     row = library.random_recipe(exclude_id=prev_id)
     if row is None:
-        # Library has only the excluded recipe — fall back to picking it.
+        # Repertoire has only the excluded recipe — fall back to picking it.
         if prev_id is not None:
             row = library.get_recipe(prev_id)
         if row is None:
-            await query.answer("Library is empty.", show_alert=True)
+            await query.answer("Repertoire is empty.", show_alert=True)
             return
         await query.answer("Only one saved recipe.", show_alert=True)
     else:
@@ -1009,7 +1009,7 @@ def _format_push_reply(title: str, url: str | None, total_pages: int) -> str:
 
 
 async def on_save_button(update: Update, context) -> None:
-    """User tapped 💾 Save — persist the recipe to the library."""
+    """User tapped 💾 Save — persist the recipe to the repertoire."""
     query = update.callback_query
     if not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
@@ -1049,7 +1049,7 @@ async def on_save_button(update: Update, context) -> None:
     except Exception:
         pass
     if query.message is not None:
-        await query.message.reply_text("💾 Saved to library.")
+        await query.message.reply_text("💾 Saved to repertoire.")
 
 
 async def on_save_note_button(update: Update, context) -> None:
@@ -1126,7 +1126,7 @@ async def on_quick_action(update: Update, context) -> None:
         if row is None:
             await context.bot.send_message(
                 chat_id=chat_id,
-                text="Your library is empty — save a recipe first.",
+                text="Your repertoire is empty — save a recipe first.",
             )
             return
         await context.bot.send_message(

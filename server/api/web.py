@@ -400,7 +400,7 @@ async def add_page(request: Request):
 
 @router.post("/add/url", response_class=HTMLResponse)
 async def add_url(request: Request, url: str = Form(...)):
-    """URL paste — adds the recipe to the library, without pushing to the panel.
+    """URL paste — adds the recipe to the repertoire, without pushing to the panel.
 
     Dedupes via find_by_url so a re-pasted URL just lands the user back on
     its detail page. The explicit Display button on the detail page is
