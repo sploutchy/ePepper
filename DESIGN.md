@@ -91,16 +91,41 @@ that's the wrong instinct — the typography is the mark.
 
 ## Layout
 
-### Library — vertical index, not a card stack
+### Masthead — magazine, not toolbar
 
-The library reads as a **magazine index**: serif titles, tracked
-small-caps source labels, hairline rule dividers. No card chrome.
-Sorting / filter dropdowns sit above with no extra divider — the
-recipe list's own top hairline carries the gap.
+The top bar is a **masthead**, not a labelled-icon dashboard toolbar.
+Brand wordmark flush left; on the right a single row of small-caps
+Inter text links (`ADD · STATUS · LOGOUT`) separated by middle dots,
+then a wider gap, then the theme glyph as a lone icon — no separator
+before it. No icons next to the link labels.
 
-The "currently on display" indicator is an **on-air dot**: borderless
-pulsing paprika circle plus the tracked small-caps label
-`ON DISPLAY`. Not a chip, not an icon, not a badge box.
+This is the rule the redesign quietly violated for a while —
+labelled-icon-buttons read as "Notion clone", which is the SaaS-
+dashboard composition the concept explicitly rejects. The masthead
+treatment is the fix.
+
+### Library — magazine contents page
+
+The library reads as a **tiered magazine contents page**, not a
+database table dump.
+
+- The currently-on-display recipe is promoted to a one-line **lead**
+  at the top: a small-caps paprika `ON DISPLAY` eyebrow, then the
+  recipe title in display serif, then a tracked-uppercase source
+  label. One hairline below it.
+- The remaining recipes are grouped by recency into named tiers —
+  **This week / This month / Earlier this year / Older** — each
+  introduced by a small-caps date eyebrow with a hairline on top.
+- Inside each tier, rows still use the editorial vocabulary: serif
+  title, tracked small-caps source, right-aligned `cooked Nx, last X
+  days ago` in muted body type. Hairlines between rows.
+- Sorting / filter dropdowns sit above the lead with no extra
+  divider — the lead's own bottom hairline carries the gap.
+
+The bucketing uses string matching against `fmt_saved()`'s
+deterministic phrases (`"days ago"`, `"last week"`, `"weeks ago"`,
+`"last month"`, `"months ago"`, `"last year"`) so it stays in Jinja
+without a Python helper.
 
 ### Recipe — editorial two-column
 
@@ -115,9 +140,24 @@ between segments but never inside one — each phrase is an inline-block
 no-break span. The hairline below the meta is the same `--border` as
 every other separator on the page.
 
-The `Push to display` action is a **quiet link-style button**
-(`button.link.accent`), centered. It matches `Delete this recipe` in
-the footer, just paprika instead of danger red.
+**Ingredient lines do not get paprika bullet squares.** They get a
+thin leading hairline indent and that's it. The brand accent is
+already doing real work on the step numerals; doubling it up on every
+ingredient line dilutes the numerals and breaks the concept's
+"means something when it appears" rule.
+
+**Notes are marginalia**, not alert boxes. Each note is a single
+paprika hairline on the left + italic body, no fill, no dismiss `×`.
+They read as the cook's pencil notes in the margin of a cookbook.
+The "Save note" affordance under the textarea is a small paprika
+text link, right-aligned, matching the rest of the link-style button
+family — never a filled chrome pill.
+
+The `Push to display` action is the recipe's **editorial sign-off**
+at the very foot, after the notes block and before the delete link:
+small-caps Inter `COOK THIS TONIGHT →`, paprika, centered, wrapped
+in `--border` hairlines above and below. It reads as a closing
+flourish, not as a buried inline action.
 
 Mobile collapses the two-column to one, the ingredients section
 becomes a top block, instructions flow below, the back chip tightens.
@@ -158,8 +198,13 @@ The wordmark fills the top at `clamp(48px, 6vw, 72px)`. Directly under
 it sits the access-code field with the merged paste/submit button
 (`.input-action-btn`) inline. **No tagline above the form, no hint
 below it.** The placeholder ("Access code") names the field; the
-wordmark establishes which app you're signing into. Anything between
-the wordmark and the field is noise.
+wordmark establishes which app you're signing into.
+
+The access-code input is rendered as a **single bottom hairline**,
+not a rounded-rectangle border. Same reasoning as the rest of the
+system: rounded surfaces compete with the editorial paper, hairlines
+sit in it. The merged paste/submit button keeps its outline because
+it's a button, not an input.
 
 The only paragraph that ever shows up next to the form is the inline
 error (`<p class="error">…</p>`) on a failed sign-in, and it only

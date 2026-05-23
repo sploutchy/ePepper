@@ -21,13 +21,68 @@
     </div>
   {% endif %}
 {% else %}
-  <ul class="recipes">
-    {% for r in recipes %}{% include "_card.html" %}{% endfor %}
-    {% if has_more %}
-      <li class="loader"
-          hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}"
-          hx-trigger="revealed"
-          hx-swap="outerHTML">Loading…</li>
+  {# Lead line — promote the on-display recipe to a one-line standalone
+     entry above the tiers. Mirrors a magazine contents page that opens
+     with the cover story. #}
+  {% set lead = namespace(r=None) %}
+  {% for r in recipes %}
+    {% if r.id == current_recipe_id and not lead.r %}{% set lead.r = r %}{% endif %}
+  {% endfor %}
+  {% if lead.r %}
+    <div class="library-lead">
+      <span class="library-lead-eyebrow">On display</span>
+      <a href="/app/recipes/{{ lead.r.id }}" class="library-lead-link">{{ lead.r.title }}</a>
+      {% set src = source_name(lead.r.url) %}
+      {% if src %}<span class="library-lead-source">from {{ src }}</span>{% endif %}
+    </div>
+  {% endif %}
+
+  {# Bucket recipes by the humanized "last cooked" phrase. fmt_saved()
+     returns deterministic strings ("yesterday", "4 days ago", "last
+     week", "2 weeks ago", "last month", "5 months ago", "last year",
+     "—" for never), so the substring match below is enough to slot
+     each row into the right tier without needing a server-side `now`.
+       This week  — anything under "last week"
+       This month — "last week" or "N weeks ago"
+       Earlier this year — "last month" or "N months ago"
+       Older  — "last year" or older, plus never-cooked / "—" #}
+  {% set tier_for = namespace() %}
+  {% set this_week = [] %}
+  {% set this_month = [] %}
+  {% set this_year = [] %}
+  {% set older = [] %}
+  {% for r in recipes %}
+    {% set phrase = fmt_saved(r.last_displayed_at) %}
+    {% if 'min ago' in phrase or 'h ago' in phrase or 'just now' in phrase
+       or phrase == 'yesterday' or 'days ago' in phrase %}
+      {% set _ = this_week.append(r) %}
+    {% elif phrase == 'last week' or 'weeks ago' in phrase %}
+      {% set _ = this_month.append(r) %}
+    {% elif phrase == 'last month' or 'months ago' in phrase %}
+      {% set _ = this_year.append(r) %}
+    {% else %}
+      {% set _ = older.append(r) %}
     {% endif %}
-  </ul>
+  {% endfor %}
+
+  {% set tiers = [
+    ('this-week',  'This week',  this_week),
+    ('this-month', 'This month', this_month),
+    ('this-year',  'Earlier this year', this_year),
+    ('older',      'Older',      older)
+  ] %}
+  {% for slug, label, rows in tiers %}
+    {% if rows %}
+      <h2 class="library-tier-h">{{ label }}</h2>
+      <ul class="recipes recipes-tier-{{ slug }}">
+        {% for r in rows %}{% include "_card.html" %}{% endfor %}
+      </ul>
+    {% endif %}
+  {% endfor %}
+  {% if has_more %}
+    <ul class="recipes"><li class="loader"
+        hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}"
+        hx-trigger="revealed"
+        hx-swap="outerHTML">Loading…</li></ul>
+  {% endif %}
 {% endif %}

@@ -1,23 +1,18 @@
-<ul class="comments">
+<ul class="comments comments--marginalia">
   {% for c in comments %}
     <li>
       <span class="comment-body">{{ c.body }}</span>
-      <button class="link danger"
-              hx-delete="/app/recipes/{{ r_id }}/comments/{{ c.id }}"
-              hx-target="#comments"
-              hx-swap="innerHTML"
-              hx-confirm="Delete this note?">×</button>
     </li>
   {% else %}
     <li class="muted">No notes yet.</li>
   {% endfor %}
 </ul>
 
-<form class="add-comment"
+<form class="add-comment add-comment--link"
       hx-post="/app/recipes/{{ r_id }}/comments"
       hx-target="#comments"
       hx-swap="innerHTML"
       hx-on::after-request="this.reset()">
   <textarea name="body" rows="2" placeholder="Add a note…" required></textarea>
-  <button type="submit">Add</button>
+  <button type="submit" class="link accent">Save note</button>
 </form>

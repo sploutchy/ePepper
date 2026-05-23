@@ -45,44 +45,16 @@
            width/height attributes belt-and-suspenders the CSS rule —
            Firefox occasionally rendered SVGs without them at 0×0 when
            nested inside an inline-flex parent. #}
-        <nav class="topnav">
-          <a href="/app/add" class="iconbtn" title="Add a recipe" aria-label="Add a recipe">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
-              <path d="M12 5v14M5 12h14"/>
-            </svg>
-            <span class="iconbtn-label">Add</span>
-          </a>
-          <a href="/app/status" class="iconbtn" title="Status" aria-label="Status">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <rect x="3" y="4" width="18" height="13" rx="2"/>
-              <path d="M8 21h8M12 17v4"/>
-            </svg>
-            <span class="iconbtn-label">Status</span>
-          </a>
-          <button type="button" class="iconbtn theme-toggle" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
-            {# Both SVGs sit side-by-side; CSS hides the inactive one.
-               The label is a single empty span whose ::before content
-               swaps between "Light" and "Dark" with the same swap
-               rules, so we don't double up the markup. #}
-            <svg class="theme-icon-light" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4"/>
-              <path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.93 4.93l2.12 2.12M16.95 16.95l2.12 2.12M4.93 19.07l2.12-2.12M16.95 7.05l2.12-2.12"/>
-            </svg>
-            <svg class="theme-icon-dark" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-            <span class="iconbtn-label theme-label"></span>
-          </button>
+        <nav class="topnav masthead-nav">
+          <a href="/app/add" class="masthead-link">Add</a>
+          <a href="/app/status" class="masthead-link">Status</a>
           <form action="/app/logout" method="post" class="logout-form">
-            <button type="submit" class="iconbtn" title="Log out" aria-label="Log out">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
-                <path d="M16 17l5-5-5-5"/>
-                <path d="M21 12H9"/>
-              </svg>
-              <span class="iconbtn-label">Logout</span>
-            </button>
+            <button type="submit" class="masthead-link">Logout</button>
           </form>
+          <button type="button" class="masthead-theme" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
+            <span class="theme-glyph theme-icon-light" aria-hidden="true">☀</span>
+            <span class="theme-glyph theme-icon-dark" aria-hidden="true">☾</span>
+          </button>
         </nav>
       </div>
     </header>

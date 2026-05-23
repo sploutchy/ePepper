@@ -267,21 +267,37 @@ body.centered {
   margin-bottom: 24px;
 }
 
+/* Hairline-underline login field (proposal 8) — drop the rounded
+   rectangle in favour of a single bottom rule. The merged paste/submit
+   button next to it gets a matching borderless treatment so the two
+   elements read as a single editorial input row. */
 .login input[type="password"] {
   width: 100%;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  padding: 14px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
   color: var(--text);
-  border-radius: var(--r-md);
-  font-size: 17px;
-  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+  border-radius: 0;
+  font-size: 20px;
+  transition: border-color .15s var(--ease);
 }
 .login input[type="password"]:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  border-bottom-color: var(--accent);
+  box-shadow: none;
 }
+.login .input-action-btn {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 14px;
+}
+.login .input-action-btn[data-state="submit"] {
+  border-color: transparent;
+  border-bottom-color: var(--accent);
+}
+.login .input-action-btn:hover { background: transparent; }
 
 /* (No .login button override — Sign in now lives inside .input-action
    as the merged paste/submit button next to the access-code field. See
@@ -947,14 +963,17 @@ button.link.accent:hover {
   align-items: baseline;
   gap: 10px;
 }
+/* Bullets dropped (proposal 6) — the paprika squares were one of nine
+   paprika roles on the recipe page; promoting the step numerals as the
+   only paprika in the body lets them carry the brand on their own.
+   The hairline indent + leading whitespace does the visual work. */
 .ingredients li::before {
   content: "";
   flex: none;
-  width: 5px;
-  height: 5px;
-  background: var(--accent);
-  border-radius: 1px;
-  transform: translateY(-3px);
+  width: 8px;
+  height: 1px;
+  background: var(--border);
+  transform: translateY(-6px);
 }
 
 .steps {
@@ -1200,6 +1219,183 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
 .htmx-indicator { opacity: 0; }
 .htmx-request .htmx-indicator { opacity: 1; transition: opacity .2s ease-in; }
 .htmx-request.htmx-indicator   { opacity: 1; transition: opacity .2s ease-in; }
+
+/* ----------  Masthead nav (proposal 1)  ---------- */
+.masthead-nav {
+  gap: 0;
+  align-items: baseline;
+}
+.masthead-nav .logout-form { display: inline-flex; }
+.masthead-nav .masthead-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-decoration: none;
+  cursor: pointer;
+  line-height: 1;
+}
+.masthead-nav .masthead-link:hover { color: var(--accent); text-decoration: none; }
+.masthead-nav .masthead-link + .masthead-link::before,
+.masthead-nav .masthead-link + .logout-form::before {
+  content: "·";
+  display: inline-block;
+  margin: 0 14px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+.masthead-theme {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-left: 28px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.masthead-theme:hover { color: var(--accent); }
+.masthead-theme .theme-glyph { display: inline-block; }
+:root[data-theme="dark"] .masthead-theme .theme-icon-light,
+html[data-theme="dark"] .masthead-theme .theme-icon-light { display: none; }
+:root[data-theme="dark"] .masthead-theme .theme-icon-dark,
+html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block; }
+.masthead-theme .theme-icon-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .masthead-theme .theme-icon-light { display: none; }
+  :root:not([data-theme="light"]) .masthead-theme .theme-icon-dark { display: inline-block; }
+}
+
+/* ----------  Save-note link (proposal 2)  ----------
+   The notes form drops the filled "Add" pill in favour of a quiet paprika
+   text link, right-aligned under the textarea — same chrome family as
+   "Push to display" and "Delete this recipe", just smaller. */
+.add-comment--link button.link.accent {
+  justify-self: end;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  padding: 6px 0;
+}
+.add-comment--link button.link.accent:hover {
+  background: transparent;
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+
+/* ----------  Notes as marginalia (proposal 3)  ----------
+   Drop the paprika-tinted alert-box treatment in favour of a single
+   paprika hairline on the left and italic body. No fill, no close
+   button — the note reads as a pencil mark in the margin, not as a
+   dismissable toast. */
+.comments--marginalia li {
+  background: transparent;
+  border-left: 1px solid var(--accent);
+  border-radius: 0;
+  padding: 4px 0 4px 18px;
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text);
+}
+.comments--marginalia li.muted {
+  border-left-color: var(--border);
+  color: var(--muted);
+}
+
+
+/* ----------  Push-to-display coda (proposal 4)  ----------
+   The "push" verb now lives at the foot of the recipe as an editorial
+   sign-off rather than a button hovering above the body. Small-caps
+   Inter, paprika, single arrow glyph. No filled chrome — sits on the
+   page like the credit-line at the end of a feature. */
+.push-coda {
+  margin-top: 56px;
+  padding-top: 32px;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+.push-coda-btn {
+  background: transparent;
+  border: 0;
+  padding: 4px 8px;
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+  cursor: pointer;
+}
+.push-coda-btn:hover { color: var(--accent-hover); }
+.push-coda-arrow { margin-left: 8px; font-weight: 400; }
+
+
+/* ----------  Library tiers + lead line (proposal 5)  ----------
+   Magazine-contents-page tiering: a small-caps date eyebrow with a
+   hairline above each time bucket, and the on-display recipe promoted
+   above the tiers as a one-line lead. */
+.library-lead {
+  padding: 18px 0 22px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 12px;
+}
+.library-lead-eyebrow {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.library-lead-link {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 600;
+  font-variation-settings: "opsz" 60, "SOFT" 50;
+  color: var(--text);
+  text-decoration: none;
+  letter-spacing: -0.01em;
+}
+.library-lead-link:hover { color: var(--accent); text-decoration: none; }
+.library-lead-source {
+  font-family: var(--font-body);
+  font-size: 12px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.library-tier-h {
+  font-family: var(--font-body);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 36px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.library-tier-h:first-of-type { margin-top: 18px; }
+.recipes-tier-this-week,
+.recipes-tier-this-month,
+.recipes-tier-this-year,
+.recipes-tier-older { margin-top: 4px; }
 
 /* ----------  Responsive  ---------- */
 @media (max-width: 900px) {
