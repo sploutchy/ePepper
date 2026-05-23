@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Flash device · ePepper{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Flash device</h1>
+</div>
+
+<section class="status-card">
+  <p class="status-line">
+    Connect the reTerminal over USB-C (use an OTG cable on Android),
+    hold the BOOT button if it doesn't enter download mode, then tap
+    Install. The device will be erased and reflashed with the latest
+    firmware from CI.
+  </p>
+
+  {% if manifest_present %}
+    <p class="status-actions">
+      {# ESP Web Tools renders its own styled button; just drop the
+         component. The library auto-hides itself with a "browser not
+         supported" slot if Web Serial is missing. #}
+      <esp-web-install-button
+          manifest="/app/flash/manifest.json"
+          erase-first>
+        <span slot="unsupported">
+          Web Serial isn't available in this browser. Open this page in
+          Chrome, Edge, or Brave (desktop or Android).
+        </span>
+        <span slot="not-allowed">
+          This page must be served over HTTPS to flash.
+        </span>
+      </esp-web-install-button>
+    </p>
+  {% else %}
+    <p class="status-line muted">
+      No firmware published yet. Trigger the Firmware workflow on main
+      and refresh this page.
+    </p>
+  {% endif %}
+</section>
+
+<script
+    type="module"
+    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js">
+</script>
+{% endblock %}

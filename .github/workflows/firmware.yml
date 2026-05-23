@@ -1,8 +1,11 @@
 name: Firmware
 
-# Build the ESP32 firmware and publish the resulting binaries as an artifact.
-# Path filter keeps server-only / doc-only commits from rebuilding the firmware.
-# Use the "Run workflow" button in the Actions tab for manual builds.
+# Build the ESP32 firmware. On main pushes with all secrets present, bake
+# them into config.h, merge the result into a single flat image, and push
+# bin + manifest to the VPS for the auth-gated /app/flash page. PRs / dispatch
+# from branches build with placeholder config and upload a public Actions
+# artifact for validation only — never with secrets, since public-repo
+# artifacts are downloadable by any GitHub user.
 
 on:
   push:
@@ -44,18 +47,18 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-
 
-      - name: Install PlatformIO
-        run: pip install --upgrade platformio
+      - name: Install PlatformIO + esptool
+        run: pip install --upgrade platformio esptool
 
       - name: Stage config.h
-        # config.h is gitignored (holds WiFi creds + API key). Start from the
-        # example, then overlay the production values from repo secrets so the
-        # artifact is flashable as-is. Forks / PRs without secrets fall back
-        # to placeholders — the build still validates, but the binary isn't
-        # flashable.
+        id: stage
+        # Production builds (push/dispatch on main, all secrets present) bake
+        # the real values in. Everything else — PRs, non-main dispatch, missing
+        # secrets — gets placeholders so we never leak creds into a public
+        # Actions artifact.
         #
-        # Required repo secrets (Settings → Secrets and variables → Actions):
-        #   WIFI_SSID, WIFI_PASSWORD, API_KEY, SERVER_URL
+        # Required repo secrets:
+        #   WIFI_SSID, WIFI_PASSWORD, API_KEY, SERVER_URL, VPS_SSH_KEY
         env:
           WIFI_SSID: ${{ secrets.WIFI_SSID }}
           WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
@@ -63,7 +66,11 @@ jobs:
           SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
           cp include/config.h.example include/config.h
-          if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ] && [ -n "${API_KEY:-}" ] && [ -n "${SERVER_URL:-}" ]; then
+          PRODUCTION="false"
+          if [ "$GITHUB_REF" = "refs/heads/main" ] && \
+             [ "$GITHUB_EVENT_NAME" != "pull_request" ] && \
+             [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ] && \
+             [ -n "${API_KEY:-}" ] && [ -n "${SERVER_URL:-}" ]; then
             python3 - <<'PY'
           import json, os, pathlib, re
           p = pathlib.Path("include/config.h")
@@ -80,21 +87,93 @@ jobs:
               )
           p.write_text(src)
           PY
+            PRODUCTION="true"
             echo "config.h built with production secrets"
           else
-            echo "::warning::No production secrets set — building with placeholder config (artifact not flashable)"
+            echo "::warning::Building with placeholder config (artifact not flashable)"
           fi
+          echo "production=$PRODUCTION" >> "$GITHUB_OUTPUT"
 
       - name: Build firmware
         run: pio run -e reterminal_e1001
 
-      - name: Upload firmware artifact
+      - name: Merge into single flashable image
+        # ESP Web Tools flashes a flat image starting at offset 0. Use esptool
+        # merge_bin to combine bootloader / partition table / OTA-data /
+        # firmware into one .bin laid out for a clean ESP32-S3 flash.
+        run: |
+          BUILD=.pio/build/reterminal_e1001
+          BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32/tools/partitions -name boot_app0.bin | head -1)
+          if [ -z "$BOOT_APP0" ]; then
+            echo "::error::boot_app0.bin not found — partition layout assumption broken"
+            exit 1
+          fi
+          python -m esptool --chip esp32s3 merge_bin \
+            -o "$BUILD/epepper-merged.bin" \
+            0x0     "$BUILD/bootloader.bin" \
+            0x8000  "$BUILD/partitions.bin" \
+            0xe000  "$BOOT_APP0" \
+            0x10000 "$BUILD/firmware.bin"
+
+      - name: Generate ESP Web Tools manifest
+        run: |
+          BUILD=.pio/build/reterminal_e1001
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          cat > "$BUILD/manifest.json" <<JSON
+          {
+            "name": "ePepper",
+            "version": "${SHORT_SHA}",
+            "new_install_prompt_erase": true,
+            "builds": [
+              {
+                "chipFamily": "ESP32-S3",
+                "parts": [
+                  { "path": "epepper-merged.bin", "offset": 0 }
+                ]
+              }
+            ]
+          }
+          JSON
+
+      - name: Upload firmware artifact (placeholder builds only)
+        if: steps.stage.outputs.production != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: epepper-firmware-${{ github.sha }}
           path: |
-            esp32/.pio/build/reterminal_e1001/firmware.bin
+            esp32/.pio/build/reterminal_e1001/epepper-merged.bin
             esp32/.pio/build/reterminal_e1001/firmware.elf
-            esp32/.pio/build/reterminal_e1001/bootloader.bin
-            esp32/.pio/build/reterminal_e1001/partitions.bin
+            esp32/.pio/build/reterminal_e1001/manifest.json
           if-no-files-found: error
+
+      - name: Push firmware to VPS (production builds only)
+        if: steps.stage.outputs.production == 'true'
+        env:
+          VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          SERVER_URL: ${{ secrets.SERVER_URL }}
+        # Self-hosted serving keeps the production firmware (which contains
+        # WiFi creds + API key after baking) behind /app/flash's session
+        # gate, instead of exposing it on a public Actions artifact or
+        # GitHub Release.
+        run: |
+          host="${SERVER_URL#https://}"
+          host="${host#http://}"
+          host="${host%%/*}"
+
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          install -m 600 /dev/null ~/.ssh/vps_key
+          printf '%s\n' "$VPS_SSH_KEY" > ~/.ssh/vps_key
+
+          SSH_OPTS="-i $HOME/.ssh/vps_key -o StrictHostKeyChecking=accept-new"
+
+          # The firmware dir may not exist yet (first run), or may have been
+          # auto-created by docker as root via the bind mount. Make sure it
+          # exists AND is owned by debian so rsync can write into it.
+          ssh $SSH_OPTS debian@"$host" \
+            "sudo mkdir -p /home/debian/epepper/firmware && sudo chown debian:debian /home/debian/epepper/firmware"
+
+          rsync -avz --chmod=F644 -e "ssh $SSH_OPTS" \
+            .pio/build/reterminal_e1001/epepper-merged.bin \
+            .pio/build/reterminal_e1001/manifest.json \
+            debian@"$host":/home/debian/epepper/firmware/
