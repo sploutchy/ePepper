@@ -1,0 +1,100 @@
+name: Firmware
+
+# Build the ESP32 firmware and publish the resulting binaries as an artifact.
+# Path filter keeps server-only / doc-only commits from rebuilding the firmware.
+# Use the "Run workflow" button in the Actions tab for manual builds.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'esp32/**'
+      - '.github/workflows/firmware.yml'
+  pull_request:
+    paths:
+      - 'esp32/**'
+      - '.github/workflows/firmware.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: esp32
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Cache PlatformIO
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.platformio/.cache
+            ~/.platformio/packages
+            ~/.platformio/platforms
+            esp32/.pio
+          key: pio-${{ runner.os }}-${{ hashFiles('esp32/platformio.ini') }}
+          restore-keys: |
+            pio-${{ runner.os }}-
+
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
+
+      - name: Stage config.h
+        # config.h is gitignored (holds WiFi creds + API key). Start from the
+        # example, then overlay the production values from repo secrets so the
+        # artifact is flashable as-is. Forks / PRs without secrets fall back
+        # to placeholders — the build still validates, but the binary isn't
+        # flashable.
+        #
+        # Required repo secrets (Settings → Secrets and variables → Actions):
+        #   WIFI_SSID, WIFI_PASSWORD, API_KEY, SERVER_URL
+        env:
+          WIFI_SSID: ${{ secrets.WIFI_SSID }}
+          WIFI_PASSWORD: ${{ secrets.WIFI_PASSWORD }}
+          API_KEY: ${{ secrets.API_KEY }}
+          SERVER_URL: ${{ secrets.SERVER_URL }}
+        run: |
+          cp include/config.h.example include/config.h
+          if [ -n "${WIFI_SSID:-}" ] && [ -n "${WIFI_PASSWORD:-}" ] && [ -n "${API_KEY:-}" ] && [ -n "${SERVER_URL:-}" ]; then
+            python3 - <<'PY'
+          import json, os, pathlib, re
+          p = pathlib.Path("include/config.h")
+          src = p.read_text()
+          for name in ("WIFI_SSID", "WIFI_PASSWORD", "API_KEY", "SERVER_URL"):
+              val = os.environ[name]
+              # Callable replacement so re.sub doesn't interpret backslashes
+              # in the secret as backreferences. json.dumps gives a safely
+              # quoted C-string literal for any ASCII payload.
+              src = re.sub(
+                  rf'(#define\s+{name}\s+)"[^"]*"',
+                  lambda m, v=val: m.group(1) + json.dumps(v),
+                  src,
+              )
+          p.write_text(src)
+          PY
+            echo "config.h built with production secrets"
+          else
+            echo "::warning::No production secrets set — building with placeholder config (artifact not flashable)"
+          fi
+
+      - name: Build firmware
+        run: pio run -e reterminal_e1001
+
+      - name: Upload firmware artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: epepper-firmware-${{ github.sha }}
+          path: |
+            esp32/.pio/build/reterminal_e1001/firmware.bin
+            esp32/.pio/build/reterminal_e1001/firmware.elf
+            esp32/.pio/build/reterminal_e1001/bootloader.bin
+            esp32/.pio/build/reterminal_e1001/partitions.bin
+          if-no-files-found: error
