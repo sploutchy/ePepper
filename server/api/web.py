@@ -103,12 +103,22 @@ def _instruction_groups(recipe: dict) -> list[dict]:
     """
     items = recipe.get("instructions") or []
     groups: list[dict] = [{"heading": None, "steps": []}]
+    # Defensive: some LLM extractions emit a section heading before every
+    # step (e.g. "Preparation" repeated per item), which would render one
+    # <h3>Preparation</h3>+<ol><li>…</li></ol> block per step. Skip a
+    # heading whose text matches the most recently opened group, and
+    # collapse consecutive heading-only groups (no step between).
+    last_heading_text: str | None = None
     for item in items:
         if isinstance(item, dict) and item.get("type") == "heading":
             text = (item.get("text") or "").strip()
-            if not text:
+            if not text or text == last_heading_text:
                 continue
-            groups.append({"heading": text, "steps": []})
+            if not groups[-1]["steps"] and groups[-1]["heading"] is not None:
+                groups[-1]["heading"] = text
+            else:
+                groups.append({"heading": text, "steps": []})
+            last_heading_text = text
         else:
             text = (
                 item.get("text") if isinstance(item, dict) else str(item)
