@@ -1,8 +1,20 @@
 """Shared display state — tracks current image, recipe, and device status.
 
-Pure in-memory state. The active recipe (and any in-flight unsaved push)
-is lost on container restart; saved recipes persist in the SQLite library
-and can be re-pushed via /search or the midnight anniversary scheduler.
+In-memory state with optional **saved-recipe persistence** across
+restarts: when a SAVED recipe is on the panel, the (recipe_id, page)
+pair is mirrored to the `display_panel` SQLite singleton row by
+set_recipe / set_page / clear, and `restore_persisted()` rebuilds the
+in-memory render at server boot.
+
+Unsaved pushes (a freshly parsed recipe shown before 💾 Save was
+tapped) are intentionally NOT persisted — the in-memory parsed dict
+is the only copy, and recovering it would mean re-fetching the source
+URL through the full URL or OCR pipeline, including an LLM round-trip.
+Container restarts during the briefly-unsaved window come back to an
+idle panel; tap 💾 to keep a recipe and the persistence kicks in.
+
+Device status (battery / RSSI / heartbeat) also stays in-memory — the
+ESP32 re-populates it on its next wake cycle.
 """
 
 import hashlib
@@ -88,6 +100,7 @@ def set_recipe(
         recipe_id=recipe_id,
         url=url,
     )
+    _persist_panel_state()
 
 
 def _render_pages(inputs: dict) -> dict[int, Image.Image]:
@@ -128,6 +141,7 @@ def set_page(page: int) -> bool:
         return False
     _state["page"] = page
     _state["hash"] = _compute_hash(page)
+    _persist_panel_state()
     return True
 
 
@@ -145,6 +159,7 @@ def clear() -> None:
         "recipe_id": None,
         "url": None,
     })
+    _persist_panel_state()
 
 
 def get() -> dict:
@@ -280,3 +295,67 @@ def _compute_hash(page: int) -> str:
     if img is None:
         return ""
     return hashlib.md5(img.tobytes()).hexdigest()[:8]
+
+
+def _persist_panel_state() -> None:
+    """Mirror the in-memory display state to the SQLite singleton row.
+
+    Only writes when a SAVED recipe is active (recipe_id is set);
+    clears the row when the panel is idle or holding an unsaved push.
+    Wrapped in a try/except so a DB hiccup never takes down the
+    in-memory display flow that just succeeded.
+    """
+    # Lazy import — keeps display_state import-cheap and dodges the
+    # cycle library → display_state would create otherwise.
+    import library
+    try:
+        recipe_id = _state.get("recipe_id")
+        if _state.get("type") == "recipe" and recipe_id is not None:
+            library.set_panel_state(recipe_id, _state.get("page", 1))
+        else:
+            library.clear_panel_state()
+    except Exception:
+        log.exception("Failed to persist panel state")
+
+
+def restore_persisted() -> None:
+    """At server boot, re-render whatever was last on the panel.
+
+    Reads the `display_panel` singleton row, looks up the recipe, and
+    calls `set_recipe` + `set_page` to rebuild the in-memory pages.
+    A stale row (recipe was deleted while the server was down) is
+    cleared. Failures are logged and swallowed — the panel comes back
+    idle in the worst case, never crashes startup.
+    """
+    import library
+    try:
+        persisted = library.get_panel_state()
+        if not persisted:
+            return
+        row = library.get_recipe(persisted["recipe_id"])
+        if row is None:
+            log.info(
+                "Persisted panel recipe id=%s is gone — clearing stale state",
+                persisted["recipe_id"],
+            )
+            library.clear_panel_state()
+            return
+        comments = [c["body"] for c in library.get_comments(row["id"])]
+        set_recipe(
+            row["recipe"],
+            comments=comments,
+            recipe_id=row["id"],
+            url=row["url"],
+        )
+        # set_recipe resets page to 1; nudge to the persisted page if it
+        # still fits (rendering might paginate differently than last run
+        # if the recipe was edited via re-extract).
+        target_page = persisted.get("page", 1)
+        if target_page > 1 and target_page <= _state["total_pages"]:
+            set_page(target_page)
+        log.info(
+            "Restored panel: recipe_id=%s title=%r page=%d/%d",
+            row["id"], row["title"], _state["page"], _state["total_pages"],
+        )
+    except Exception:
+        log.exception("Failed to restore persisted panel state")

@@ -24,6 +24,9 @@ from library.db import (
     delete_session,
     set_translated_keywords,
     recipes_needing_translation,
+    get_panel_state,
+    set_panel_state,
+    clear_panel_state,
 )
 from library.db import _connect as _db_connect
 from library import llm_calls as _llm_calls
@@ -77,4 +80,7 @@ __all__ = [
     "llm_month_stats",
     "set_translated_keywords",
     "recipes_needing_translation",
+    "get_panel_state",
+    "set_panel_state",
+    "clear_panel_state",
 ]

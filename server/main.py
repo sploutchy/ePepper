@@ -9,6 +9,7 @@ import os
 
 import uvicorn
 
+import display_state
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
@@ -35,6 +36,10 @@ async def main() -> None:
 
     # Initialise recipe library DB
     init_db()
+
+    # Re-render whatever recipe was on the panel before the restart —
+    # only kicks in for saved recipes (see display_state docstring).
+    display_state.restore_persisted()
 
     # Start Telegram bot
     bot = create_bot()
