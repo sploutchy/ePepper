@@ -111,6 +111,9 @@ cd server
 cp .env.example .env
 # Edit .env: paste your Telegram bot token, an API_KEY you generate, and
 # your Telegram user id in ALLOWED_USERS.
+# Pre-create the bind-mount targets so docker doesn't auto-create them
+# as root — the compose file resolves these relative to the project root.
+mkdir -p ../data ../firmware
 docker compose -f ../docker-compose.yml up -d --build
 ```
 
@@ -244,8 +247,15 @@ Three physical buttons:
 | `API_PORT` | Server port (default: `8080`). |
 | `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the repertoire hasn't changed since the previous one. Unset = backups disabled. |
 | `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
-| `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
+| `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `last_displayed_at` MM-DD comparison. |
 | `DEVICE_WAKE_HOUR_LOCAL` | *Optional, default `6`.* Wall-clock hour (0–23) the e-ink panel aligns its daily timer wake to — so the panel is fresh when you walk into the kitchen at breakfast instead of drifting via a flat 24 h offset from the last button press. The server returns the seconds-until-next-hit as `next_wake_in_s` on every `/version` query. |
+| `LLM_API_URL` | *Optional.* OpenAI-compatible base URL (the client appends `/chat/completions`) — e.g. `https://api.infomaniak.com/2/ai/<product_id>/openai/v1`. Paired with `LLM_API_KEY` to enable the URL fallback and photo OCR. Unset = URL fallback skipped, photo uploads rejected. |
+| `LLM_API_KEY` | *Optional.* Bearer key for the LLM endpoint. Unset = URL fallback skipped, photo uploads rejected. |
+| `LLM_TEXT_MODEL` | *Optional, default `mistralai/Ministral-3-14B-Instruct-2512`.* Model used for the URL-flow LLM fallback when recipe-scrapers fails and no embedded JSON-LD is present. |
+| `LLM_VISION_MODEL` | *Optional, default `mistralai/Ministral-3-14B-Instruct-2512`.* Vision-capable model used to OCR uploaded recipe photos into the canonical recipe shape. |
+| `LLM_TRANSLATE_MODEL` | *Optional, default `mistralai/Ministral-3-14B-Instruct-2512`.* Model used for recipe → bilingual FTS-keyword translation. Falls back to `LLM_TEXT_MODEL` if explicitly cleared. |
+| `API_HOST` | *Optional, default `0.0.0.0`.* Bind address for the FastAPI server inside the container. |
+| `DATA_DIR` | *Optional, default `/app/data`.* In-container path for the SQLite repertoire + backup-state file. Override only if you've remapped the bind-mount target. |
 
 ### Web app (`/app/`)
 
@@ -392,9 +402,10 @@ timestamp of the most recent successful upload.
 place, and start again:
 
 ```bash
-docker compose stop epepper
-gunzip -c recipes_<timestamp>.db.gz > ./data/recipes.db
-docker compose start epepper
+# Run from ./server/ to match the install snippet above.
+docker compose -f ../docker-compose.yml stop epepper
+gunzip -c recipes_<timestamp>.db.gz > ../data/recipes.db
+docker compose -f ../docker-compose.yml start epepper
 ```
 
 ### API endpoints
@@ -422,6 +433,8 @@ it leaked the key into container logs.
 | `POST` | `/display/clear` | Clear the panel to the idle frame. Fired by the device's PREV + REFRESH chord and by the bot's `/clear`. |
 | `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` are optional. May trigger a low-battery alert. |
 | `GET` | `/device/status` | Last-known wake-cycle report (JSON). |
+| `GET` | `/firmware/version` | Returns the integer in `firmware/version.txt` (or `0` if no firmware published). ESP32 polls this on every daily wake and OTAs itself when the value exceeds the build's baked-in `FIRMWARE_VERSION`. |
+| `GET` | `/firmware/download` | Streams `firmware/firmware.bin` as `application/octet-stream`. 404 if no firmware is published. |
 
 Every server response carries a standard `Date:` header which the
 firmware parses to keep its system clock approximately correct — no
@@ -518,6 +531,43 @@ pio device monitor -b 115200
   SHT40 temp + humidity (if present).
 - Keeps approximate wall-clock time from the HTTP `Date:` header on
   every response, no NTP traffic.
+
+### Panel driver
+
+Panel driver selection is controlled by `-DBOARD_SCREEN_COMBO=520` in
+`esp32/platformio.ini` — the Seeed_GFX preset for the E1001's UC8179
+panel. `EPaperFixed` (`esp32/include/EPaperFixed.h` +
+`esp32/src/EPaperFixed.cpp`) overrides Seeed_GFX's partial-update
+routine to push OLD image data after the refresh so the controller's
+differential LUT starts from the correct baseline on the next partial
+refresh. The header is kept dormant on purpose — every pixel is rendered
+server-side now, so partial-update is unused — but the override is left
+in the tree in case future on-device content (e.g. an on-device clock)
+needs a working partial path again. See the file comment.
+
+### OTA updates
+
+The firmware self-flashes on every daily wake. `checkForOTAUpdate()`
+in `esp32/src/main.cpp` polls `GET /firmware/version`; if the integer
+the server returns is higher than the build's baked-in
+`FIRMWARE_VERSION`, it streams `GET /firmware/download` into the
+inactive OTA partition and reboots. Both endpoints are Bearer-authed
+because the `.bin` contains the baked-in WiFi password + API key.
+
+- **`./firmware/` directory layout.** Two files, both produced by CI:
+  - `version.txt` — single line, the integer version number.
+  - `firmware.bin` — the compiled image.
+- **`FIRMWARE_VERSION` build flag.** Baked in at compile time via
+  `-DFIRMWARE_VERSION=<n>`. CI sets `<n>` to `${{ github.run_number }}`;
+  local `pio run` builds default to `0` so they don't trigger OTAs on
+  devices running a CI build.
+- **Bind mount.** `docker-compose.yml` mounts `./firmware:/app/firmware:ro`
+  — pre-create the directory (see the install snippet above) so docker
+  doesn't auto-create it as root.
+- **Publishing.** `.github/workflows/firmware.yml` rsyncs `firmware.bin`
+  and a freshly-written `version.txt` to the VPS on every merge to main,
+  using `--delay-updates` so a partial transfer never briefly advertises
+  the new version before the binary is fully in place.
 
 ### Pin mapping (reTerminal E1001)
 
