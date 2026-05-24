@@ -307,8 +307,11 @@ def _compute_hash(page: int) -> str:
 def _persist_panel_state() -> None:
     """Mirror the in-memory display state to the SQLite singleton row.
 
-    Only writes when a SAVED recipe is active (recipe_id is set);
-    clears the row when the panel is idle or holding an unsaved push.
+    Writes when a SAVED recipe is active (recipe_id is set), clears the
+    row when the panel is explicitly idle, and intentionally leaves the
+    row untouched on an unsaved push so a container restart can still
+    fall back to the previously saved recipe (the in-memory unsaved
+    parse can't be recovered without re-running the URL/OCR pipeline).
     Wrapped in a try/except so a DB hiccup never takes down the
     in-memory display flow that just succeeded.
     """
@@ -319,8 +322,10 @@ def _persist_panel_state() -> None:
         recipe_id = _state.get("recipe_id")
         if _state.get("type") == "recipe" and recipe_id is not None:
             library.set_panel_state(recipe_id, _state.get("page", 1))
-        else:
+        elif _state.get("type") == "idle":
             library.clear_panel_state()
+        # else: unsaved recipe push — leave the previously persisted
+        # saved-recipe row alone so restart can restore it.
     except Exception:
         log.exception("Failed to persist panel state")
 
@@ -366,3 +371,11 @@ def restore_persisted() -> None:
         )
     except Exception:
         log.exception("Failed to restore persisted panel state")
+        # Clear the persisted row so we don't retry the same broken
+        # restore (e.g. a font removed since save time keeps raising
+        # in _render_pages) on every container restart.
+        try:
+            library.clear_panel_state()
+            log.info("Cleared persisted panel state after restore failure")
+        except Exception:
+            log.exception("Failed to clear persisted panel state after restore failure")
