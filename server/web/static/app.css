@@ -410,7 +410,7 @@ html[data-theme="dark"] .list-select {
   display: grid;
   grid-template-columns: 1fr auto auto;
   grid-template-areas: "title meta badge";
-  align-items: baseline;
+  align-items: end;
   gap: 4px 24px;
   padding: 22px 4px;
   color: var(--text);
@@ -419,8 +419,8 @@ html[data-theme="dark"] .list-select {
   position: relative;
 }
 .card-title  { grid-area: title; }
-.card-meta   { grid-area: meta; }
-.card-badge  { grid-area: badge; align-self: center; }
+.card-meta   { grid-area: meta; padding-bottom: 2px; }
+.card-badge  { grid-area: badge; padding-bottom: 2px; }
 .card::before {
   content: "";
   position: absolute;
