@@ -57,6 +57,7 @@ void checkForOTAUpdate();
 void warmWindow();
 bool waitForLongPress(int btnPin, int thresholdMs);
 void connectWiFi();
+void showErrorFrame();
 bool pollServer();
 bool downloadImage(int page);
 int requestPageChange(const char* direction);
@@ -212,6 +213,7 @@ void handleRefresh(bool force) {
     if (WiFi.status() != WL_CONNECTED) {
         showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
+        showErrorFrame();
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -248,6 +250,7 @@ void handlePageChange(const char* direction) {
     if (WiFi.status() != WL_CONNECTED) {
         showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
+        showErrorFrame();
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -280,6 +283,7 @@ void handleClear() {
     if (WiFi.status() != WL_CONNECTED) {
         showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
+        showErrorFrame();
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -847,6 +851,20 @@ void showErrorFrame(const char* headline, const char* detail) {
                           DISPLAY_HEIGHT / 2 + 40);
     }
 
+    epaper.update();
+}
+
+
+// On Wi-Fi / server-fetch failure the panel keeps yesterday's content with
+// no on-screen sign anything's wrong. Stamp an "OFFLINE" marker in the
+// bottom-right corner — the same corner where the server draws its
+// "rendered at HH:MM" timestamp (DES-13). The user has one place to
+// glance at to tell whether the panel is showing today's content.
+void showErrorFrame() {
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
+    epaper.setTextSize(1);
+    epaper.fillRect(DISPLAY_WIDTH - 60, DISPLAY_HEIGHT - 16, 50, 12, TFT_WHITE);
+    epaper.drawString("OFFLINE", DISPLAY_WIDTH - 58, DISPLAY_HEIGHT - 14);
     epaper.update();
 }
 
