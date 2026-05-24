@@ -13,15 +13,13 @@
   --surface-alt:   #F2EFE8;
   --text:          #1A1A1A;
   --text-dim:      #3A3835;
-  --muted:         #807A70;
+  --muted:         #6E695F;   /* ~5.0:1 on --bg, comfortably AA at 13 px */
   --faint:         #B6B0A4;
   --border:        #E4DFD4;
-  --border-strong: #1A1A1A;
   --accent:        #B83227;
   --accent-hover:  #962419;
   --accent-soft:   #F7E4E1;
   --on-accent:     #FFFFFF;
-  --success:       #3F6B3A;
   --warn:          #B07A0F;
   --danger:        #9B1C1C;
   --danger-soft:   #FDECEC;
@@ -53,12 +51,10 @@
   --muted:         #8E867A;
   --faint:         #5A554D;
   --border:        #2C2A26;
-  --border-strong: #F1ECE2;
   --accent:        #E5614F;
   --accent-hover:  #F1816F;
   --accent-soft:   #3A1C18;
   --on-accent:     #15110F;
-  --success:       #7AAE73;
   --warn:          #D9A742;
   --danger:        #F0817E;
   --danger-soft:   #3A1B1B;
@@ -74,12 +70,10 @@
     --muted:         #8E867A;
     --faint:         #5A554D;
     --border:        #2C2A26;
-    --border-strong: #F1ECE2;
     --accent:        #E5614F;
     --accent-hover:  #F1816F;
     --accent-soft:   #3A1C18;
     --on-accent:     #15110F;
-    --success:       #7AAE73;
     --warn:          #D9A742;
     --danger:        #F0817E;
     --danger-soft:   #3A1B1B;
@@ -273,30 +267,41 @@ body.centered {
   margin-bottom: 24px;
 }
 
+/* Hairline-underline login field (proposal 8) — drop the rounded
+   rectangle in favour of a single bottom rule. The merged paste/submit
+   button next to it gets a matching borderless treatment so the two
+   elements read as a single editorial input row. */
 .login input[type="password"] {
   width: 100%;
-  padding: 16px 18px;
-  border: 1px solid var(--border);
-  background: var(--surface);
+  padding: 14px 2px;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
   color: var(--text);
-  border-radius: var(--r-md);
-  font-size: 17px;
-  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+  border-radius: 0;
+  font-size: 20px;
+  transition: border-color .15s var(--ease);
 }
 .login input[type="password"]:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
+  border-bottom-color: var(--accent);
+  box-shadow: none;
 }
+.login .input-action-btn {
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 14px 14px;
+}
+.login .input-action-btn[data-state="submit"] {
+  border-color: transparent;
+  border-bottom-color: var(--accent);
+}
+.login .input-action-btn:hover { background: transparent; }
 
-/* Sign in matches the recipe-page Push / Delete link buttons — quiet,
-   no filled chrome. Aligned left so it sits below the input field
-   naturally. */
-.login button[type="submit"].link.accent {
-  align-self: flex-start;
-  font-size: 16px;
-  padding: 10px 0;
-}
+/* (No .login button override — Sign in now lives inside .input-action
+   as the merged paste/submit button next to the access-code field. See
+   .input-action / .input-action-btn above.) */
 
 .login-hint {
   font-size: 14px;
@@ -399,19 +404,36 @@ html[data-theme="dark"] .list-select {
 .recipes > li {
   border-bottom: 1px solid var(--border);
 }
-.recipes > li:first-child { border-top: 1px solid var(--border); }
+/* No top border on the first card of each tier — the .library-tier-h
+   above already draws its own hairline. Stacking both produced a
+   double-line right under the h2 (and at tier-spanning page boundaries
+   where the h2 is suppressed, two adjacent <ul>s' last/first li
+   borders stacked into the same visual artefact). The h2's border-top
+   carries the section break; tier <ul>s only need bottom rules to
+   close out each row. */
+/* No bottom border on the last card of each tier either — it'd sit
+   ~36 px above the next h2's own border-top, producing two clearly
+   spaced hairlines per section break. Tiers end openly; the next
+   eyebrow's hairline is the single separator. The very last tier on
+   the page ends without a closing line, matching editorial layouts
+   that let content trail off rather than fence it in. */
+.recipes > li:last-child { border-bottom: 0; }
 
 .card {
   display: grid;
-  grid-template-columns: 1fr auto;
-  align-items: baseline;
-  gap: 24px;
-  padding: 22px 4px;
+  grid-template-columns: 1fr auto auto;
+  grid-template-areas: "title meta badge";
+  align-items: end;
+  gap: 4px 24px;
+  padding: 22px 4px 22px 14px;
   color: var(--text);
   text-decoration: none;
-  transition: padding-left .2s var(--ease), background .2s var(--ease);
+  transition: background .2s var(--ease);
   position: relative;
 }
+.card-title  { grid-area: title; }
+.card-meta   { grid-area: meta; padding-bottom: 2px; }
+.card-badge  { grid-area: badge; padding-bottom: 2px; }
 .card::before {
   content: "";
   position: absolute;
@@ -425,7 +447,6 @@ html[data-theme="dark"] .list-select {
 }
 .card:hover {
   text-decoration: none;
-  padding-left: 18px;
   background: linear-gradient(to right, var(--surface-alt), transparent 60%);
 }
 .card:hover::before { opacity: 1; }
@@ -433,7 +454,7 @@ html[data-theme="dark"] .list-select {
 .card-title {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
 }
 .card-title > span:first-child {
@@ -487,13 +508,25 @@ html[data-theme="dark"] .list-select {
   height: 8px;
   border-radius: 50%;
   background: var(--accent);
-  box-shadow: 0 0 0 0 var(--accent);
-  animation: ePepper-onair-pulse 2s ease-out infinite;
+  /* Pulse the dot itself (scale + opacity) plus an outward ripple via
+     box-shadow. The scale gives the eye an unmissable beat; the ripple
+     adds the polished "on-air" softness. The ripple colour is fixed
+     paprika RGB — close enough for both themes; rgba in keyframes can't
+     reference --accent. */
+  box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55);
+  animation: ePepper-onair-pulse 1.6s ease-in-out infinite;
 }
 @keyframes ePepper-onair-pulse {
-  0%   { box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55); }
-  70%  { box-shadow: 0 0 0 7px rgba(184, 50, 39, 0); }
-  100% { box-shadow: 0 0 0 0 rgba(184, 50, 39, 0); }
+  0%, 100% {
+    transform: scale(1);
+    opacity: 1;
+    box-shadow: 0 0 0 0 rgba(184, 50, 39, 0.55);
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.6;
+    box-shadow: 0 0 0 6px rgba(184, 50, 39, 0);
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .card-badge::before { animation: none; }
@@ -550,19 +583,20 @@ html[data-theme="dark"] .list-select {
 }
 .add-tile:first-child { border-top: 1px solid var(--border); }
 
+/* h2 mirrors .status-card h2: a small-caps section label (.status-card-h-label
+   set in the markup) — the LINK / SNAP eyebrow — followed by a quiet
+   help line (.add-tile-help) below in muted body type. Reset the
+   browser h2 metrics so the only visual weight is the small-caps span. */
 .add-tile h2 {
-  display: flex;
-  align-items: center;
-  gap: 10px;
   margin: 0;
-  font-family: var(--font-body);
-  font-size: 17px;
-  font-weight: 600;
-  letter-spacing: 0;
-  text-transform: none;
-  color: var(--text);
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: 1;
 }
-.add-tile h2 svg { color: var(--accent); }
+.add-tile-help {
+  margin: 0;
+  font-size: 14px;
+}
 
 .file-row {
   display: flex;
@@ -571,41 +605,52 @@ html[data-theme="dark"] .list-select {
   flex-wrap: wrap;
 }
 
-/* Paste-from-clipboard helper next to text-ish inputs (login access
-   code, URL add). Sits flush with the input as a square icon button.
-   The handler degrades silently when the Clipboard API isn't
-   available (insecure context, denied permission), so the button can
-   stay in the markup unconditionally. */
-.input-with-paste {
+/* .input-action — merged Paste/Submit affordance.
+   One button next to a text-ish input (login access code, URL add).
+   When the field is empty the button is a paste-from-clipboard helper;
+   when the field has a value the button submits the parent form.
+   The state attribute switches the icon (clipboard ↔ arrow) and the
+   colour treatment (quiet outline ↔ accent outline). The button stays
+   the same shape and position so flipping state doesn't shift layout.
+   See input-action.js for the state machine; the JS degrades to a
+   plain submit button if the Clipboard API isn't available. */
+.input-action {
   display: flex;
   align-items: stretch;
   gap: 8px;
 }
-.input-with-paste > input { flex: 1; min-width: 0; }
-.paste-btn {
+.input-action > input { flex: 1; min-width: 0; }
+.input-action-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: auto;
   min-width: 48px;
-  padding: 0 12px;
+  padding: 0 14px;
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   color: var(--muted);
   cursor: pointer;
-  transition: color .15s var(--ease), border-color .15s var(--ease);
+  transition: color .15s var(--ease), border-color .15s var(--ease),
+              background .15s var(--ease);
 }
-.paste-btn:hover { color: var(--accent); border-color: var(--accent); }
+.input-action-btn:hover { color: var(--accent); border-color: var(--accent); }
+.input-action-btn[data-state="submit"] {
+  /* Filled-paprika outline signals "ready to submit". Same accent
+     family as button.link.accent — just sized to match the input. */
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.input-action-btn[data-state="submit"]:hover { background: var(--accent-soft); }
 
-/* On the URL row the submit button is a text link rather than a filled
-   primary — push it to the right so it doesn't get glued to the paste
-   button. */
-.file-row .submit-arrow {
-  margin-left: auto;
-  padding: 10px 14px;
-}
+/* Icon swap. Both SVGs are in the markup; one is hidden depending on
+   state. Block instead of inline-flex so the SVG fills the centered
+   button uniformly. */
+.input-action-btn .state-paste,
+.input-action-btn .state-submit { display: none; }
+.input-action-btn[data-state="paste"]  .state-paste  { display: block; }
+.input-action-btn[data-state="submit"] .state-submit { display: block; }
 
 .add-tile input[type="url"] {
   flex: 1;
@@ -696,6 +741,10 @@ html[data-theme="dark"] .list-select {
   height: auto;
   margin: 0 auto;
   background: #ffffff;
+  /* 1 px hairline contains the white BMP in dark mode so it doesn't
+     float as a slab of light on a graphite page. Same --border hue
+     used everywhere else, so the frame reads as "the panel". */
+  border: 1px solid var(--border);
   image-rendering: pixelated;
 }
 
@@ -726,7 +775,9 @@ html[data-theme="dark"] .list-select {
   gap: 12px;
   margin: 0 0 14px;
 }
-.status-card h2 .status-card-h-label {
+/* Used in the Status page section headers AND in the Add page tile headers
+   (LINK / SNAP). Unscoped so any h2 can carry this small-caps eyebrow. */
+.status-card-h-label {
   display: inline-flex;
   align-items: center;
   gap: 10px;
@@ -737,7 +788,7 @@ html[data-theme="dark"] .list-select {
   text-transform: uppercase;
   color: var(--text-dim);
 }
-.status-card h2 .status-card-h-label svg { color: var(--accent); }
+.status-card-h-label svg { color: var(--accent); }
 .status-card h2 .status-card-h-meta {
   font-family: var(--font-body);
   font-size: 11px;
@@ -855,10 +906,7 @@ html[data-theme="dark"] .list-select {
   margin: 0 0 28px;
   color: var(--muted);
   padding-bottom: 28px;
-  /* Same hairline color as every other separator in the app
-     (--border, not --border-strong). The dark editorial rule under
-     the title here was the only one in --border-strong and felt
-     heavier than its neighbours. */
+  /* Same hairline color as every other separator in the app. */
   border-bottom: 1px solid var(--border);
 }
 .recipe > p.muted a { color: var(--text); border-bottom: 1px solid var(--border); }
@@ -869,15 +917,17 @@ html[data-theme="dark"] .list-select {
   text-align: center;
 }
 
-/* Recipe meta line below the title — bullets are real characters that
-   can wrap, the segments themselves should never break mid-phrase.
-   .nb (no-break) is inline-block so it stays atomic; .meta-sep is the
-   bullet, rendered as its own inline so the space around it can
-   collapse onto either end of a line break. */
+/* Recipe meta line below the title — each segment is an inline-block
+   .nb so it can't break mid-phrase. The bullet between segments is a
+   ::after pseudo *inside* each non-last segment, so when the meta line
+   wraps the bullet stays glued to the end of the previous line instead
+   of dangling at the start of the new line. The wrap point is the real
+   whitespace between adjacent .nb spans. */
 .recipe-meta .nb { display: inline-block; }
-.recipe-meta .meta-sep {
+.recipe-meta .nb:not(:last-child)::after {
+  content: "·";
   display: inline-block;
-  margin: 0 6px;
+  margin: 0 0 0 8px;
   opacity: 0.6;
 }
 /* Push to display, login Sign in, etc. all share this quiet link
@@ -943,14 +993,17 @@ button.link.accent:hover {
   align-items: baseline;
   gap: 10px;
 }
+/* Bullets dropped (proposal 6) — the paprika squares were one of nine
+   paprika roles on the recipe page; promoting the step numerals as the
+   only paprika in the body lets them carry the brand on their own.
+   The hairline indent + leading whitespace does the visual work. */
 .ingredients li::before {
   content: "";
   flex: none;
-  width: 5px;
-  height: 5px;
-  background: var(--accent);
-  border-radius: 1px;
-  transform: translateY(-3px);
+  width: 8px;
+  height: 1px;
+  background: var(--border);
+  transform: translateY(-6px);
 }
 
 .steps {
@@ -981,6 +1034,18 @@ button.link.accent:hover {
   line-height: 1;
   color: var(--accent);
   letter-spacing: -0.02em;
+}
+
+/* Single-step section: a plain paragraph, no numeral. Matches the
+   `.steps li` body type so a single-step section reads with the same
+   weight as one row of a multi-step list, just without the oversize
+   italic numeral that doesn't earn its flourish on a sequence-of-one. */
+.step-solo {
+  margin: 0 0 24px;
+  padding: 4px 0 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text);
 }
 
 /* Notes / comments */
@@ -1069,7 +1134,7 @@ button.link.accent:hover {
   border-top: 1px solid var(--border);
   text-align: center;
 }
-button.link {
+button.link, a.link {
   background: transparent;
   border: 0;
   font-size: 13px;
@@ -1197,6 +1262,150 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
 .htmx-request .htmx-indicator { opacity: 1; transition: opacity .2s ease-in; }
 .htmx-request.htmx-indicator   { opacity: 1; transition: opacity .2s ease-in; }
 
+/* ----------  Masthead nav (proposal 1)  ---------- */
+.masthead-nav {
+  gap: 0;
+  align-items: baseline;
+}
+/* `display: contents` so the logout button becomes a direct flex child of
+   .masthead-nav — `align-items: baseline` on the inline-flex form was
+   shifting LOGOUT a couple of pixels above ADD/STATUS in the masthead. */
+.masthead-nav .logout-form { display: contents; }
+.masthead-nav .masthead-link {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  text-decoration: none;
+  cursor: pointer;
+  line-height: 1;
+}
+.masthead-nav .masthead-link:hover { color: var(--accent); text-decoration: none; }
+.masthead-nav .masthead-link + .masthead-link::before,
+.masthead-nav .masthead-link + .logout-form::before {
+  content: "·";
+  display: inline-block;
+  margin: 0 14px;
+  color: var(--muted);
+  opacity: 0.6;
+}
+.masthead-theme {
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin-left: 28px;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  line-height: 1;
+}
+.masthead-theme:hover { color: var(--accent); }
+.masthead-theme .theme-glyph { display: inline-block; }
+:root[data-theme="dark"] .masthead-theme .theme-icon-light,
+html[data-theme="dark"] .masthead-theme .theme-icon-light { display: none; }
+:root[data-theme="dark"] .masthead-theme .theme-icon-dark,
+html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block; }
+.masthead-theme .theme-icon-dark { display: none; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .masthead-theme .theme-icon-light { display: none; }
+  :root:not([data-theme="light"]) .masthead-theme .theme-icon-dark { display: inline-block; }
+}
+
+/* ----------  Save-note link (proposal 2)  ----------
+   The notes form drops the filled "Add" pill in favour of a quiet paprika
+   text link, right-aligned under the textarea — same chrome family as
+   "Push to display" and "Delete this recipe", just smaller. */
+.add-comment--link button.link.accent {
+  justify-self: end;
+  background: transparent;
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 13px;
+  letter-spacing: 0.05em;
+  padding: 6px 0;
+}
+.add-comment--link button.link.accent:hover {
+  background: transparent;
+  color: var(--accent-hover);
+  text-decoration: underline;
+}
+
+
+/* ----------  Notes as marginalia (proposal 3)  ----------
+   Drop the paprika-tinted alert-box treatment in favour of a single
+   paprika hairline on the left and italic body. No fill, no close
+   button — the note reads as a pencil mark in the margin, not as a
+   dismissable toast. */
+.comments--marginalia li {
+  background: transparent;
+  border-left: 1px solid var(--accent);
+  border-radius: 0;
+  padding: 4px 0 4px 18px;
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--text);
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+.comments--marginalia li.muted {
+  border-left-color: var(--border);
+  color: var(--muted);
+  display: block;  /* no delete button on the empty-state row */
+}
+.comments--marginalia .comment-body { flex: 1; min-width: 0; }
+/* Quiet × icon, only inks-up on hover or keyboard focus so the marginalia
+   reads cleanly when not being acted on. */
+.comment-delete {
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  margin: 1px 0 0;
+  color: var(--muted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity .15s var(--ease), color .15s var(--ease);
+  flex-shrink: 0;
+  font-style: normal;
+}
+.comments--marginalia li:hover .comment-delete,
+.comment-delete:focus-visible { opacity: 1; }
+.comment-delete:hover { color: var(--danger); }
+@media (hover: none) {
+  /* Touch devices have no hover — keep the affordance visible (low-key) */
+  .comment-delete { opacity: 0.5; }
+}
+
+
+/* ----------  Library tiers (proposal 5, without the lead)  ----------
+   Magazine-contents-page tiering: a small-caps date eyebrow with a
+   hairline above each time bucket. The lead row that used to promote
+   the on-display recipe to the top was removed — the existing on-air
+   dot inside the list row carries that signal well enough. */
+.library-tier-h {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 36px 0 0;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.library-tier-h:first-of-type { margin-top: 18px; }
+.recipes-tier-this-week,
+.recipes-tier-this-month,
+.recipes-tier-this-year,
+.recipes-tier-older { margin-top: 4px; }
+
 /* ----------  Responsive  ---------- */
 @media (max-width: 900px) {
   /* Tighter top padding on mobile — the 56 px desktop breathing room
@@ -1214,13 +1423,35 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   .iconbtn-label { display: none; }
   .iconbtn { padding: 8px 10px; }
 
-  .list-controls { grid-template-columns: 1fr; }
-  .card { grid-template-columns: 1fr; gap: 8px; }
+  /* Mobile: search takes the full first row (people want to type
+     comfortably), and the sort / source / tag selects share the
+     row below — two per row via flex-wrap, so the typical sort +
+     source pairing fits one line instead of stacking. */
+  .list-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    grid-template-columns: none;
+  }
+  .list-search { flex: 1 1 100%; }
+  .list-select { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  /* Mobile: title spans the row, meta + badge share the second row so
+     ON DISPLAY pins to the bottom-right next to the cooked-meta —
+     same vocabulary as desktop, just stacked. */
+  .card {
+    grid-template-columns: 1fr auto;
+    grid-template-areas: "title title" "meta badge";
+    gap: 8px 12px;
+  }
   .card-title > span:first-child { font-size: 19px; }
-  .card-meta { justify-content: flex-start; text-align: left; }
+  .card-meta { justify-content: flex-start; text-align: left; padding-bottom: 0; }
+  .card-badge { align-self: center; padding-bottom: 0; }
 
   .add-grid { grid-template-columns: 1fr; gap: 18px; }
-  .add-tile { padding: 24px; }
+  /* Inherit the desktop "padding: 24px 0" — the section already
+     respects the page gutter, so an extra horizontal inset here would
+     push the section icon away from the gutter line. */
+  .add-tile { padding: 22px 0; }
 
   .status-grid { gap: 22px; }
 
@@ -1234,11 +1465,19 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
 }
 
 @media (max-width: 540px) {
-  :root { --gutter: 20px; }
-  .topbar-inner { padding: 14px var(--gutter); }
-  .brand { font-size: 20px; }
+  :root { --gutter: 16px; }
+  /* Topbar tightens hard on phones — the masthead-nav links don't fit
+     beside the wordmark at default tracking/separator spacing on a 390 px
+     viewport. Every horizontal value shrinks by the smallest amount
+     that buys legibility back. */
+  .topbar-inner { padding: 12px var(--gutter); gap: 10px; }
+  .brand { font-size: 19px; }
   .topnav { gap: 0; }
   .iconbtn { padding: 8px; }
+  .masthead-nav .masthead-link { letter-spacing: 0.1em; font-size: 11px; }
+  .masthead-nav .masthead-link + .masthead-link::before,
+  .masthead-nav .masthead-link + .logout-form::before { margin: 0 6px; }
+  .masthead-theme { margin-left: 10px; }
   .recipe > h1 { font-size: 40px; }
   .steps li { grid-template-columns: 36px 1fr; gap: 12px; }
   .steps li::before { font-size: 26px; }

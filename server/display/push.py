@@ -6,7 +6,7 @@ can render to the display without importing the telegram bot module.
 
 import logging
 
-import display_state
+from display import state as display_state
 import library
 
 log = logging.getLogger(__name__)
@@ -22,7 +22,21 @@ def push_recipe_to_display(row: dict) -> bool:
     fires on the first device fetch of the new image (see the /image
     handler), so "recently cooked" reflects when the panel actually
     pulled the recipe rather than when the server installed it.
+
+    Skip-if-active optimization: if `row` is already the live display
+    content (same recipe_id), short-circuit with a True return — the
+    device would otherwise wake and burn a full e-ink refresh for no
+    visible change. No new bump is armed in that case, so the
+    "recently shown" sort doesn't move on a no-op push. Used to live
+    only in the scheduler; lifting it here means every caller (web push,
+    bot search-tap, scheduler) gets the same idle-saving behavior.
     """
+    state = display_state.get()
+    if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
+        log.info(
+            "Recipe id=%s already on display; skipping push", row["id"],
+        )
+        return True
     comments = [c["body"] for c in library.get_comments(row["id"])]
     try:
         display_state.set_recipe(

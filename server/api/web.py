@@ -11,29 +11,35 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import backup
-import display_state
-import fooby_cache
+import device_telemetry
+from display import state as display_state
+from processing import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
-from config import API_KEY, LLM_API_KEY, LLM_API_URL, TZ
-from display_push import push_recipe_to_display
-from processing.recipes import (
-    process_recipe_image,
-    process_recipe_url,
-    translate_for_search,
-)
-from status_helpers import battery_pct, humanize_ago, humanize_date, rssi_quality, source_name
+from config import API_KEY, LLM_API_KEY, LLM_API_URL, PHOTO_MAX_MB, TZ
+
+# Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
+# without the user having to convert them first. Best-effort: a local dev
+# env that hasn't re-pip'd yet should still import this module.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+from display.push import push_recipe_to_display
+from processing.recipes import IngestError, ingest_recipe, normalize_recipe_for_render
+from status_helpers import battery_pct, format_long_date, humanize_ago, humanize_date, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
 # Hard cap on photo uploads. Phone shots after browser-side JPEG re-encode
-# are typically 1-3 MB; 8 MB leaves headroom while still rejecting
-# accidental drops.
-_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+# are typically 1-3 MB; the default 8 MB leaves headroom while still
+# rejecting accidental drops. Tunable via PHOTO_MAX_MB in config.
+_PHOTO_MAX_BYTES = PHOTO_MAX_MB * 1024 * 1024
 
 # Stream-read chunk size for the size-capped upload reader.
 _UPLOAD_CHUNK_BYTES = 64 * 1024
@@ -100,22 +106,25 @@ def _instruction_groups(recipe: dict) -> list[dict]:
     Input: parser flattens recipes to a list of {"type": "heading"|"step",
     "text": ...}. Steps without a preceding heading land in an initial
     headless group.
+
+    The dedupe / cleanup rules (drop empty items, collapse duplicate
+    headings, collapse heading-only runs) live in
+    `processing.recipes.normalize_recipe_for_render` so the BMP renderer
+    and this one share a single source of truth. Kept here as
+    defense-in-depth for any legacy `parsed_json` rows written before the
+    upsert path started normalizing on write.
     """
-    items = recipe.get("instructions") or []
+    items = normalize_recipe_for_render(recipe).get("instructions") or []
     groups: list[dict] = [{"heading": None, "steps": []}]
     for item in items:
-        if isinstance(item, dict) and item.get("type") == "heading":
-            text = (item.get("text") or "").strip()
-            if not text:
-                continue
-            groups.append({"heading": text, "steps": []})
+        if item.get("type") == "heading":
+            text = item.get("text", "")
+            if not groups[-1]["steps"] and groups[-1]["heading"] is not None:
+                groups[-1]["heading"] = text
+            else:
+                groups.append({"heading": text, "steps": []})
         else:
-            text = (
-                item.get("text") if isinstance(item, dict) else str(item)
-            ) or ""
-            text = text.strip()
-            if text:
-                groups[-1]["steps"].append(text)
+            groups[-1]["steps"].append(item.get("text", ""))
     # Drop the empty leading group if nothing landed in it.
     if not groups[0]["steps"] and groups[0]["heading"] is None and len(groups) > 1:
         groups = groups[1:]
@@ -201,7 +210,11 @@ async def logout(request: Request):
 _PAGE_SIZE = 20
 
 
-_VALID_SORTS = {"oldest", "recent", "most_cooked"}
+_VALID_SORTS = {
+    "oldest", "recent",
+    "most_cooked", "least_cooked",
+    "source_az", "source_za",
+}
 
 
 def _sanitize_sort(sort: str | None) -> str | None:
@@ -237,6 +250,146 @@ def _sanitize_tag(tag: str | None) -> str | None:
     return s
 
 
+_SOURCE_SLUG_RE = __import__("re").compile(r"[^a-z0-9]+")
+
+
+def _slug_for_source(name: str) -> str:
+    """Snake-case a source name into a stable CSS hook (`src-bon-app-tit`).
+    Only used as a className suffix on the per-source tier <ul>."""
+    s = _SOURCE_SLUG_RE.sub("-", name.lower()).strip("-")
+    return f"src-{s or 'misc'}"
+
+
+def _bucket_by_recency(
+    recipes: list[dict], ascending: bool
+) -> list[tuple[str, str, list[dict]]]:
+    """Slot recipes into time-tiers for the (least) recently cooked sorts.
+
+    Mirrors the substring matches the old _list.html template did against
+    humanize_date() output. Never-cooked recipes get their own tier instead
+    of being silently absorbed into "Older" — the SQL puts them at the start
+    (NULLS FIRST on `oldest`) or end (NULLS LAST on `recent`), and the tier
+    sequence here matches: "Never cooked" anchors the top when the sort is
+    least-recent-first, and the bottom when it's most-recent-first.
+    """
+    this_week: list[dict] = []
+    this_month: list[dict] = []
+    this_year: list[dict] = []
+    older: list[dict] = []
+    never: list[dict] = []
+    for r in recipes:
+        if r.get("last_displayed_at") is None:
+            never.append(r)
+            continue
+        phrase = humanize_date(r.get("last_displayed_at"))
+        if (
+            "min ago" in phrase or "h ago" in phrase or "just now" in phrase
+            or phrase == "yesterday" or "days ago" in phrase
+        ):
+            this_week.append(r)
+        elif phrase == "last week" or "weeks ago" in phrase:
+            this_month.append(r)
+        elif phrase == "last month" or "months ago" in phrase:
+            this_year.append(r)
+        else:
+            older.append(r)
+    # Most-recent first (default sort) flows top→bottom: this week → never.
+    # Least-recent first (ascending) reverses the time tiers so the oldest
+    # cook lands at the top and the freshest at the bottom.
+    time_tiers = [
+        ("this-week", "This week", this_week),
+        ("this-month", "This month", this_month),
+        ("this-year", "Earlier this year", this_year),
+        ("older", "Older", older),
+    ]
+    never_tier = ("never", "Never cooked", never)
+    if ascending:
+        tiers = [never_tier] + list(reversed(time_tiers))
+    else:
+        tiers = time_tiers + [never_tier]
+    return [t for t in tiers if t[2]]
+
+
+# Cooked-count buckets — fixed boundaries so the tier labels stay
+# predictable regardless of how big the repertoire grows. The "20+"
+# top bucket is the implicit cap for an unbounded count.
+_COUNT_BUCKETS: list[tuple[str, str, int, int]] = [
+    ("never",  "Never cooked", 0, 0),
+    ("once",   "Cooked once",  1, 1),
+    ("twice",  "Cooked twice", 2, 2),
+    ("few",    "Cooked 3–5×",  3, 5),
+    ("many",   "Cooked 6–20×", 6, 20),
+    ("lots",   "Cooked 20+×",  21, 10**9),
+]
+
+
+def _bucket_by_count(
+    recipes: list[dict], ascending: bool
+) -> list[tuple[str, str, list[dict]]]:
+    """Cooked-count tiers (never / once / twice / 3–5× / 6–20× / 20+×).
+    `ascending` flips the tier order for least-cooked vs most-cooked."""
+    buckets = {slug: [] for slug, _, _, _ in _COUNT_BUCKETS}
+    for r in recipes:
+        n = r.get("displayed_count") or 0
+        for slug, _label, lo, hi in _COUNT_BUCKETS:
+            if lo <= n <= hi:
+                buckets[slug].append(r)
+                break
+    out = [
+        (slug, label, buckets[slug])
+        for slug, label, _, _ in _COUNT_BUCKETS
+        if buckets[slug]
+    ]
+    if not ascending:
+        out.reverse()
+    return out
+
+
+def _bucket_by_source(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    """Group consecutive recipes sharing the same source under one
+    heading. Relies on the SQL ORDER BY having already sorted by
+    source so same-source rows arrive together."""
+    groups: list[tuple[str, str, list[dict]]] = []
+    last_key = object()
+    for r in recipes:
+        src = source_name(r.get("url")) or "Unsourced"
+        if src != last_key:
+            groups.append((_slug_for_source(src), src, []))
+            last_key = src
+        groups[-1][2].append(r)
+    return groups
+
+
+def _bucket_recipes(
+    recipes: list[dict], sort: str | None
+) -> list[tuple[str, str, list[dict]]]:
+    """Group recipes into named tiers matching the active sort.
+
+    Returns a list of (slug, label, rows) tuples in display order;
+    empty tiers are dropped. The template just iterates — no logic.
+    """
+    if sort in ("most_cooked", "least_cooked"):
+        return _bucket_by_count(recipes, ascending=sort == "least_cooked")
+    if sort in ("source_az", "source_za"):
+        return _bucket_by_source(recipes)
+    return _bucket_by_recency(recipes, ascending=sort == "oldest")
+
+
+_TIER_SLUG_RE = __import__("re").compile(r"^[a-z0-9-]{1,64}$")
+
+
+def _sanitize_tier(tier: str | None) -> str:
+    """Whitelist what we accept in the `prev_tier` query param so a
+    crafted value can't slip into the template output unescaped or
+    break the matching logic. Tier slugs are lowercase + digits +
+    hyphens only (see _bucket_by_* — fixed strings + _slug_for_source's
+    re.sub output)."""
+    if not tier:
+        return ""
+    s = tier.strip().lower()
+    return s if _TIER_SLUG_RE.match(s) else ""
+
+
 def _list_context(
     request: Request,
     q: str,
@@ -244,6 +397,7 @@ def _list_context(
     sort: str | None,
     source: str | None,
     tag: str | None,
+    prev_tier: str = "",
 ) -> dict:
     rows = library.list_recipes(
         offset=offset,
@@ -255,9 +409,16 @@ def _list_context(
     )
     has_more = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]
+    tiers = _bucket_recipes(rows, sort)
     return {
         "request": request,
         "recipes": rows,
+        "tiers": tiers,
+        # The last rendered tier slug travels with the load-more URL so
+        # the next batch's first tier suppresses its <h2> when it would
+        # otherwise duplicate the heading the client already painted.
+        "prev_tier": prev_tier,
+        "last_tier": tiers[-1][0] if tiers else "",
         "q": q,
         "sort": sort or "",
         "source": source or "",
@@ -302,14 +463,24 @@ async def search_partial(
     sort: str | None = None,
     source: str | None = None,
     tag: str | None = None,
+    prev_tier: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
-    sort, source, or tag filter changes, or the Load more button is tapped."""
+    sort, source, or tag filter changes, or the Load more button is tapped.
+
+    `prev_tier` is the slug of the last tier the previous batch painted;
+    when this batch's first tier matches, we skip its <h2> so the
+    paginated stream doesn't double-print the heading on a tier that
+    spans multiple pages.
+    """
     _require_auth(request)
     sort = _sanitize_sort(sort)
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
-    ctx = _list_context(request, q, offset, sort, source, tag)
+    ctx = _list_context(
+        request, q, offset, sort, source, tag,
+        prev_tier=_sanitize_tier(prev_tier),
+    )
     # `is_partial` toggles the OOB swap of the library-header meta line
     # (count + active sort/filter label). Suppressed on infinite-scroll
     # appends (offset > 0) — those don't change the filter state, so
@@ -318,8 +489,29 @@ async def search_partial(
     # _list_context skips the page-level globals (saved_count, etc.)
     # because cards don't need them; the OOB meta does, so add it.
     ctx["saved_count"] = library.count_saved()
-    template = "_list_append.html" if offset > 0 else "_list.html"
-    return templates.TemplateResponse(request, template, ctx)
+    response = templates.TemplateResponse(request, "_list.html", ctx)
+    # Filter-change responses (offset == 0) push the user-facing URL
+    # so a browser reload re-hits index() with the active sort/filter
+    # params. Without this, the <select> auto-restores its UI value
+    # on reload but the server falls back to default ordering because
+    # the URL bar still reads /app/ with no query string.
+    # Pagination responses (offset > 0) leave the URL alone — the
+    # user is already on the right URL and we don't want to encode
+    # offset in history.
+    if offset == 0:
+        response.headers["HX-Replace-Url"] = _user_facing_url(q, sort, source, tag)
+    return response
+
+
+def _user_facing_url(
+    q: str, sort: str | None, source: str | None, tag: str | None,
+) -> str:
+    """Build the URL the browser bar should reflect for an active
+    filter set. Empty / falsy values are omitted so the URL stays
+    clean ("/app/" rather than "/app/?q=&sort=&source=&tag=")."""
+    from urllib.parse import urlencode
+    params = [(k, v) for k, v in [("q", q), ("sort", sort), ("source", source), ("tag", tag)] if v]
+    return "/app/" + ("?" + urlencode(params) if params else "")
 
 
 # --- Add recipe -------------------------------------------------------------
@@ -390,7 +582,7 @@ async def add_page(request: Request):
 
 @router.post("/add/url", response_class=HTMLResponse)
 async def add_url(request: Request, url: str = Form(...)):
-    """URL paste — adds the recipe to the library, without pushing to the panel.
+    """URL paste — adds the recipe to the repertoire, without pushing to the panel.
 
     Dedupes via find_by_url so a re-pasted URL just lands the user back on
     its detail page. The explicit Display button on the detail page is
@@ -407,14 +599,15 @@ async def add_url(request: Request, url: str = Form(...)):
         log.info("Web add (existing URL): id=%d url=%s", existing["id"], url)
         return _hx_redirect(f"/app/recipes/{existing['id']}")
 
-    recipe = await process_recipe_url(url)
-    if recipe is None:
+    try:
+        result = await ingest_recipe(url, push=False, persist=True)
+    except IngestError:
         return _add_error(request, "Couldn't parse a recipe from that URL.")
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(url, recipe, translated_keywords=translated)
-    library.save_recipe(recipe_id)
-    log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
-    return _hx_redirect(f"/app/recipes/{recipe_id}")
+    log.info(
+        "Web add (URL): id=%s title=%r url=%s",
+        result["recipe_id"], result["recipe"].get("title"), url,
+    )
+    return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
 @router.post("/add/file", response_class=HTMLResponse)
@@ -443,26 +636,24 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if raw is None:
         return _add_error(
             request,
-            f"Image too large (limit {_PHOTO_MAX_BYTES // (1024 * 1024)} MB).",
+            f"Image too large (limit {PHOTO_MAX_MB} MB). Try a lower-resolution "
+            "shot, or send it via the Telegram bot (which downscales server-side).",
         )
     hint = _filename_hint(file.filename)
     log.info("Web add (photo OCR): %d bytes hint=%r", len(raw), hint or "")
-    result = await process_recipe_image(raw, hint=hint)
-    if result is None:
+    # ingest_recipe handles parse → translate → upsert → save. We still log
+    # an "existing OCR" hit separately so the deduped-photo path is
+    # observable in the access log (find_by_url runs inside ingest_recipe
+    # but doesn't surface the "already had this" signal).
+    try:
+        result = await ingest_recipe(raw, push=False, persist=True, hint=hint)
+    except IngestError:
         return _add_error(request, "Couldn't read a recipe from that photo.")
-    recipe, url = result
-    existing = library.find_by_url(url)
-    if existing is not None:
-        log.info("Web add (existing OCR): id=%d", existing["id"])
-        return _hx_redirect(f"/app/recipes/{existing['id']}")
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(url, recipe, translated_keywords=translated)
-    library.save_recipe(recipe_id)
     log.info(
-        "Web add (photo OCR): id=%d title=%r url=%s",
-        recipe_id, recipe.get("title"), url,
+        "Web add (photo OCR): id=%s title=%r url=%s",
+        result["recipe_id"], result["recipe"].get("title"), result["url"],
     )
-    return _hx_redirect(f"/app/recipes/{recipe_id}")
+    return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
 # --- Status page -----------------------------------------------------------
@@ -475,19 +666,29 @@ def _status_ctx(request: Request) -> dict:
     they can't drift apart.
     """
     display = display_state.get()
-    device = display_state.get_device_status()
+    device = device_telemetry.get_device_status()
     pct = battery_pct(device["battery_mv"]) if device.get("battery_mv") else None
+    # Latest firmware version published by CI (rsynced into the bind-mounted
+    # firmware/ dir). None when no firmware has been pushed yet, in which
+    # case the template skips the "update pending" chip.
+    firmware_server_version: int | None = None
+    try:
+        version_file = Path("/app/firmware/version.txt")
+        if version_file.exists():
+            firmware_server_version = int(version_file.read_text().strip())
+    except (ValueError, OSError):
+        pass
     overdue_s = (
         int(time.time()) - device["last_seen"]
         if device.get("last_seen") else 0
     )
     is_overdue = (
         bool(device.get("last_seen"))
-        and overdue_s > display_state.STALE_HEARTBEAT_S
+        and overdue_s > device_telemetry.STALE_HEARTBEAT_S
     )
     is_low_battery = (
         device.get("battery_mv", 0) > 0
-        and device["battery_mv"] < display_state.LOW_BATTERY_MV
+        and device["battery_mv"] < device_telemetry.LOW_BATTERY_MV
     )
     # Tomorrow's preview — mirrors what the midnight scheduler will push:
     #   1. If an anniversary candidate lands on tomorrow's MM-DD, show that.
@@ -535,9 +736,10 @@ def _status_ctx(request: Request) -> dict:
         "last_backup_at": backup.get_last_backup_at(),
         "next_anniversary": next_anniv,
         "next_anniversary_years_ago": next_anniv_years_ago,
-        "next_anniversary_date": tomorrow.strftime("%d.%m"),
+        "next_anniversary_date": format_long_date(tomorrow),
         "fooby_preview": fooby_preview,
         "llm": llm,
+        "firmware_server_version": firmware_server_version,
         # _context_globals only fires on the full /status page render; the
         # 30 s HTMX partial calls this directly, so re-include the bits the
         # status partial needs (saved_count for the Library card, source_name
@@ -711,3 +913,43 @@ async def delete_recipe(request: Request, recipe_id: int, hard: int = 0):
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"
     return resp
+
+
+# --- Flash device (OTA recovery) --------------------------------------------
+
+# Browser-based recovery path for when OTA can't reach the device (bad build,
+# bricked partition). Serves the full merged image to ESP Web Tools over Web
+# Serial. Session-gated: the merged .bin has WiFi creds + API key baked in,
+# same as the OTA app image. Files are rsynced in by the firmware CI job.
+_FIRMWARE_DIR = Path("/app/firmware")
+_FLASH_FILES = {"manifest.json", "epepper-merged.bin"}
+
+
+@router.get("/flash", response_class=HTMLResponse)
+async def flash_page(request: Request):
+    _require_auth(request)
+    manifest_present = (_FIRMWARE_DIR / "manifest.json").exists()
+    return templates.TemplateResponse(
+        request,
+        "flash.html",
+        {**_context_globals(request), "manifest_present": manifest_present},
+    )
+
+
+@router.get("/flash/{filename}")
+async def flash_file(request: Request, filename: str):
+    _require_auth(request)
+    if filename not in _FLASH_FILES:
+        raise HTTPException(404)
+    path = _FIRMWARE_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, "firmware not yet published — wait for the next CI run")
+    return FileResponse(
+        path,
+        media_type=(
+            "application/json" if filename.endswith(".json")
+            else "application/octet-stream"
+        ),
+    )
+
+

@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}ePepper · Library{% endblock %}
+{% block title %}ePepper · Repertoire{% endblock %}
 
 {% block content %}
 {# Editorial page title. The meta line summarizes scope (count + current
@@ -8,7 +8,7 @@
    keep it in sync via hx-swap-oob — the dropdown labels live outside
    the #list swap target. #}
 <div class="library-header">
-  <h1>The Library</h1>
+  <h1>Repertoire</h1>
   <span id="lib-meta" class="meta">{% include "_lib_meta.html" %}</span>
 </div>
 
@@ -25,9 +25,23 @@
          placeholder="Search title, ingredients, notes…"
          autofocus>
   <select name="sort" class="list-select" aria-label="Sort">
-    <option value=""             {% if not sort %}selected{% endif %}>Recently cooked</option>
-    <option value="most_cooked"  {% if sort == 'most_cooked' %}selected{% endif %}>Most cooked</option>
-    <option value="oldest"       {% if sort == 'oldest' %}selected{% endif %}>Least recently cooked</option>
+    {# Native <optgroup> headings cluster the six sorts by axis (when /
+       how often / which source). The collapsed dropdown shows just the
+       option label ("Recently" / "Most" / "A → Z"), and the page meta
+       line under the title spells out the full phrase ("— most cooked")
+       so the closed chip stays compact without losing context. #}
+    <optgroup label="Last cooked">
+      <option value=""             {% if not sort %}selected{% endif %}>Recently</option>
+      <option value="oldest"       {% if sort == 'oldest' %}selected{% endif %}>Least recently</option>
+    </optgroup>
+    <optgroup label="Cooked">
+      <option value="most_cooked"  {% if sort == 'most_cooked' %}selected{% endif %}>Most</option>
+      <option value="least_cooked" {% if sort == 'least_cooked' %}selected{% endif %}>Least</option>
+    </optgroup>
+    <optgroup label="Source">
+      <option value="source_az"    {% if sort == 'source_az' %}selected{% endif %}>A → Z</option>
+      <option value="source_za"    {% if sort == 'source_za' %}selected{% endif %}>Z → A</option>
+    </optgroup>
   </select>
   {% if sources %}
     <select name="source" class="list-select" aria-label="Source">

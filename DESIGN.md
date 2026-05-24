@@ -39,7 +39,7 @@ reads recipes the way other people read essays.
 
 | Family | Role | Used for |
 |---|---|---|
-| **Fraunces** (Google Fonts, OFL) | Display | Recipe titles (`h1`), page titles, the `ePepper` wordmark, the on-display recipe headline on the status page, the LLM cost stat, instruction step numerals |
+| **Fraunces** (Google Fonts, OFL) | Display | Recipe titles (`h1`), page titles, the `ePepper` wordmark, the on-display recipe headline on the status page, instruction step numerals |
 | **Inter** (Google Fonts, OFL) | UI + body | Paragraphs, lists, form controls, navigation, captions, section labels |
 | **JetBrains Mono** (Google Fonts, OFL) | Mono | Only the `API_KEY` chip on the login hint copy — nowhere else |
 
@@ -91,16 +91,56 @@ that's the wrong instinct — the typography is the mark.
 
 ## Layout
 
-### Library — vertical index, not a card stack
+### Masthead — magazine, not toolbar
 
-The library reads as a **magazine index**: serif titles, tracked
-small-caps source labels, hairline rule dividers. No card chrome.
-Sorting / filter dropdowns sit above with no extra divider — the
-recipe list's own top hairline carries the gap.
+The top bar is a **masthead**, not a labelled-icon dashboard toolbar.
+Brand wordmark flush left; on the right a single row of small-caps
+Inter text links (`ADD · STATUS · LOGOUT`) separated by middle dots,
+then a wider gap, then the theme glyph as a lone icon — no separator
+before it. No icons next to the link labels.
 
-The "currently on display" indicator is an **on-air dot**: borderless
-pulsing paprika circle plus the tracked small-caps label
-`ON DISPLAY`. Not a chip, not an icon, not a badge box.
+The theme glyph is a **Feather-style SVG** (sun in light mode,
+moon in dark) — not the Unicode ☀/☾ characters, which sit at
+visibly different vertical positions in Inter / system fonts
+(matching ink-bboxes; the eye still reads the crescent as higher
+than the sun's center). The 24×24 viewBox is shared so the swap is
+pixel-stable and the glyph baseline-aligns with the text links.
+
+This is the rule the redesign quietly violated for a while —
+labelled-icon-buttons read as "Notion clone", which is the SaaS-
+dashboard composition the concept explicitly rejects. The masthead
+treatment is the fix.
+
+### Repertoire — magazine contents page
+
+The repertoire reads as a **tiered magazine contents page**, not a
+database table dump.
+
+- Recipes are grouped by recency into named tiers — **This week /
+  This month / Earlier this year / Older** — each introduced by a
+  small-caps date eyebrow with a hairline on top.
+- Inside each tier, rows still use the editorial vocabulary: serif
+  title, tracked small-caps source, right-aligned `cooked Nx, last X
+  days ago` in muted body type. Hairlines between rows.
+- The currently-on-display recipe is **not** promoted to a separate
+  lead row at the top. The on-air dot inside its list row is enough
+  of a signal — a dedicated lead made the page feel like a
+  newsletter, and the row-level indicator already does the job
+  without competing with the tier rhythm.
+- The on-air badge (`on display`) sits in its **own grid cell on
+  the far right** of the row, pulled out of `.card-meta` so it
+  pins to the row's right edge regardless of the cooked-text
+  length. On mobile the badge stays on the title's row (top-right);
+  the cooked-text drops to a row below. The paprika dot pulses
+  via a 1.6 s scale + opacity loop so the "on air" reading is
+  unmissable from across the room.
+- Sorting / filter dropdowns sit above the first tier with no extra
+  divider — the first tier's own top hairline carries the gap.
+
+The bucketing uses string matching against `fmt_saved()`'s
+deterministic phrases (`"days ago"`, `"last week"`, `"weeks ago"`,
+`"last month"`, `"months ago"`, `"last year"`) so it stays in Jinja
+without a Python helper.
 
 ### Recipe — editorial two-column
 
@@ -110,36 +150,80 @@ right. Instruction steps are numbered with **oversized italic Fraunces
 numerals** (`01`, `02`, `03` …). Sub-headings inside instructions
 restart the count per section.
 
+**The numerals mark a sequence. A section of one doesn't have a
+sequence to mark.** When a sub-heading has only a single step, the
+template renders it as a plain `<p class="step-solo">` instead of
+`<ol><li>` — the `<h3>` already carries the section identity, and a
+solitary `01` stamped next to one instruction reads as label, not
+flourish. The italic numeral is the page's only flourish; spending
+it on a non-sequence burns the brand accent on nothing. The **e-ink
+renderer mirrors this rule**: single-step sections drop the inline
+`1.` prefix and render as plain body text under the italic-serif
+sub-heading.
+
 Meta line under the title (`from X · saved Y · cooked Z`) wraps
-between segments but never inside one — each phrase is an inline-block
-no-break span. The hairline below the meta is the same `--border` as
-every other separator on the page.
+between segments but never inside one — each phrase is an
+inline-block no-break span. The bullet separator is a `::after`
+pseudo on every non-last segment so that, when the meta wraps to
+two lines, the `·` stays at the end of the previous line and never
+dangles at the start of the new one. The hairline below the meta
+is the same `--border` as every other separator on the page.
+
+**Ingredient lines do not get paprika bullet squares.** They get a
+thin leading hairline indent and that's it. The brand accent is
+already doing real work on the step numerals; doubling it up on every
+ingredient line dilutes the numerals and breaks the concept's
+"means something when it appears" rule.
+
+**Notes are marginalia**, not alert boxes. Each note is a single
+paprika hairline on the left + italic body, no fill. A small
+muted `×` sits at the right of every note for delete; it stays at
+opacity 0 until the row is hovered (or focused via keyboard), and
+keeps a light low-opacity tap target on touch devices that don't
+have hover. They still read as the cook's pencil notes in the
+margin — the delete affordance only inks-up when you reach for
+it. The "Save note" affordance under the textarea is a small
+paprika text link, right-aligned, matching the rest of the
+link-style button family — never a filled chrome pill.
 
 The `Push to display` action is a **quiet link-style button**
-(`button.link.accent`), centered. It matches `Delete this recipe` in
-the footer, just paprika instead of danger red.
+(`button.link.accent`), centered under the recipe meta and above the
+two-column body. It matches `Delete this recipe` in the footer, just
+paprika instead of danger red. (A previous round tried it as a
+small-caps coda at the very foot of the recipe; that buried the most
+important verb on the page, so it's back to its placement under the
+title.)
 
 Mobile collapses the two-column to one, the ingredients section
 becomes a top block, instructions flow below, the back chip tightens.
 
 ### Add — flat list of methods
 
-`Paste a recipe link` and `Snap a recipe` are two **rows separated by
-hairlines**, not rounded cards. Each row has a sans-serif h2 with a
-paprika section icon, then the input affordance. The URL row gets a
-paste-from-clipboard helper next to the input.
+`LINK` and `SNAP` are two **rows separated by hairlines**, not
+rounded cards. Each row carries a **small-caps section eyebrow**
+(same `.status-card-h-label` treatment used by `DISPLAY` / `REPERTOIRE`
+on the Status page — Inter 12 px, 700, 0.18 em tracking, paprika
+icon, text-dim text). Below the eyebrow sits a quiet muted help
+line ("Paste a recipe link to add it to the repertoire." / "Snap a
+cookbook page to add it to the repertoire.") in body type, then the
+input affordance.
 
-Tile h2s use **Inter** (normal case, 17 px, weight 600), not Fraunces
-— the magazine serif is reserved for content titles, not form section
-labels.
+The earlier round used a serif-ish `h2` with sentence-case ("Paste a
+recipe link") — but it competed with the page `h1` for weight and
+didn't reuse the Status page's section vocabulary. Re-using the
+small-caps eyebrow lets Add read as the same kind of structured
+list of sections that Status uses, and frees the body type for
+explanatory help text instead of restating the action verb.
 
 ### Status — flat list with the e-ink frame nested
 
-Status sections (`DISPLAY`, `TOMORROW`, `LIBRARY`, `DEVICE`, `LLM`) are
+Status sections (`DISPLAY`, `TOMORROW`, `REPERTOIRE`, `DEVICE`, `LLM`) are
 the same hairline-separated rows. Each section's h2 has an optional
 meta slot on the right (right-aligned, muted) — used by **Display**
-for `Updated 26 min ago` and by **Device** for `Last seen X` plus the
-overdue chip.
+for `Updated 26 min ago`, by **Device** for `Last seen X` plus the
+overdue chip, and by **Repertoire** for `Backed up X` (so the backup
+freshness reads with the same vocabulary as the device freshness
+instead of being a separate body line below).
 
 The **e-ink preview is nested inside the Display section**, between
 the title row and the page-nav / Clear controls. There's no caption /
@@ -148,16 +232,31 @@ nav and Clear button live below the preview, centered.
 
 Recipe-on-display title uses the same `.display-title` Fraunces
 treatment as the Tomorrow card so they read with identical weight.
-The LLM card uses the same headline pattern for the monthly cost:
-`~0.04 CHF this month` in serif (`inline-meta` keeps `this month`
-inline), with the call breakdown as a muted line below.
+The LLM card's monthly cost reads as a **system metric** in Inter
+body type — same vocabulary as Repertoire's `87 saved recipes` and
+Device's battery / signal lines — *not* in Fraunces. Fraunces is
+reserved for editorial content (recipe titles, page titles, the
+on-display headline); a routine cost stat is operational metadata
+and shouldn't borrow that weight. Format stays
+`~0.04 CHF this month` with the call breakdown muted below.
 
 ### Login — single column, generous
 
-The wordmark fills the top at `clamp(48px, 6vw, 72px)`. The form is
-input + a small paste helper inline, followed by `Sign in →` as a
-quiet `button.link.accent`. **No hint paragraph below the form** — the
-field placeholder is enough.
+The wordmark fills the top at `clamp(48px, 6vw, 72px)`. Directly under
+it sits the access-code field with the merged paste/submit button
+(`.input-action-btn`) inline. **No tagline above the form, no hint
+below it.** The placeholder ("Access code") names the field; the
+wordmark establishes which app you're signing into.
+
+The access-code input is rendered as a **single bottom hairline**,
+not a rounded-rectangle border. Same reasoning as the rest of the
+system: rounded surfaces compete with the editorial paper, hairlines
+sit in it. The merged paste/submit button keeps its outline because
+it's a button, not an input.
+
+The only paragraph that ever shows up next to the form is the inline
+error (`<p class="error">…</p>`) on a failed sign-in, and it only
+appears when `error` is truthy.
 
 ---
 
@@ -176,26 +275,45 @@ is the wrong instinct — the editorial language doesn't have modals.
 
 ### Buttons
 
-**Three roles. That's it:**
+**Four roles. That's it:**
 
-1. `button.link.accent` — primary actions, paprika. Used on `Push to
-   display` (recipe), `Sign in →` (login), `Fetch →` (add URL).
-2. `button.link.danger` — destructive actions, danger red. Used on
-   `Delete this recipe` (recipe), `Clear` (status display).
+1. `button.link.accent` — primary actions, paprika, link-style (no
+   filled chrome). Used on `Push to display` (recipe).
+2. `button.link.danger` — destructive actions, danger red, link-style.
+   Used on `Delete this recipe` (recipe) and `Clear` (status display).
 3. `.iconbtn` — small square icon-only buttons in the topbar
    (Add / Status / Theme / Logout) and the page-nav strip.
+4. `.input-action-btn` — the merged paste/submit affordance next to
+   single-string text inputs (login access code, add URL). Lives
+   inline with the input as a square button. See the "Merged
+   paste / submit button" pattern below for the state machine.
 
 There is no filled-paprika CTA. The "Add comment" filled-dark button
 is the one exception — it's a sub-form action that wants a stronger
 affordance than the link-style.
 
-### Paste-from-clipboard helper
+### Merged paste / submit button (`.input-action`)
 
-Square outline button next to text inputs that benefit from a one-tap
-paste (login access code, add-URL field). Uses
-`navigator.clipboard.readText()` and degrades silently when the
-Clipboard API isn't available (insecure context, denied permission),
-so the button can stay in the markup unconditionally.
+Forms that take a single short string (login access code, add-URL
+field) get **one button** next to the input, not two. The button
+switches state based on whether the field is empty:
+
+- **Empty field** → Paste affordance (clipboard icon, quiet outline).
+  Click reads `navigator.clipboard.readText()` into the field. The
+  button is `type=button` so it doesn't submit on accidental keyboard
+  activation.
+- **Field has a value** → Submit affordance (arrow icon, paprika
+  outline). Click submits the parent form (native or HTMX).
+
+Markup always ships as `type=submit` so a no-JS visitor (or a password
+manager autofilling the field) still gets a working button. The JS
+in `input-action.js` downgrades to paste mode only after observing
+the field is empty.
+
+The Clipboard API degrades silently when unavailable (insecure context,
+denied permission). In that case the button stays as it was (paste-state
+icon visible, but clicking does nothing useful) — manual typing still
+works and flips it to submit normally.
 
 ### h2 title-row meta
 
@@ -241,7 +359,7 @@ shipping:
 - **Multi-color accents.** One accent. Paprika. The danger red is a
   separate semantic, used only for destructive verbs.
 - **Pepper icon next to the wordmark.** The typography is the mark.
-- **Card backgrounds on the add / status / library rows.** Hairlines
+- **Card backgrounds on the add / status / repertoire rows.** Hairlines
   carry the separation.
 - **System-font fallbacks for headings.** Fraunces is the design.
   Inter is the design. The mono is the design.

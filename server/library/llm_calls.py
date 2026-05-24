@@ -13,18 +13,20 @@ The pricing table is the per-million-token CHF rates Infomaniak charges
 on the AI Tools catalog; keep it in sync when the catalog moves.
 """
 
+import json
 import logging
 import sqlite3
 import time
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 
 # CHF per 1M tokens for each model (input_rate, output_rate). Numbers
 # come from Infomaniak's AI Tools pricing page — refresh manually when
-# the catalog changes. Models absent from this dict render as "—" on
-# the status page and trigger a one-time warning so the discrepancy is
-# visible without crashing.
+# the catalog changes by editing `server/assets/llm_prices.json`. Models
+# absent from that file render as "—" on the status page and trigger a
+# one-time warning so the discrepancy is visible without crashing.
 #
 # Each price is keyed by every name we might see for the same model:
 # the short Infomaniak slug (e.g. "gemma3n", used by the translate
@@ -33,23 +35,41 @@ log = logging.getLogger(__name__)
 # defaults). The Infomaniak endpoint accepts both, but it echoes
 # whichever form the request used back into the `usage.model` field —
 # so the lookup has to cover both.
-_PRICES_CHF: dict[str, tuple[float, float]] = {
-    # Short Infomaniak slugs
-    "gemma3n":    (0.20, 0.40),
-    "mistral3":   (0.30, 0.40),
-    "qwen3":      (0.40, 3.20),
-    "llama3":     (0.70, 2.50),
-    # HuggingFace-style paths (current and recent defaults)
-    "mistralai/Ministral-3-14B-Instruct-2512":          (0.30, 0.40),
-    "google/gemma-4-31B-it":                            (0.20, 0.40),
-    "Qwen/Qwen3.5-122B-A10B-FP8":                       (0.40, 3.20),
-    "mistralai/Mistral-Small-4-119B-2603":              (0.20, 0.75),
-    "moonshotai/Kimi-K2.6":                             (0.60, 3.00),
-    "nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B-FP8":        (0.05, 0.20),
-    "Apertus-70B-Instruct-2509":                        (0.70, 2.50),
-}
+_PRICES_PATH = Path(__file__).parent.parent / "assets" / "llm_prices.json"
+
+# Lazily populated cache. None until first `_prices()` call, then the
+# loaded dict — empty dict counts as "loaded and empty", not "reload".
+_prices_cache: dict[str, tuple[float, float]] | None = None
 
 _warned_models: set[str] = set()
+
+
+def _prices() -> dict[str, tuple[float, float]]:
+    """Return the model → (in_rate, out_rate) price table, loading once.
+
+    A missing or malformed JSON file logs and degrades to an empty
+    table — the per-call warning path below already handles "model not
+    in table" gracefully (CHF estimate flagged partial, no crash).
+    """
+    global _prices_cache
+    if _prices_cache is not None:
+        return _prices_cache
+    try:
+        raw = json.loads(_PRICES_PATH.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        log.warning("LLM price table not found at %s — CHF estimates disabled", _PRICES_PATH)
+        _prices_cache = {}
+        return _prices_cache
+    except (OSError, json.JSONDecodeError):
+        log.exception("Failed to load LLM price table from %s", _PRICES_PATH)
+        _prices_cache = {}
+        return _prices_cache
+    table: dict[str, tuple[float, float]] = {}
+    for model, rates in raw.items():
+        if isinstance(rates, (list, tuple)) and len(rates) == 2:
+            table[model] = (float(rates[0]), float(rates[1]))
+    _prices_cache = table
+    return _prices_cache
 
 
 def record(
@@ -111,11 +131,11 @@ def month_stats(conn_factory, since_ts: int) -> dict:
             ocr_calls += 1
         elif kind == "translate":
             translate_calls += 1
-        price = _PRICES_CHF.get(model)
+        price = _prices().get(model)
         if price is None:
             if model not in _warned_models:
                 log.warning(
-                    "LLM model %r has no price in _PRICES_CHF — CHF estimate is partial",
+                    "LLM model %r has no price in llm_prices.json — CHF estimate is partial",
                     model,
                 )
                 _warned_models.add(model)

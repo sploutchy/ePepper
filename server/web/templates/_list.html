@@ -12,7 +12,7 @@
     <div class="empty-onboarding">
       <p><strong>Nothing saved yet.</strong></p>
       <p class="muted">
-        Paste a recipe URL on the <a href="/app/add">Add page</a> to start your library,
+        Paste a recipe URL on the <a href="/app/add">Add page</a> to start your repertoire,
         or send a URL or photo to the Telegram bot.
       </p>
       <p class="muted">
@@ -21,13 +21,39 @@
     </div>
   {% endif %}
 {% else %}
-  <ul class="recipes">
-    {% for r in recipes %}{% include "_card.html" %}{% endfor %}
-    {% if has_more %}
-      <li class="loader"
-          hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}"
-          hx-trigger="revealed"
-          hx-swap="outerHTML">Loading…</li>
+  {# Tier slug/label/rows triplets come from api/web._bucket_recipes(),
+     which dispatches on the active sort:
+       (least) recently cooked → time tiers (This week / This month / …)
+       most/least cooked       → cooked-count tiers (Never / Once / 3–5× / …)
+       by source A↔Z           → one tier per source name
+     The template just iterates; the bucketing rules live next to the
+     SQL ORDER BY that produced the sort. #}
+  {% for slug, label, rows in tiers %}
+    {% if rows %}
+      {# Skip the <h2> when the first tier of an infinite-scroll
+         continuation matches the last tier the prior batch already
+         painted — otherwise a tier spanning multiple pages would
+         print its heading once per batch. #}
+      {% if not (loop.first and slug == prev_tier) %}
+        <h2 class="library-tier-h">{{ label }}</h2>
+      {% endif %}
+      <ul class="recipes recipes-tier-{{ slug }}">
+        {% for r in rows %}{% include "_card.html" %}{% endfor %}
+      </ul>
     {% endif %}
-  </ul>
+  {% endfor %}
+  {% if has_more %}
+    {# Loader is a flat <div> (not nested in <ul>) so the outerHTML
+       swap can insert the new batch's <h2> + <ul> as direct siblings
+       of the existing tier markup. A previous version wrapped the
+       loader in <ul class="recipes"> for visual consistency, but the
+       outerHTML response then dropped its <h2>/<ul> children INSIDE
+       that <ul> — invalid HTML that browsers tried to fix in
+       inconsistent ways, breaking bucketing after two or three
+       paginated loads. #}
+    <div class="loader"
+         hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}&prev_tier={{ last_tier|urlencode }}"
+         hx-trigger="revealed"
+         hx-swap="outerHTML">Loading…</div>
+  {% endif %}
 {% endif %}

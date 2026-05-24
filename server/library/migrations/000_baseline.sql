@@ -1,0 +1,1 @@
+-- Baseline; the existing CREATE TABLE IF NOT EXISTS script is the schema as of version 0.

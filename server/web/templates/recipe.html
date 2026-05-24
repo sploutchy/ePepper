@@ -3,13 +3,16 @@
 {% block title %}{{ r.title }} · ePepper{% endblock %}
 
 {% block content %}
-<a href="/app/" class="back">Library</a>
+<a href="/app/" class="back">{{ icon("chevron-left", 14) }} Repertoire</a>
 
 <article class="recipe">
   <h1>{{ r.title }}</h1>
   {# Each segment is wrapped in <span class="nb"> so the line can break
      between "from X · saved Y · cooked Z" but not inside any of those
-     phrases. The bullets become their own break points too. #}
+     phrases. Bullet separators are drawn via the ::before pseudo on
+     every .nb after the first (see .recipe-meta in app.css) so the
+     bullet stays glued to the segment that follows it and never
+     dangles at the end of a wrapped line on mobile. #}
   <p class="muted recipe-meta">
     {% set src = source_name(r.url) %}
     {% if src %}
@@ -20,10 +23,8 @@
           {{ src }}
         {%- endif -%}
       </span>
-      <span class="meta-sep">·</span>
     {% endif %}
     <span class="nb">saved {{ fmt_saved(r.saved_at) }}</span>
-    <span class="meta-sep">·</span>
     {% if r.last_displayed_at -%}
       {%- if r.displayed_count and r.displayed_count > 1 %}
         <span class="nb">cooked {{ r.displayed_count }}×, last {{ fmt_saved(r.last_displayed_at) }}</span>
@@ -69,9 +70,18 @@
         {% for g in groups %}
           {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
           {% if g.steps %}
-            <ol class="steps">
-              {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
-            </ol>
+            {% if g.steps|length == 1 %}
+              {# Single-step sections render as a plain paragraph: the
+                 italic-Fraunces step numeral exists to mark a *sequence*,
+                 and a solitary "01" stamped next to one instruction
+                 reads as label, not flourish. The `<h3>` already carries
+                 the section identity. #}
+              <p class="step-solo">{{ g.steps[0] }}</p>
+            {% else %}
+              <ol class="steps">
+                {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
+              </ol>
+            {% endif %}
           {% endif %}
         {% endfor %}
       {% endif %}

@@ -8,9 +8,16 @@ venv/
 # Environment
 .env
 
-# Data
+# Runtime SQLite dir at the repo root (mounted into the container as
+# /app/data).
 data/
+
+# Firmware binary + version.txt pushed by CI for OTA
+firmware/
 
 # IDE
 .vscode/
 .idea/
+
+# Claude Code session worktrees
+.claude/

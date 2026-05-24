@@ -1,4 +1,14 @@
-"""FastAPI server — serves images to the ESP32 display."""
+"""FastAPI server — serves images to the ESP32 display.
+
+TODO(DES-6): _check_api_key still accepts the browser session cookie as an
+alternative to the Bearer token, because the status page renders the live
+display preview with `<img src="/image?v=...">` (see
+web/templates/_status_body.html:56). That <img> tag carries the session
+cookie but cannot easily attach a Bearer header, so dropping the cookie
+branch here would silently break the preview. Cleanup path is to move the
+preview behind an /api/ui/* wrapper (or proxy /image through web.py with
+cookie auth) and then make this helper Bearer-only.
+"""
 
 import asyncio
 import logging
@@ -7,12 +17,14 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-import display_state
+import device_telemetry
+from display import state as display_state
 import library
 from api.web import router as web_router
+from display.image import get_image_bmp
 from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
 from scheduler import seconds_until_next_local_hour
 
@@ -66,6 +78,10 @@ async def version(request: Request):
     ))
     return {
         "hash": state["hash"],
+        # Stable across page navigation; flips only on a new render. The
+        # device keys its on-flash page cache on this so page turns can be
+        # served offline and a new recipe still invalidates the cache.
+        "content_hash": state["content_hash"],
         "page": state["page"],
         "total_pages": state["total_pages"],
         "updated_at": state["updated_at"],
@@ -87,7 +103,7 @@ async def image(request: Request, page: int = Query(None, ge=1)):
     if page is None:
         page = display_state.get()["page"]
 
-    bmp_data = display_state.get_image_bmp(page=page)
+    bmp_data = get_image_bmp(page=page)
     if bmp_data is None:
         return Response(status_code=204)  # no content yet
 
@@ -230,19 +246,22 @@ async def device_status(
     rssi: int = Query(0),
     temperature_c: float | None = Query(None),
     humidity_pct: float | None = Query(None),
+    firmware_version: int | None = Query(None),
 ):
     """ESP32 wake-cycle report — fires on a button press and on the daily
-    timer wake. `temperature_c` / `humidity_pct` are optional so a
-    pre-SHT40 firmware build still posts a valid request.
+    timer wake. `temperature_c` / `humidity_pct` / `firmware_version` are
+    optional so older firmware builds that don't yet report them still post
+    valid requests.
     """
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    result = display_state.update_device_status(
+    result = device_telemetry.update_device_status(
         battery_mv=battery_mv,
         rssi=rssi,
         temperature_c=temperature_c,
         humidity_pct=humidity_pct,
+        firmware_version=firmware_version,
     )
 
     alert_mv = result.get("low_battery_alert_mv")
@@ -267,4 +286,36 @@ async def get_device_status(request: Request):
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    return display_state.get_device_status()
+    return device_telemetry.get_device_status()
+
+
+# ---- OTA firmware updates ----
+# Bind-mounted from the host via docker-compose; populated by the Firmware
+# CI workflow (firmware.bin + version.txt). The device hits /firmware/version
+# on every daily wake; if the integer in version.txt > the FIRMWARE_VERSION
+# baked into the running build, it pulls /firmware/download and self-flashes
+# via Update.h. Both routes are Bearer-authed since the .bin contains the
+# baked WiFi password + API key.
+
+_FIRMWARE_DIR = Path("/app/firmware")
+
+
+@app.get("/firmware/version")
+async def firmware_version(request: Request):
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    version_file = _FIRMWARE_DIR / "version.txt"
+    if not version_file.exists():
+        # No firmware published yet — report 0 so any running device stays put.
+        return PlainTextResponse("0")
+    return PlainTextResponse(version_file.read_text().strip())
+
+
+@app.get("/firmware/download")
+async def firmware_download(request: Request):
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    bin_file = _FIRMWARE_DIR / "firmware.bin"
+    if not bin_file.exists():
+        return JSONResponse(status_code=404, content={"error": "firmware not published"})
+    return FileResponse(bin_file, media_type="application/octet-stream")

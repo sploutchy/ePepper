@@ -18,6 +18,7 @@ a "most cooked" sort. `created_at` is set on first upsert.
 All timestamps are Unix seconds (integer).
 """
 
+import datetime
 import hashlib
 import json
 import logging
@@ -34,6 +35,8 @@ from config import DATA_DIR
 log = logging.getLogger(__name__)
 
 DB_PATH = os.path.join(DATA_DIR, "recipes.db")
+MIGRATIONS_DIR = os.path.join(os.path.dirname(__file__), "migrations")
+_MIGRATION_PREFIX_RE = re.compile(r"^(\d+)")
 
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS recipes (
@@ -97,6 +100,30 @@ CREATE TABLE IF NOT EXISTS llm_calls (
 );
 
 CREATE INDEX IF NOT EXISTS idx_llm_calls_ts ON llm_calls(ts);
+
+-- Singleton-row table tracking what's currently on the e-ink panel, so a
+-- container restart can re-render the same recipe + page instead of
+-- coming back to an empty display. Only populated for SAVED recipes
+-- (recipe_id is enough to re-derive everything — parsed recipe, comments,
+-- url all live on the recipes row). Pushes of unsaved recipes don't write
+-- here; clearing the panel deletes the row. `id` is locked to 1 so any
+-- INSERT/UPDATE collapses onto the same row.
+CREATE TABLE IF NOT EXISTS display_panel (
+    id        INTEGER PRIMARY KEY CHECK (id = 1),
+    recipe_id INTEGER NOT NULL,
+    page      INTEGER NOT NULL DEFAULT 1,
+    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
+);
+
+-- Tracks which schema migrations have been applied. Row (0, ...) marks
+-- the baseline schema captured by the CREATE TABLE IF NOT EXISTS block
+-- above; any further .sql file in library/migrations/ whose numeric
+-- prefix exceeds the highest stored `version` gets run + recorded by
+-- init_db on startup.
+CREATE TABLE IF NOT EXISTS schema_version (
+    version    INTEGER PRIMARY KEY,
+    applied_at TEXT NOT NULL
+);
 """
 
 
@@ -132,15 +159,91 @@ def normalize_url(url: str) -> str:
 def _connect() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys = ON")
+    # WAL lets readers (e.g. the daily sqlite3 .backup) coexist with writers
+    # without grabbing a full-database lock. `synchronous=NORMAL` is the
+    # recommended pairing — durability across an OS crash drops from "fsync
+    # on every commit" to "fsync at checkpoint", which is fine for a recipe
+    # library and removes per-write disk waits. Setting these on every
+    # connection is cheap (SQLite no-ops if the mode is already set) and
+    # keeps the pragmas correct even if the journal file was recreated.
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")
+    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
+def _current_schema_version(conn: sqlite3.Connection) -> int:
+    """Return the highest applied migration version, or -1 if none recorded."""
+    row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
+    if row is None or row["v"] is None:
+        return -1
+    return int(row["v"])
+
+
+def _apply_migrations(conn: sqlite3.Connection) -> None:
+    """Run any migrations/*.sql whose numeric prefix exceeds the stored version.
+
+    Files are sorted by filename; the leading run of digits is the version.
+    Each migration runs inside a transaction so a partial apply doesn't
+    leave the DB half-migrated. The `schema_version` row is inserted in
+    the same transaction as the migration body.
+    """
+    if not os.path.isdir(MIGRATIONS_DIR):
+        return
+    files = sorted(f for f in os.listdir(MIGRATIONS_DIR) if f.endswith(".sql"))
+    current = _current_schema_version(conn)
+    for fname in files:
+        m = _MIGRATION_PREFIX_RE.match(fname)
+        if not m:
+            continue
+        version = int(m.group(1))
+        if version <= current:
+            continue
+        path = os.path.join(MIGRATIONS_DIR, fname)
+        with open(path, "r", encoding="utf-8") as fh:
+            sql = fh.read()
+        applied_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+        # `with conn` opens an implicit transaction that commits on exit
+        # or rolls back on exception — keeps the migration body and the
+        # schema_version bump atomic.
+        with conn:
+            conn.executescript(sql)
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (version, applied_at),
+            )
+        log.info("Applied migration %s (version %d)", fname, version)
+
+
 def init_db() -> None:
-    """Create tables on first run. Safe to call repeatedly."""
+    """Create tables on first run. Safe to call repeatedly.
+
+    Three-phase startup:
+      1. Run the baseline CREATE TABLE IF NOT EXISTS script. This is
+         idempotent and covers every schema element introduced before the
+         migrations system existed (version 0).
+      2. Stamp `schema_version` with row (0, now) if no row exists yet —
+         brand-new DBs and pre-migrations-era DBs both bootstrap to 0 so
+         later migration files run cleanly.
+      3. Apply any library/migrations/*.sql whose numeric prefix is
+         greater than the currently-recorded version, recording each as
+         it goes. See `_apply_migrations`.
+    """
     os.makedirs(DATA_DIR, exist_ok=True)
     with _connect() as conn:
         conn.executescript(_SCHEMA)
+        if _current_schema_version(conn) < 0:
+            applied_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            conn.execute(
+                "INSERT INTO schema_version (version, applied_at) VALUES (0, ?)",
+                (applied_at,),
+            )
+        _apply_migrations(conn)
+        # TODO: once the migrations system has a real first entry, convert
+        # this unconditional rebuild into a one-shot migration (it only
+        # needs to run when the FTS index drifts, e.g. after a snapshot
+        # restore against an older schema). Keeping it here for now since
+        # it's idempotent and cheap on a small library.
         _rebuild_fts(conn)
     log.info("Library DB ready at %s", DB_PATH)
 
@@ -196,7 +299,12 @@ def _rebuild_fts(conn: sqlite3.Connection) -> None:
         )
 
 
-def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None) -> int:
+def upsert_recipe(
+    url: str,
+    recipe: dict,
+    translated_keywords: str | None = None,
+    source: str | None = None,
+) -> int:
     """Insert or update a recipe by URL. Returns the recipe id.
 
     Always overwrites title / parsed_json / lang so a re-fetched recipe
@@ -211,16 +319,29 @@ def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None
     existing value untouched (an upsert that re-fetches a recipe doesn't
     invalidate the translation). The startup backfill task fills NULLs
     out-of-band.
+
+    `source` is the humanized source name derived from the URL by
+    `status_helpers.source_name`; the caller computes it so this module
+    stays below `status_helpers` in the import layering. None / "" is
+    persisted as NULL (matches the historical behaviour for unsourced
+    rows). Stored lowercased for case-insensitive grouping in the
+    library filters.
     """
-    from status_helpers import source_name
+    # Lazy import (processing → library cycle): processing/recipes.py
+    # imports library.upsert_recipe, and we import its normalizer here
+    # for defence-in-depth. Callers normally validate via
+    # processing.recipes.validate_llm_recipe (which also normalizes), so
+    # this call is redundant on the happy path but protects test / admin
+    # paths that bypass the validator.
+    from processing.recipes import normalize_recipe_for_render
+    recipe = normalize_recipe_for_render(recipe)
     now = int(time.time())
     payload = json.dumps(recipe, ensure_ascii=False)
     title = recipe.get("title") or "Untitled"
     lang = recipe.get("lang") or "en"
     canonical = normalize_url(url)
     ingredients = _ingredients_text(payload)
-    src = source_name(canonical)
-    source_lower = src.lower() if src else None
+    source_lower = source.lower() if source else None
 
     with _connect() as conn:
         if translated_keywords is None:
@@ -523,12 +644,20 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
 # did I first save this?". NULL `last_displayed_at` = "never cooked":
 #   - "recent" puts never-cooked at the bottom (nothing recent to surface)
 #   - "oldest" puts never-cooked at the top (nothing's more stale than that)
+# `most_cooked` / `least_cooked` order by total cooks (displayed_count).
+# `source_az` / `source_za` group recipes by their source name, with
+# null sources slotted at the end of both directions so the unsourced
+# pile is always the last tier the user sees instead of slicing into
+# the middle of the alphabet.
 # `saved_at` is the secondary tie-break so deploy-day libraries (all-NULL
 # `last_displayed_at`) match the prior newest-saved / oldest-saved ordering.
 _SORT_ORDERS: dict[str, str] = {
-    "oldest": "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
-    "recent": "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "most_cooked": "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "oldest":       "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
+    "recent":       "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "most_cooked":  "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "least_cooked": "r.displayed_count ASC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "source_az":    "r.source ASC NULLS LAST, r.title ASC",
+    "source_za":    "r.source DESC NULLS LAST, r.title ASC",
 }
 
 
@@ -742,6 +871,42 @@ def get_comments(recipe_id: int) -> list[dict[str, Any]]:
             (recipe_id,),
         ).fetchall()
     return [{"id": r["id"], "body": r["body"], "created_at": r["created_at"]} for r in rows]
+
+
+# --- Display-panel persistence ---------------------------------------------
+
+
+def get_panel_state() -> dict | None:
+    """Return what's currently meant to be on the e-ink panel, or None.
+
+    Returns `{"recipe_id": int, "page": int}` when a saved recipe is
+    flagged as the active panel content, else None (panel is meant to
+    be idle, or only an unsaved push was active and didn't get
+    persisted). The caller (display_persistence.restore_on_startup)
+    re-derives the rest from `recipe_id` via get_recipe + get_comments.
+    """
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT recipe_id, page FROM display_panel WHERE id = 1"
+        ).fetchone()
+    return {"recipe_id": row["recipe_id"], "page": row["page"]} if row else None
+
+
+def set_panel_state(recipe_id: int, page: int = 1) -> None:
+    """Persist the active panel recipe + page. Singleton row, UPSERT semantics."""
+    with _connect() as conn:
+        conn.execute(
+            "INSERT INTO display_panel (id, recipe_id, page) VALUES (1, ?, ?) "
+            "ON CONFLICT(id) DO UPDATE SET recipe_id = excluded.recipe_id, "
+            "page = excluded.page",
+            (recipe_id, page),
+        )
+
+
+def clear_panel_state() -> None:
+    """Drop the persisted panel state. Called when the display is cleared."""
+    with _connect() as conn:
+        conn.execute("DELETE FROM display_panel WHERE id = 1")
 
 
 # --- Web-app sessions ------------------------------------------------------

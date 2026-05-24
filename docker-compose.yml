@@ -11,3 +11,6 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/app/data
+      # Firmware binary + version.txt pushed by CI; served read-only by
+      # /firmware/download + /firmware/version for device-side OTA.
+      - ./firmware:/app/firmware:ro

@@ -15,11 +15,14 @@ The snapshot uses sqlite3.Connection.backup(), safe under concurrent
 writes.
 """
 
+import argparse
 import gzip
 import io
 import logging
 import os
+import pathlib
 import sqlite3
+import sys
 import tempfile
 import time
 from datetime import datetime, timezone
@@ -133,3 +136,133 @@ async def flush_if_dirty() -> bool:
     except Exception:
         log.exception("Daily backup failed; will retry tomorrow")
         return False
+
+
+# ---------------------------------------------------------------------------
+# CLI — operator-facing one-shot commands. Intentionally narrow: snapshot
+# writes a local .db.gz (no network), restore replaces the live DB from
+# such a file (caller is responsible for stopping/starting the container),
+# status prints a quick read of the backup bookkeeping.
+# ---------------------------------------------------------------------------
+
+# SQLite databases start with this 16-byte magic string — see
+# https://www.sqlite.org/fileformat.html. We use it to refuse restoring
+# anything that isn't a real DB (e.g. an HTML error page, a truncated
+# download, a wrong file the operator typo'd).
+_SQLITE_MAGIC = b"SQLite format 3\x00"
+
+
+def _cli_snapshot() -> int:
+    """One-shot snapshot to <DATA_DIR>/recipes_<UTC>.db.gz. Reuses the same
+    _snapshot() the scheduler uses, then writes the bytes to disk instead
+    of uploading them. Returns a process exit code."""
+    try:
+        data = _snapshot()
+    except Exception as e:
+        print(f"snapshot failed: {e}", file=sys.stderr)
+        return 1
+    ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    out = pathlib.Path(DATA_DIR) / f"recipes_{ts}.db.gz"
+    try:
+        out.write_bytes(data)
+    except OSError as e:
+        print(f"snapshot failed: {e}", file=sys.stderr)
+        return 1
+    print(f"wrote {out} ({len(data)} B gzipped)")
+    return 0
+
+
+def _cli_restore(path_str: str) -> int:
+    """Replace the live DB with the contents of a .db.gz snapshot. Refuses
+    anything that doesn't gunzip to a SQLite-magic-prefixed blob. Removes
+    the WAL/SHM sidecar files so SQLite doesn't replay stale journal data
+    on top of the freshly restored file."""
+    print("Stop the epepper container before running this.")
+    src = pathlib.Path(path_str)
+    if not src.is_file():
+        print(f"restore failed: {src} is not a readable file", file=sys.stderr)
+        return 1
+    if not src.name.endswith(".db.gz"):
+        print(f"restore failed: {src} does not have a .db.gz suffix", file=sys.stderr)
+        return 1
+    try:
+        raw = gzip.decompress(src.read_bytes())
+    except (OSError, gzip.BadGzipFile) as e:
+        print(f"restore failed: cannot gunzip {src}: {e}", file=sys.stderr)
+        return 1
+    if not raw.startswith(_SQLITE_MAGIC):
+        print(
+            f"restore failed: {src} does not look like a SQLite database "
+            "(magic header missing)",
+            file=sys.stderr,
+        )
+        return 1
+    dst = pathlib.Path(DB_PATH)
+    try:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        dst.write_bytes(raw)
+    except OSError as e:
+        print(f"restore failed: cannot write {dst}: {e}", file=sys.stderr)
+        return 1
+    # WAL/SHM left over from the previous DB would let SQLite replay stale
+    # journal pages on top of the restored file. Remove them now.
+    for sidecar in (dst.with_name("recipes.db-wal"), dst.with_name("recipes.db-shm")):
+        try:
+            sidecar.unlink()
+        except FileNotFoundError:
+            pass
+        except OSError as e:
+            print(f"warning: could not remove {sidecar}: {e}", file=sys.stderr)
+    print(f"restored {dst} ({len(raw)} B uncompressed)")
+    print("Start the container now.")
+    return 0
+
+
+def _cli_status() -> int:
+    """Print last-backup timestamp + size, current DB size, and pending-changes flag."""
+    last = get_last_backup_at()
+    if last is None:
+        last_str = "never"
+        last_size_str = "n/a"
+    else:
+        last_str = datetime.fromtimestamp(last, tz=timezone.utc).isoformat()
+        # We don't keep a per-snapshot size; the bookkeeping file only stores
+        # the timestamp. Report n/a rather than re-snapshot just for a number.
+        last_size_str = "n/a"
+    try:
+        db_size = os.path.getsize(DB_PATH)
+        db_size_str = f"{db_size} B"
+    except OSError:
+        db_size_str = "n/a (DB missing)"
+    print(f"last_backup_at={last_str}")
+    print(f"last_backup_size={last_size_str}")
+    print(f"db_size={db_size_str}")
+    print(f"has_pending_changes={has_pending_changes()}")
+    return 0
+
+
+def _build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="backup.py",
+        description="ePepper DB backup operator CLI.",
+    )
+    sub = parser.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("snapshot", help="Write a one-shot .db.gz snapshot to DATA_DIR.")
+    p_restore = sub.add_parser(
+        "restore",
+        help="Restore the live DB from a .db.gz snapshot (stop the container first).",
+    )
+    p_restore.add_argument("path", help="Path to a .db.gz snapshot.")
+    sub.add_parser("status", help="Print last-backup info and pending-changes flag.")
+    return parser
+
+
+if __name__ == "__main__":
+    args = _build_parser().parse_args()
+    if args.cmd == "snapshot":
+        sys.exit(_cli_snapshot())
+    if args.cmd == "restore":
+        sys.exit(_cli_restore(args.path))
+    if args.cmd == "status":
+        sys.exit(_cli_status())
+    sys.exit(2)

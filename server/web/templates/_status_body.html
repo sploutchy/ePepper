@@ -115,12 +115,30 @@
    Falls back to a generic muted hint when the cache hasn't populated
    yet (typical on a fresh deploy that hasn't seen its first midnight). #}
 <section class="status-card">
-  <h2><span class="status-card-h-label">{{ icon("calendar", 18) }} Tomorrow ({{ next_anniversary_date }})</span></h2>
+  <h2>
+    <span class="status-card-h-label">{{ icon("calendar", 18) }} Tomorrow</span>
+    <span class="status-card-h-meta">{{ next_anniversary_date }}</span>
+  </h2>
   {# Use the same .display-title treatment as the Display card above so
      the "what's queued" line reads with identical weight and color. #}
   {% if next_anniversary %}
+    {# Anniversary: title links to the saved recipe (the user wants to
+       jump into their own copy, not the external page). Source is
+       surfaced below in the same vocabulary as the Display card — the
+       source name links to the original recipe URL when it's http
+       (cookbook://, jsonld:// surrogates stay plain text). #}
     <p class="display-title">
       <strong><a href="/app/recipes/{{ next_anniversary.id }}">{{ next_anniversary.title }}</a></strong>
+      {% set src = source_name(next_anniversary.url) %}
+      {% if src %}
+        <span class="muted">from
+          {% if next_anniversary.url.startswith("http") -%}
+            <a href="{{ next_anniversary.url }}" target="_blank" rel="noopener">{{ src }}</a>
+          {%- else -%}
+            {{ src }}
+          {%- endif %}
+        </span>
+      {% endif %}
       <span class="muted">
         {%- if next_anniversary_years_ago == 1 %}cooked last year
         {%- elif next_anniversary_years_ago and next_anniversary_years_ago > 1 %}cooked {{ next_anniversary_years_ago }} years ago
@@ -129,9 +147,16 @@
       </span>
     </p>
   {% elif fooby_preview %}
+    {# Fooby inspiration: title is plain text — the recipe isn't in
+       the library yet, so there's nothing to navigate to inside the
+       app. The word "Fooby" carries the link out to the original
+       page, matching the user's mental model of "this came from
+       there". #}
     <p class="display-title">
-      <strong><a href="{{ fooby_preview.url }}" target="_blank" rel="noopener">{{ fooby_preview.title }}</a></strong>
-      <span class="muted">inspiration from Fooby</span>
+      <strong>{{ fooby_preview.title }}</strong>
+      <span class="muted">inspiration from
+        <a href="{{ fooby_preview.url }}" target="_blank" rel="noopener">Fooby</a>
+      </span>
     </p>
   {% else %}
     <p class="status-line muted">
@@ -141,20 +166,18 @@
 </section>
 
 <section class="status-card">
-  <h2><span class="status-card-h-label">{{ icon("book", 18) }} Library</span></h2>
+  <h2>
+    <span class="status-card-h-label">{{ icon("book", 18) }} Repertoire</span>
+    {% if backup_enabled %}
+      <span class="status-card-h-meta">
+        {% if last_backup_at %}Backed up {{ humanize_ago(last_backup_at) }}
+        {% else %}Never backed up{% endif %}
+      </span>
+    {% endif %}
+  </h2>
   <p class="status-line">
     <strong>{{ saved_count }}</strong> saved recipe{{ '' if saved_count == 1 else 's' }}
   </p>
-  {% if backup_enabled %}
-    <p class="status-line muted">
-      Last backup:
-      {% if last_backup_at %}
-        {{ humanize_ago(last_backup_at) }}
-      {% else %}
-        never
-      {% endif %}
-    </p>
-  {% endif %}
 </section>
 
 <section class="status-card">
@@ -163,13 +186,15 @@
      inline next to the timestamp so it reads as a qualifier on the
      same fact. #}
   <h2>
-    <span class="status-card-h-label">{{ icon("radio", 18) }} Device</span>
-    {% if device.last_seen %}
-      <span class="status-card-h-meta">
+    <span class="status-card-h-label device-reveal-trigger">{{ icon("radio", 18) }} Device</span>
+    <span class="status-card-h-meta">
+      {% if device.last_seen %}
         Last seen {{ humanize_ago(device.last_seen) }}
         {% if is_overdue %}<span class="warn-inline">{{ icon("alert-triangle", 14) }} overdue</span>{% endif %}
-      </span>
-    {% endif %}
+      {% else %}
+        Never seen
+      {% endif %}
+    </span>
   </h2>
   {% if device.last_seen %}
     {% if device.battery_mv %}
@@ -198,24 +223,42 @@
         Humidity: <strong>{{ '%.0f' % device.humidity_pct }} %</strong>
       </p>
     {% endif %}
-  {% else %}
-    <p class="status-line muted">Never seen.</p>
+    {% if device.firmware_version %}
+      <p class="status-line">
+        <span class="status-icon">{{ icon("cpu", 18) }}</span>
+        Firmware: <strong>v{{ device.firmware_version }}</strong>
+        {% if firmware_server_version and firmware_server_version > device.firmware_version %}
+          <span class="warn-inline">{{ icon("alert-triangle", 14) }} update pending (v{{ firmware_server_version }})</span>
+        {% else %}
+          <span class="muted">up to date</span>
+        {% endif %}
+      </p>
+    {% endif %}
   {% endif %}
+  {# OTA recovery — hidden by default; revealed by clicking the Device
+     title 7 times (see the reveal script in status.html). Stays out of
+     the way since OTA is the normal path and this is a rare manual
+     fallback. #}
+  <p class="status-actions flash-reveal" hidden>
+    <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash firmware</a>
+  </p>
 </section>
 
-{# LLM call ledger for the current calendar month. Cost as the
-   .display-title headline ("~0.04 CHF this month", inline-meta keeps
-   the qualifier next to the number), then the call breakdown as a
-   muted detail line below. The `chf_partial` flag fires when a model
-   in the period isn't in the pricing table; surface that as a "≥"
-   prefix so the user knows the estimate undercounts. #}
+{# LLM call ledger for the current calendar month. Cost reads as a
+   system metric (same Inter body type as the Repertoire saved-count
+   and the Device battery / signal lines) — Fraunces is reserved for
+   editorial content (recipe titles, page titles), and a monthly cost
+   stat is operational metadata, not content. The `chf_partial` flag
+   fires when a model in the period isn't in the pricing table;
+   surface that as a "≥" prefix so the user knows the estimate
+   undercounts. #}
 {% if llm.enabled %}
 <section class="status-card">
   <h2><span class="status-card-h-label">{{ icon("cpu", 18) }} LLM</span></h2>
   {% if llm.calls == 0 %}
     <p class="status-line muted">No calls this month yet.</p>
   {% else %}
-    <p class="display-title inline-meta">
+    <p class="status-line">
       <strong>{{ '≥ ' if llm.chf_partial else '~' }}{{ '%.2f' % llm.chf }} CHF</strong>
       <span class="muted">this month</span>
     </p>

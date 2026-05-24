@@ -8,9 +8,11 @@ Limitations:
 - TOCTOU window: a malicious DNS server could return a public IP at check
   time and a private IP at connect time (DNS rebinding). For the threat
   model here (single-user personal app) the simple check is acceptable.
-- Redirects aren't re-checked; the aiohttp client follows them with the
-  default resolver. Callers that worry about redirect SSRF should also
-  cap `max_redirects` or disable auto-redirect.
+- Callers MUST disable aiohttp's automatic redirect following
+  (`allow_redirects=False`) and re-invoke `assert_url_safe` on each
+  `Location` they follow. The helper `REDIRECT_STATUSES` is exported
+  for that loop. Otherwise a 302 from a public host to `169.254.169.254`
+  or a LAN address would be fetched unchecked.
 """
 
 import asyncio
@@ -23,6 +25,17 @@ log = logging.getLogger(__name__)
 
 class UnsafeUrl(ValueError):
     """The URL is missing a host or resolves to a non-public address."""
+
+
+# HTTP statuses that aiohttp would auto-follow. Exported so callers running
+# their own bounded redirect loop (instead of `allow_redirects=True`) stay
+# in sync with aiohttp's behaviour.
+REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
+
+# Cap on hops in a manual redirect loop. Lower than aiohttp's default of
+# 10 — we're a recipe fetcher, not a generic crawler, and the bound exists
+# to limit SSRF re-validation cost more than to follow legitimate chains.
+MAX_REDIRECTS = 3
 
 
 async def assert_url_safe(url: str) -> None:

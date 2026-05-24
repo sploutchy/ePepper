@@ -4,7 +4,12 @@ import os
 from zoneinfo import ZoneInfo
 
 # Telegram
-TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError(
+        "TELEGRAM_BOT_TOKEN env var is required and must not be empty. "
+        "Get one from @BotFather on Telegram."
+    )
 ALLOWED_USERS: list[int] = [
     int(uid) for uid in os.environ.get("ALLOWED_USERS", "").split(",") if uid.strip()
 ]
@@ -26,9 +31,15 @@ if not API_KEY:
     )
 
 # Public web app URL (optional). When set, the bot's /start and /help
-# include a clickable link to the web library; otherwise the path is
+# include a clickable link to the web repertoire; otherwise the path is
 # described in plain text. Trailing slashes are trimmed.
 WEB_URL: str = os.environ.get("WEB_URL", "").rstrip("/")
+
+# Max megabytes accepted by the web photo upload endpoint. Default: 8.
+try:
+    PHOTO_MAX_MB: int = int(os.environ.get("PHOTO_MAX_MB", "8"))
+except ValueError:
+    raise RuntimeError("PHOTO_MAX_MB must be an integer if set")
 
 # Data directory (docker volume)
 DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
@@ -52,9 +63,14 @@ if not 0 <= DEVICE_WAKE_HOUR_LOCAL <= 23:
 # Backup — when BACKUP_CHAT_ID is set, the midnight scheduler tick
 # uploads a gzipped DB snapshot to that chat *if the library has
 # changed since the previous upload*. Quiet days produce no message.
-BACKUP_CHAT_ID: int | None = (
-    int(os.environ["BACKUP_CHAT_ID"]) if os.environ.get("BACKUP_CHAT_ID") else None
-)
+_backup_chat_id_raw: str = os.environ.get("BACKUP_CHAT_ID", "").strip()
+if _backup_chat_id_raw:
+    try:
+        BACKUP_CHAT_ID: int | None = int(_backup_chat_id_raw)
+    except ValueError:
+        raise RuntimeError("BACKUP_CHAT_ID must be an integer if set")
+else:
+    BACKUP_CHAT_ID = None
 
 # LLM (Infomaniak AI Tools or any OpenAI-compatible endpoint).
 # When LLM_API_URL + LLM_API_KEY are both set, the URL flow grows an
@@ -85,10 +101,19 @@ LLM_TRANSLATE_MODEL: str = (
 )
 
 
-# Fonts (DejaVu Sans, installed via apt in Docker)
+# Fonts (DejaVu, installed via apt in Docker — see Dockerfile).
+# The renderer pairs DejaVu Sans (UI, body, section labels) with
+# DejaVu Serif Bold (titles, hung folio, sub-headings). The italic
+# variants carry the "editorial flourish" — page-indicator hung folio,
+# sub-headings — translating the web app's italic-Fraunces vocabulary
+# into something that still reads at 1-bit. fonts-dejavu (not -core)
+# is required for the *Italic.ttf files.
 FONT_DIR: str = "/usr/share/fonts/truetype/dejavu"
 FONT_REGULAR: str = os.path.join(FONT_DIR, "DejaVuSans.ttf")
 FONT_BOLD: str = os.path.join(FONT_DIR, "DejaVuSans-Bold.ttf")
+FONT_SERIF_BOLD: str = os.path.join(FONT_DIR, "DejaVuSerif-Bold.ttf")
+FONT_SERIF_BOLD_ITALIC: str = os.path.join(FONT_DIR, "DejaVuSerif-BoldItalic.ttf")
+FONT_SERIF_ITALIC: str = os.path.join(FONT_DIR, "DejaVuSerif-Italic.ttf")
 
 # Layout
 MARGIN: int = 20
