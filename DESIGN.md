@@ -150,6 +150,14 @@ right. Instruction steps are numbered with **oversized italic Fraunces
 numerals** (`01`, `02`, `03` …). Sub-headings inside instructions
 restart the count per section.
 
+**The numerals mark a sequence. A section of one doesn't have a
+sequence to mark.** When a sub-heading has only a single step, the
+template renders it as a plain `<p class="step-solo">` instead of
+`<ol><li>` — the `<h3>` already carries the section identity, and a
+solitary `01` stamped next to one instruction reads as label, not
+flourish. The italic numeral is the page's only flourish; spending
+it on a non-sequence burns the brand accent on nothing.
+
 Meta line under the title (`from X · saved Y · cooked Z`) wraps
 between segments but never inside one — each phrase is an
 inline-block no-break span. The bullet separator is a `::after`

@@ -1024,6 +1024,18 @@ button.link.accent:hover {
   letter-spacing: -0.02em;
 }
 
+/* Single-step section: a plain paragraph, no numeral. Matches the
+   `.steps li` body type so a single-step section reads with the same
+   weight as one row of a multi-step list, just without the oversize
+   italic numeral that doesn't earn its flourish on a sequence-of-one. */
+.step-solo {
+  margin: 0 0 24px;
+  padding: 4px 0 0;
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--text);
+}
+
 /* Notes / comments */
 .comments {
   list-style: none;

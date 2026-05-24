@@ -70,9 +70,18 @@
         {% for g in groups %}
           {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
           {% if g.steps %}
-            <ol class="steps">
-              {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
-            </ol>
+            {% if g.steps|length == 1 %}
+              {# Single-step sections render as a plain paragraph: the
+                 italic-Fraunces step numeral exists to mark a *sequence*,
+                 and a solitary "01" stamped next to one instruction
+                 reads as label, not flourish. The `<h3>` already carries
+                 the section identity. #}
+              <p class="step-solo">{{ g.steps[0] }}</p>
+            {% else %}
+              <ol class="steps">
+                {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
+              </ol>
+            {% endif %}
           {% endif %}
         {% endfor %}
       {% endif %}
