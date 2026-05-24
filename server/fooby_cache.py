@@ -5,7 +5,8 @@ WHAT recipe will play tomorrow rather than a generic "Fooby will play"
 hint. Persisted next to the SQLite library so the preview survives
 container restarts.
 
-The file is a small JSON object:
+The on-disk shape is a single-entry :class:`cache.disk.DiskCache` file
+keyed by ``"pick"``; the stored value is a small dict:
   for_date: ISO `YYYY-MM-DD` the cached pick was prepared for
   url:      Fooby recipe URL — the same URL the midnight scheduler will
             push when the date arrives (so the preview matches reality)
@@ -15,32 +16,32 @@ The file is a small JSON object:
 Callers compare `for_date` against today/tomorrow themselves; the cache
 intentionally doesn't auto-expire — a stale entry can still tell the
 scheduler "this is what was decided last tick" if needed.
+
+This module is a thin shim around :class:`cache.disk.DiskCache` that
+keeps the historical ``get()`` / ``set_pick()`` API stable for the
+scheduler and web callers.
 """
 
-import json
 import logging
-import os
 from datetime import date
 
-from config import DATA_DIR
+from cache.disk import DiskCache
 
 log = logging.getLogger(__name__)
 
-_FILE = os.path.join(DATA_DIR, "fooby_cache.json")
+_KEY = "pick"
+_cache = DiskCache("fooby_cache.json")
 
 
 def get() -> dict | None:
-    """Return the cached pick or None if the file is missing / unreadable.
+    """Return the cached pick or None if unset / malformed.
 
-    Returns None on any IO or parse error — the feature is a nicety, not
+    Returns None on any IO or parse error (handled by the underlying
+    :class:`DiskCache`) — the feature is a nicety, not
     correctness-critical, so a corrupt cache shouldn't break the status
     page. A subsequent successful write replaces it.
     """
-    try:
-        with open(_FILE) as f:
-            data = json.load(f)
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        return None
+    data = _cache.get(_KEY)
     if not isinstance(data, dict):
         return None
     if not data.get("for_date") or not data.get("url") or not data.get("title"):
@@ -50,17 +51,12 @@ def get() -> dict | None:
 
 def set_pick(for_date: date, url: str, title: str) -> None:
     """Persist a preview pick. Best-effort — IO failure is logged, never raised."""
-    try:
-        os.makedirs(DATA_DIR, exist_ok=True)
-        with open(_FILE, "w") as f:
-            json.dump(
-                {
-                    "for_date": for_date.isoformat(),
-                    "url": url,
-                    "title": title,
-                },
-                f,
-            )
-        log.info("Fooby cache updated: %s → %r", for_date.isoformat(), title)
-    except OSError:
-        log.exception("Failed to write Fooby cache")
+    _cache.set(
+        _KEY,
+        {
+            "for_date": for_date.isoformat(),
+            "url": url,
+            "title": title,
+        },
+    )
+    log.info("Fooby cache updated: %s → %r", for_date.isoformat(), title)
