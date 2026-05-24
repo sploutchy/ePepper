@@ -5,8 +5,8 @@
   "start_url": "/app/",
   "scope": "/app/",
   "display": "standalone",
-  "background_color": "#faf8f4",
-  "theme_color": "#3d7a4d",
+  "background_color": "#FBFAF7",
+  "theme_color": "#FBFAF7",
   "icons": [
     {
       "src": "/app/static/pepper.svg",
