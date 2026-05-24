@@ -441,7 +441,7 @@ html[data-theme="dark"] .list-select {
 .card-title {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   min-width: 0;
 }
 .card-title > span:first-child {
@@ -1410,7 +1410,18 @@ html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block
   .iconbtn-label { display: none; }
   .iconbtn { padding: 8px 10px; }
 
-  .list-controls { grid-template-columns: 1fr; }
+  /* Mobile: search takes the full first row (people want to type
+     comfortably), and the sort / source / tag selects share the
+     row below — two per row via flex-wrap, so the typical sort +
+     source pairing fits one line instead of stacking. */
+  .list-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    grid-template-columns: none;
+  }
+  .list-search { flex: 1 1 100%; }
+  .list-select { flex: 1 1 calc(50% - 4px); min-width: 0; }
   /* Mobile: title spans the row, meta + badge share the second row so
      ON DISPLAY pins to the bottom-right next to the cooked-meta —
      same vocabulary as desktop, just stacked. */
