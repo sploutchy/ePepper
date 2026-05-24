@@ -10,6 +10,7 @@ OpenAI-compatible endpoint, so swapping providers is an env-var change.
 `https://api.infomaniak.com/2/ai/<product_id>/openai/v1`.
 """
 
+import asyncio
 import base64
 import json
 import logging
@@ -144,7 +145,7 @@ async def _chat(
                 data = json.loads(body)
             except ValueError as e:
                 raise LLMError(f"LLM returned non-JSON envelope: {e}") from None
-    except aiohttp.ClientError as e:
+    except (aiohttp.ClientError, asyncio.TimeoutError, TimeoutError) as e:
         raise LLMError(f"LLM transport error: {e}") from None
 
     try:
