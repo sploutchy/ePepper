@@ -412,7 +412,7 @@ html[data-theme="dark"] .list-select {
   grid-template-areas: "title meta badge";
   align-items: end;
   gap: 4px 24px;
-  padding: 22px 4px;
+  padding: 22px 4px 22px 14px;
   color: var(--text);
   text-decoration: none;
   transition: background .2s var(--ease);
