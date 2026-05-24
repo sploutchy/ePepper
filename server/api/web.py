@@ -16,8 +16,8 @@ from fastapi.templating import Jinja2Templates
 
 import backup
 import device_telemetry
-import display_state
-import fooby_cache
+from display import state as display_state
+from processing import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
 from config import API_KEY, LLM_API_KEY, LLM_API_URL, PHOTO_MAX_MB, TZ
@@ -30,7 +30,7 @@ try:
     register_heif_opener()
 except ImportError:
     pass
-from display_push import push_recipe_to_display
+from display.push import push_recipe_to_display
 from processing.recipes import (
     normalize_recipe_for_render,
     process_recipe_image,

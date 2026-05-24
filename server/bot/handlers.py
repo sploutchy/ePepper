@@ -30,9 +30,9 @@ from config import (
 )
 import backup
 import device_telemetry
-import display_state
+from display import state as display_state
 import library
-from display_push import push_recipe_to_display
+from display.push import push_recipe_to_display
 from processing.recipes import (
     process_recipe_image,
     process_recipe_url,

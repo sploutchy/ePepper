@@ -6,7 +6,7 @@ can render to the display without importing the telegram bot module.
 
 import logging
 
-import display_state
+from display import state as display_state
 import library
 
 log = logging.getLogger(__name__)

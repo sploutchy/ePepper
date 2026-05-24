@@ -27,7 +27,7 @@ test):
 
 import logging
 
-import display_state
+from display import state as display_state
 import library
 
 log = logging.getLogger(__name__)

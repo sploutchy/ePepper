@@ -8,7 +8,7 @@ current state, then encodes a single page as BMP for the device.
 
 import io
 
-import display_state
+from display import state as display_state
 from rendering.layout import render_idle
 
 

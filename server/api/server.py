@@ -21,10 +21,10 @@ from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 import device_telemetry
-import display_state
+from display import state as display_state
 import library
 from api.web import router as web_router
-from display_image import get_image_bmp
+from display.image import get_image_bmp
 from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
 from scheduler import seconds_until_next_local_hour
 

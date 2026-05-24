@@ -24,11 +24,11 @@ from datetime import date, datetime, time, timedelta, timezone
 
 import backup
 import device_telemetry
-import display_state
-import fooby_cache
+from display import state as display_state
+from processing import fooby_cache
 import library
 from config import TZ
-from display_push import push_recipe_to_display
+from display.push import push_recipe_to_display
 from processing.fooby_inspiration import fetch_weekly_inspiration_urls
 from processing.recipes import process_recipe_url
 

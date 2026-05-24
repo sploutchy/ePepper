@@ -11,8 +11,8 @@ import sys
 
 import uvicorn
 
-import display_persistence
-import display_state
+from display import persistence as display_persistence
+from display import state as display_state
 import library
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
