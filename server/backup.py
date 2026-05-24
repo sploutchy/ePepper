@@ -172,11 +172,17 @@ def _cli_snapshot() -> int:
     return 0
 
 
-def _cli_restore(path_str: str) -> int:
+def _cli_restore(path_str: str, assume_yes: bool = False) -> int:
     """Replace the live DB with the contents of a .db.gz snapshot. Refuses
     anything that doesn't gunzip to a SQLite-magic-prefixed blob. Removes
     the WAL/SHM sidecar files so SQLite doesn't replay stale journal data
-    on top of the freshly restored file."""
+    on top of the freshly restored file.
+
+    Overwriting the live DB while the server is running can silently drop
+    committed writes, so the destructive step is gated behind an explicit
+    confirmation (or the --yes flag for scripted use). We don't try to
+    detect a running process — that isn't portable — the warning plus the
+    gate is the contract."""
     print("Stop the epepper container before running this.")
     src = pathlib.Path(path_str)
     if not src.is_file():
@@ -198,6 +204,20 @@ def _cli_restore(path_str: str) -> int:
         )
         return 1
     dst = pathlib.Path(DB_PATH)
+    # Destructive from here on: confirm before clobbering the live DB,
+    # unless the operator passed --yes for a scripted restore.
+    if not assume_yes:
+        prompt = (
+            f"This overwrites {dst}. The container MUST be stopped. "
+            "Continue? [y/N] "
+        )
+        try:
+            answer = input(prompt).strip().lower()
+        except EOFError:
+            answer = ""
+        if answer not in ("y", "yes"):
+            print("restore aborted.", file=sys.stderr)
+            return 1
     try:
         dst.parent.mkdir(parents=True, exist_ok=True)
         dst.write_bytes(raw)
@@ -253,6 +273,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Restore the live DB from a .db.gz snapshot (stop the container first).",
     )
     p_restore.add_argument("path", help="Path to a .db.gz snapshot.")
+    p_restore.add_argument(
+        "-y",
+        "--yes",
+        action="store_true",
+        help="Skip the confirmation prompt (for scripted restores).",
+    )
     sub.add_parser("status", help="Print last-backup info and pending-changes flag.")
     return parser
 
@@ -262,7 +288,7 @@ if __name__ == "__main__":
     if args.cmd == "snapshot":
         sys.exit(_cli_snapshot())
     if args.cmd == "restore":
-        sys.exit(_cli_restore(args.path))
+        sys.exit(_cli_restore(args.path, assume_yes=args.yes))
     if args.cmd == "status":
         sys.exit(_cli_status())
     sys.exit(2)

@@ -8,6 +8,8 @@ import time
 from datetime import datetime
 from urllib.parse import urlparse
 
+from config import TZ
+
 
 # LiPo discharge curve, mV → %, piecewise linear between breakpoints.
 # Picked so 3.70 V ≈ 50 % and the curve flattens above 4.0 V like real cells.
@@ -72,7 +74,7 @@ def humanize_ago(ts: int) -> str:
     """
     phrase = humanize_date(ts)
     if ts and max(0, int(time.time()) - ts) < 86400:
-        return f"{phrase} ({datetime.fromtimestamp(ts).strftime('%H:%M')})"
+        return f"{phrase} ({datetime.fromtimestamp(ts, TZ).strftime('%H:%M')})"
     return phrase
 
 
