@@ -11,6 +11,6 @@ services:
       - "8080:8080"
     volumes:
       - ./data:/app/data
-      # Firmware binaries pushed by CI for the /app/flash page. Read-only
-      # — the server never writes here, just streams files to browsers.
+      # Firmware binary + version.txt pushed by CI; served read-only by
+      # /firmware/download + /firmware/version for device-side OTA.
       - ./firmware:/app/firmware:ro

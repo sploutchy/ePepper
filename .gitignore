@@ -11,7 +11,7 @@ venv/
 # Data
 data/
 
-# Firmware artifacts pushed from CI for the /app/flash page
+# Firmware binary + version.txt pushed by CI for OTA
 firmware/
 
 # IDE
