@@ -286,15 +286,39 @@ def render_recipe(
     all_blocks: list[dict] = []
     # Sub-headings restart the step counter (matches the web app and the
     # rendering proposal D in /tmp/eink-proposals/render_D.py).
+    #
+    # Single-step sections drop the "N." prefix and render as plain
+    # body text — mirrors the web's .step-solo treatment. The inline
+    # numeral marks a sequence; a section of one doesn't have one
+    # to mark, so the prefix would just be visual noise next to a
+    # solitary instruction.
+    section_step_counts: list[int] = [0] * len(instructions)
+    current_section_indices: list[int] = []
+    for idx, item in enumerate(instructions):
+        if item["type"] == "heading":
+            n = len(current_section_indices)
+            for i in current_section_indices:
+                section_step_counts[i] = n
+            current_section_indices = []
+        else:
+            current_section_indices.append(idx)
+    n = len(current_section_indices)
+    for i in current_section_indices:
+        section_step_counts[i] = n
+
     step_num = 0
-    for item in instructions:
+    for idx, item in enumerate(instructions):
         if item["type"] == "heading":
             step_num = 0
             wrapped = _wrap_to_width(item["text"], font_heading, col_right_w)
             all_blocks.append({"type": "heading", "lines": wrapped, "font": font_heading, "line_h": heading_line_h})
         else:
             step_num += 1
-            wrapped = _wrap_to_width(f"{step_num}. {item['text']}", font_body, col_right_w)
+            if section_step_counts[idx] == 1:
+                text = item["text"]
+            else:
+                text = f"{step_num}. {item['text']}"
+            wrapped = _wrap_to_width(text, font_body, col_right_w)
             all_blocks.append({"type": "step", "lines": wrapped, "font": font_body, "line_h": line_h})
 
     # Paginate instructions. Bundle each heading with the first non-heading
