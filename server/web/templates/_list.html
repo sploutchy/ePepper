@@ -21,40 +21,13 @@
     </div>
   {% endif %}
 {% else %}
-  {# Bucket recipes by the humanized "last cooked" phrase. fmt_saved()
-     returns deterministic strings ("yesterday", "4 days ago", "last
-     week", "2 weeks ago", "last month", "5 months ago", "last year",
-     "—" for never), so the substring match below is enough to slot
-     each row into the right tier without needing a server-side `now`.
-       This week  — anything under "last week"
-       This month — "last week" or "N weeks ago"
-       Earlier this year — "last month" or "N months ago"
-       Older  — "last year" or older, plus never-cooked / "—" #}
-  {% set tier_for = namespace() %}
-  {% set this_week = [] %}
-  {% set this_month = [] %}
-  {% set this_year = [] %}
-  {% set older = [] %}
-  {% for r in recipes %}
-    {% set phrase = fmt_saved(r.last_displayed_at) %}
-    {% if 'min ago' in phrase or 'h ago' in phrase or 'just now' in phrase
-       or phrase == 'yesterday' or 'days ago' in phrase %}
-      {% set _ = this_week.append(r) %}
-    {% elif phrase == 'last week' or 'weeks ago' in phrase %}
-      {% set _ = this_month.append(r) %}
-    {% elif phrase == 'last month' or 'months ago' in phrase %}
-      {% set _ = this_year.append(r) %}
-    {% else %}
-      {% set _ = older.append(r) %}
-    {% endif %}
-  {% endfor %}
-
-  {% set tiers = [
-    ('this-week',  'This week',  this_week),
-    ('this-month', 'This month', this_month),
-    ('this-year',  'Earlier this year', this_year),
-    ('older',      'Older',      older)
-  ] %}
+  {# Tier slug/label/rows triplets come from api/web._bucket_recipes(),
+     which dispatches on the active sort:
+       (least) recently cooked → time tiers (This week / This month / …)
+       most/least cooked       → cooked-count tiers (Never / Once / 3–5× / …)
+       by source A↔Z           → one tier per source name
+     The template just iterates; the bucketing rules live next to the
+     SQL ORDER BY that produced the sort. #}
   {% for slug, label, rows in tiers %}
     {% if rows %}
       <h2 class="library-tier-h">{{ label }}</h2>
