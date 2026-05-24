@@ -15,25 +15,31 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import backup
-import display_state
-import fooby_cache
+import device_telemetry
+from display import state as display_state
+from processing import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
-from config import API_KEY, LLM_API_KEY, LLM_API_URL, TZ
-from display_push import push_recipe_to_display
-from processing.recipes import (
-    process_recipe_image,
-    process_recipe_url,
-    translate_for_search,
-)
+from config import API_KEY, LLM_API_KEY, LLM_API_URL, PHOTO_MAX_MB, TZ
+
+# Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
+# without the user having to convert them first. Best-effort: a local dev
+# env that hasn't re-pip'd yet should still import this module.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
+from display.push import push_recipe_to_display
+from processing.recipes import IngestError, ingest_recipe, normalize_recipe_for_render
 from status_helpers import battery_pct, format_long_date, humanize_ago, humanize_date, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
 # Hard cap on photo uploads. Phone shots after browser-side JPEG re-encode
-# are typically 1-3 MB; 8 MB leaves headroom while still rejecting
-# accidental drops.
-_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+# are typically 1-3 MB; the default 8 MB leaves headroom while still
+# rejecting accidental drops. Tunable via PHOTO_MAX_MB in config.
+_PHOTO_MAX_BYTES = PHOTO_MAX_MB * 1024 * 1024
 
 # Stream-read chunk size for the size-capped upload reader.
 _UPLOAD_CHUNK_BYTES = 64 * 1024
@@ -100,32 +106,25 @@ def _instruction_groups(recipe: dict) -> list[dict]:
     Input: parser flattens recipes to a list of {"type": "heading"|"step",
     "text": ...}. Steps without a preceding heading land in an initial
     headless group.
+
+    The dedupe / cleanup rules (drop empty items, collapse duplicate
+    headings, collapse heading-only runs) live in
+    `processing.recipes.normalize_recipe_for_render` so the BMP renderer
+    and this one share a single source of truth. Kept here as
+    defense-in-depth for any legacy `parsed_json` rows written before the
+    upsert path started normalizing on write.
     """
-    items = recipe.get("instructions") or []
+    items = normalize_recipe_for_render(recipe).get("instructions") or []
     groups: list[dict] = [{"heading": None, "steps": []}]
-    # Defensive: some LLM extractions emit a section heading before every
-    # step (e.g. "Preparation" repeated per item), which would render one
-    # <h3>Preparation</h3>+<ol><li>…</li></ol> block per step. Skip a
-    # heading whose text matches the most recently opened group, and
-    # collapse consecutive heading-only groups (no step between).
-    last_heading_text: str | None = None
     for item in items:
-        if isinstance(item, dict) and item.get("type") == "heading":
-            text = (item.get("text") or "").strip()
-            if not text or text == last_heading_text:
-                continue
+        if item.get("type") == "heading":
+            text = item.get("text", "")
             if not groups[-1]["steps"] and groups[-1]["heading"] is not None:
                 groups[-1]["heading"] = text
             else:
                 groups.append({"heading": text, "steps": []})
-            last_heading_text = text
         else:
-            text = (
-                item.get("text") if isinstance(item, dict) else str(item)
-            ) or ""
-            text = text.strip()
-            if text:
-                groups[-1]["steps"].append(text)
+            groups[-1]["steps"].append(item.get("text", ""))
     # Drop the empty leading group if nothing landed in it.
     if not groups[0]["steps"] and groups[0]["heading"] is None and len(groups) > 1:
         groups = groups[1:]
@@ -600,14 +599,15 @@ async def add_url(request: Request, url: str = Form(...)):
         log.info("Web add (existing URL): id=%d url=%s", existing["id"], url)
         return _hx_redirect(f"/app/recipes/{existing['id']}")
 
-    recipe = await process_recipe_url(url)
-    if recipe is None:
+    try:
+        result = await ingest_recipe(url, push=False, persist=True)
+    except IngestError:
         return _add_error(request, "Couldn't parse a recipe from that URL.")
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(url, recipe, translated_keywords=translated)
-    library.save_recipe(recipe_id)
-    log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
-    return _hx_redirect(f"/app/recipes/{recipe_id}")
+    log.info(
+        "Web add (URL): id=%s title=%r url=%s",
+        result["recipe_id"], result["recipe"].get("title"), url,
+    )
+    return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
 @router.post("/add/file", response_class=HTMLResponse)
@@ -636,26 +636,24 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if raw is None:
         return _add_error(
             request,
-            f"Image too large (limit {_PHOTO_MAX_BYTES // (1024 * 1024)} MB).",
+            f"Image too large (limit {PHOTO_MAX_MB} MB). Try a lower-resolution "
+            "shot, or send it via the Telegram bot (which downscales server-side).",
         )
     hint = _filename_hint(file.filename)
     log.info("Web add (photo OCR): %d bytes hint=%r", len(raw), hint or "")
-    result = await process_recipe_image(raw, hint=hint)
-    if result is None:
+    # ingest_recipe handles parse → translate → upsert → save. We still log
+    # an "existing OCR" hit separately so the deduped-photo path is
+    # observable in the access log (find_by_url runs inside ingest_recipe
+    # but doesn't surface the "already had this" signal).
+    try:
+        result = await ingest_recipe(raw, push=False, persist=True, hint=hint)
+    except IngestError:
         return _add_error(request, "Couldn't read a recipe from that photo.")
-    recipe, url = result
-    existing = library.find_by_url(url)
-    if existing is not None:
-        log.info("Web add (existing OCR): id=%d", existing["id"])
-        return _hx_redirect(f"/app/recipes/{existing['id']}")
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(url, recipe, translated_keywords=translated)
-    library.save_recipe(recipe_id)
     log.info(
-        "Web add (photo OCR): id=%d title=%r url=%s",
-        recipe_id, recipe.get("title"), url,
+        "Web add (photo OCR): id=%s title=%r url=%s",
+        result["recipe_id"], result["recipe"].get("title"), result["url"],
     )
-    return _hx_redirect(f"/app/recipes/{recipe_id}")
+    return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
 # --- Status page -----------------------------------------------------------
@@ -668,7 +666,7 @@ def _status_ctx(request: Request) -> dict:
     they can't drift apart.
     """
     display = display_state.get()
-    device = display_state.get_device_status()
+    device = device_telemetry.get_device_status()
     pct = battery_pct(device["battery_mv"]) if device.get("battery_mv") else None
     # Latest firmware version published by CI (rsynced into the bind-mounted
     # firmware/ dir). None when no firmware has been pushed yet, in which
@@ -686,11 +684,11 @@ def _status_ctx(request: Request) -> dict:
     )
     is_overdue = (
         bool(device.get("last_seen"))
-        and overdue_s > display_state.STALE_HEARTBEAT_S
+        and overdue_s > device_telemetry.STALE_HEARTBEAT_S
     )
     is_low_battery = (
         device.get("battery_mv", 0) > 0
-        and device["battery_mv"] < display_state.LOW_BATTERY_MV
+        and device["battery_mv"] < device_telemetry.LOW_BATTERY_MV
     )
     # Tomorrow's preview — mirrors what the midnight scheduler will push:
     #   1. If an anniversary candidate lands on tomorrow's MM-DD, show that.

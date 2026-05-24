@@ -30,9 +30,11 @@ preserved — only the visual treatment moves.
 
 import re
 import textwrap
+from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFont
 
+from processing.recipes import normalize_recipe_for_render
 from config import (
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
@@ -45,6 +47,7 @@ from config import (
     FONT_SERIF_BOLD,
     FONT_SERIF_BOLD_ITALIC,
     FONT_SERIF_ITALIC,
+    TZ,
 )
 
 # 10x10 glyphs marking which physical button does what. Drawn at the very
@@ -115,6 +118,26 @@ def _draw_button_glyphs(draw, page: int, total_pages: int) -> None:
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
 
 
+def _draw_rendered_stamp(draw, panel_h: int) -> None:
+    """Stamp a tiny "HH:MM" in the bottom-right corner so the user can tell
+    at a glance whether the panel content is today's. Drawn last so it sits
+    over any existing content. The firmware mirrors this corner with an
+    OFFLINE marker on Wi-Fi / server failures (DES-13), giving the user one
+    consistent place to glance at to confirm freshness.
+    """
+    try:
+        stamp_font = ImageFont.truetype(FONT_REGULAR, 11)
+    except OSError:
+        stamp_font = ImageFont.load_default()
+    text = datetime.now(TZ).strftime("%H:%M")
+    text_w = int(stamp_font.getlength(text))
+    x = DISPLAY_WIDTH - MARGIN - text_w
+    y = panel_h - MARGIN + 4  # tuck into the bottom margin
+    if y + stamp_font.size > panel_h:
+        y = panel_h - stamp_font.size - 2
+    draw.text((x, y), text, font=stamp_font, fill=0)
+
+
 def render_idle() -> Image.Image:
     """Cleared-display panel: blank, with only the small button-position
     glyph above the physical refresh key so it's clear which button wakes
@@ -123,6 +146,7 @@ def render_idle() -> Image.Image:
     img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
     draw = ImageDraw.Draw(img)
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
+    _draw_rendered_stamp(draw, DISPLAY_HEIGHT)
     return img
 
 
@@ -199,6 +223,12 @@ def render_recipe(
         font_title = ImageFont.load_default()
         font_source = font_meta = font_section = font_heading = font_body = font_notes = font_folio = font_title
 
+    # Defense in depth: legacy `parsed_json` rows persisted before the
+    # upsert path started normalizing on write still need the dedupe
+    # pass. New rows come in already canonical, so this is a no-op for
+    # the modern path.
+    recipe = normalize_recipe_for_render(recipe)
+
     lang = recipe.get("lang", "en")
     strings = _L10N.get(lang, _L10N["en"])
 
@@ -268,6 +298,10 @@ def render_recipe(
         ingr_pages.append(current_page)
 
     # --- Pre-wrap instructions into blocks ---
+    # normalize_recipe_for_render above has already canonicalized the
+    # instruction list (typed dicts, dedup'd headings); the only fixup
+    # left here is the legacy "bare string step" case which the
+    # normalizer also coerces — left for paranoia.
     raw_instructions = recipe.get("instructions", [])
     instructions: list[dict] = []
     for item in raw_instructions:
@@ -275,13 +309,6 @@ def render_recipe(
             instructions.append({"type": "step", "text": item})
         else:
             instructions.append(item)
-    # Defensive: some LLM extractions emit a section heading before every
-    # step (e.g. "Preparation" repeated per item), which would draw an
-    # underlined italic heading per line AND restart the step counter to 1
-    # each time. Drop a heading whose text matches the most recent kept
-    # heading, and collapse runs of consecutive headings to the last one
-    # before a step.
-    instructions = _dedupe_section_headings(instructions)
 
     all_blocks: list[dict] = []
     # Sub-headings restart the step counter (matches the web app and the
@@ -517,37 +544,11 @@ def render_recipe(
     # --- Top: button glyphs above the physical reTerminal keys ---
     _draw_button_glyphs(draw, page, total_pages)
 
+    # --- Bottom-right: tiny "rendered at" stamp (drawn last so it sits over
+    # any column content that might have grown into the bottom margin). ---
+    _draw_rendered_stamp(draw, RECIPE_HEIGHT)
+
     return img, total_pages
-
-
-def _dedupe_section_headings(items: list[dict]) -> list[dict]:
-    """Strip degenerate heading repetition before the renderer touches it.
-
-    Two patterns get collapsed:
-      - "Preparation" → step → "Preparation" → step → … (same-text heading
-        re-emitted per step). Only the first heading is kept; the rest are
-        dropped so all steps land under one section with continuous numbering.
-      - "Prep" → "Cook" → step (consecutive headings with no step between).
-        Only the last is kept — it's the one that actually introduces the
-        upcoming step.
-
-    Empty-text headings are dropped outright.
-    """
-    out: list[dict] = []
-    last_heading_text: str | None = None
-    for item in items:
-        if item.get("type") == "heading":
-            text = (item.get("text") or "").strip()
-            if not text or text == last_heading_text:
-                continue
-            if out and out[-1].get("type") == "heading":
-                out[-1] = {"type": "heading", "text": text}
-            else:
-                out.append({"type": "heading", "text": text})
-            last_heading_text = text
-        else:
-            out.append(item)
-    return out
 
 
 def _wrap_to_width(text: str, font, max_w: int) -> list[str]:

@@ -57,11 +57,13 @@ void checkForOTAUpdate();
 void warmWindow();
 bool waitForLongPress(int btnPin, int thresholdMs);
 void connectWiFi();
+void showErrorFrame();
 bool pollServer();
 bool downloadImage(int page);
 int requestPageChange(const char* direction);
 void reportDeviceStatus();
 void displayImage(uint8_t* data, size_t len);
+void showErrorFrame(const char* headline, const char* detail);
 bool readSHT40(float& tempC, float& rh);
 float readBatteryVoltage();
 void buzzerBeep(int count, int duration_ms);
@@ -209,7 +211,9 @@ void handleRefresh(bool force) {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
+        showErrorFrame();
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -244,7 +248,9 @@ void handlePageChange(const char* direction) {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
+        showErrorFrame();
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -275,7 +281,9 @@ void handleClear() {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
+        showErrorFrame();
         digitalWrite(LED_PIN, HIGH);
         return;
     }
@@ -292,6 +300,9 @@ void handleClear() {
     http.end();
     if (code != 200) {
         Serial.printf("[API] /display/clear returned %d\n", code);
+        char detail[24];
+        snprintf(detail, sizeof(detail), "HTTP %d", code);
+        showErrorFrame("Server error", detail);
         buzzerBeep(3, 100);
         digitalWrite(LED_PIN, HIGH);
         return;
@@ -538,12 +549,20 @@ bool downloadImage(int page) {
 
     WiFiClient* stream = http.getStreamPtr();
     size_t bytesRead = 0;
+    unsigned long lastByteAt = millis();
     while (http.connected() && bytesRead < imageSize) {
         size_t available = stream->available();
         if (available) {
             size_t toRead = min(available, imageSize - bytesRead);
             stream->readBytes(imageBuffer + bytesRead, toRead);
             bytesRead += toRead;
+            lastByteAt = millis();
+        } else if (millis() - lastByteAt > 30000) {
+            // Bail if the link goes quiet for too long — better to retry on
+            // the next wake than hang forever and waste battery.
+            Serial.println("[API] Stream stalled, aborting");
+            http.end();
+            return false;
         }
         delay(1);
     }
@@ -802,6 +821,51 @@ void displayImage(uint8_t* data, size_t len) {
     epaper.update();
 
     Serial.printf("[Display] Pushed %dx%d image to panel\n", w, h);
+}
+
+
+// Render a short two-line failure message to the panel so the user can
+// see *why* nothing refreshed without plugging into serial. Draws via
+// the same Seeed_GFX epaper instance as displayImage(); no PSRAM
+// allocation, no long busy loop. If anything throws or the GFX call
+// stack misbehaves on a panel that didn't init cleanly, the caller
+// still falls back to the buzzer + LED indication.
+void showErrorFrame(const char* headline, const char* detail) {
+    Serial.printf("[Display] Error frame: %s — %s\n",
+                  headline ? headline : "(null)",
+                  detail   ? detail   : "");
+
+    epaper.fillScreen(TFT_WHITE);
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
+    epaper.setTextDatum(MC_DATUM);
+
+    epaper.setTextSize(6);
+    epaper.drawString(headline ? headline : "Error",
+                      DISPLAY_WIDTH / 2,
+                      DISPLAY_HEIGHT / 2 - 40);
+
+    if (detail && detail[0]) {
+        epaper.setTextSize(3);
+        epaper.drawString(detail,
+                          DISPLAY_WIDTH / 2,
+                          DISPLAY_HEIGHT / 2 + 40);
+    }
+
+    epaper.update();
+}
+
+
+// On Wi-Fi / server-fetch failure the panel keeps yesterday's content with
+// no on-screen sign anything's wrong. Stamp an "OFFLINE" marker in the
+// bottom-right corner — the same corner where the server draws its
+// "rendered at HH:MM" timestamp (DES-13). The user has one place to
+// glance at to tell whether the panel is showing today's content.
+void showErrorFrame() {
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
+    epaper.setTextSize(1);
+    epaper.fillRect(DISPLAY_WIDTH - 60, DISPLAY_HEIGHT - 16, 50, 12, TFT_WHITE);
+    epaper.drawString("OFFLINE", DISPLAY_WIDTH - 58, DISPLAY_HEIGHT - 14);
+    epaper.update();
 }
 
 

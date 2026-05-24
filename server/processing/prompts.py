@@ -5,74 +5,65 @@ The model's output target is the **internal** recipe dict that
 that intermediate format cuts ~25 % off the output token count (no
 `@type: HowToStep` wrapper per step) and removes a parsing layer.
 
-Keep the schema description compact — every byte of system prompt is
-spent on every call. Move per-site nuance into Python rather than the
-prompt.
+System prompts live as plain .txt files under `server/assets/prompts/`
+and are loaded lazily on first attribute access. Editing a prompt no
+longer requires a code change — drop a new revision into the data
+directory and restart. The user-message builders (which interpolate
+runtime values) stay in code.
 """
 
-
-# Shared schema description. Lists every field the validator in
-# `recipes.py:_validate_llm_recipe` accepts; new fields go here and
-# there together.
-_SCHEMA = """Output schema:
-{
-  "title": "<recipe name>",
-  "total_time": <minutes as integer, or null>,
-  "servings": "<e.g. '4 servings', '12 cookies', or null>",
-  "ingredients": ["<qty unit ingredient>", ...],
-  "instructions": [
-    {"type": "step", "text": "<one cooking action>"},
-    {"type": "heading", "text": "<section name, e.g. Sauce>"}
-  ],
-  "lang": "en" | "de" | "fr" | "it",
-  "source_name": "<cookbook/magazine/restaurant name, or null>"
-}"""
-
-_RULES = """Rules:
-- Output ONLY the JSON object — no prose, no markdown fences.
-- Never invent values. Omit (null / empty list) if not in the source.
-- Preserve ingredient quantities and order exactly as written.
-- total_time: total cooking time in minutes (sum prep + cook if both
-  given). Integer. Null if not specified.
-- lang: detect from the recipe's own text.
-- instructions: each step is {"type":"step","text":"…"}; sections
-  become {"type":"heading","text":"Sauce"}. Each step text must read
-  as a natural cookbook sentence in the recipe's own language.
-
-  Verb form: FR/IT/DE use the infinitive (NOT direct imperative);
-  EN keeps the imperative.
-
-  If the source presents ingredients and actions in parallel columns
-  or lists (e.g. ingredient names on one side, action verbs on the
-  other), reconstruct a natural sentence in the language's correct
-  style — do NOT concatenate the raw columns.
-
-  Never re-state ingredient quantities in step text (those live in
-  the ingredient list).
-- source_name: only populated from image inputs, from visible
-  cookbook / magazine branding. Null for webpage inputs."""
+from pathlib import Path
 
 
-URL_SYSTEM = f"""You extract recipes from webpage text into a JSON object.
+# Resolved at import time so the lookup is one syscall, not a string
+# build per access. `__file__` is server/processing/prompts.py, so two
+# `parent` hops land at server/, then into assets/prompts/. (assets/
+# rather than data/ to stay clear of the /app/data bind mount that
+# docker-compose layers over the in-image data dir at runtime.)
+_PROMPTS_DIR = Path(__file__).parent.parent / "assets" / "prompts"
 
-{_SCHEMA}
+# File-content cache. Populated lazily by `_load` on first access for a
+# given filename, then reused for the lifetime of the process.
+_cache: dict[str, str] = {}
 
-{_RULES}
-- source_name: null for this URL flow."""
+
+def _load(name: str) -> str:
+    """Read `<name>.txt` from the prompts dir, cached after first hit.
+
+    Raises FileNotFoundError with the full expected path so a typo in
+    a prompt filename surfaces a clear error instead of an empty string
+    silently shipping to the LLM.
+    """
+    if name in _cache:
+        return _cache[name]
+    path = _PROMPTS_DIR / f"{name}.txt"
+    if not path.is_file():
+        raise FileNotFoundError(
+            f"Prompt file not found: {path} "
+            f"(expected one .txt per prompt under server/assets/prompts/)"
+        )
+    text = path.read_text(encoding="utf-8").strip()
+    _cache[name] = text
+    return text
 
 
-OCR_SYSTEM = f"""You extract recipes from photos of cookbook / magazine pages into a JSON object.
+# Module-level attribute access (e.g. `from processing.prompts import
+# URL_SYSTEM`) goes through `__getattr__`, which delegates to `_load`.
+# That preserves the existing public API — callers in
+# `processing/recipes.py` import the same names and get strings back —
+# while keeping the file read off the import path.
+_PROMPT_FILES = {
+    "URL_SYSTEM": "url_system",
+    "OCR_SYSTEM": "ocr_system",
+    "TRANSLATE_SYSTEM": "translate_system",
+}
 
-{_SCHEMA}
 
-{_RULES}
-- source_name: read the cookbook title from the cover/spine/header, or
-  the magazine name. Null if you can't read any source branding.
-- If the user message contains a "User context: …" line, treat it as
-  ground truth from the recipe owner — typically a cookbook name and /
-  or the recipe title (e.g. "Ceviche, Ottolenghi Simple"). Use it to
-  fill source_name and / or correct the title; it overrides whatever
-  branding you'd otherwise infer from the photo."""
+def __getattr__(name: str) -> str:
+    file_stem = _PROMPT_FILES.get(name)
+    if file_stem is None:
+        raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+    return _load(file_stem)
 
 
 def url_user(url: str, cleaned_text: str) -> str:
@@ -104,40 +95,6 @@ def ocr_user(hint: str | None) -> str:
     if not cleaned:
         return base
     return f"{base}\nUser context: {cleaned}"
-
-
-# Translation prompt — fed to LLM_TRANSLATE_MODEL (default gemma3n). Job
-# is to produce noun-form ingredient names + the recipe title in French
-# and German, for indexing into FTS so a user can search a German recipe
-# in French and vice versa. Output is intentionally compact (~120 output
-# tokens for a typical recipe) so per-recipe cost is well under one
-# centime.
-TRANSLATE_SYSTEM = """You generate search keywords for a recipe repertoire.
-
-The user gives you a recipe's title and ingredient list in its native
-language. You return the same content as NOUN-FORM search keywords in
-French and German, suitable for indexing into a full-text search.
-
-Output schema:
-{
-  "fr": ["<title in French>", "<ingredient noun in French>", ...],
-  "de": ["<title in German>", "<ingredient noun in German>", ...]
-}
-
-Rules:
-- Output ONLY the JSON object — no prose, no markdown fences.
-- The first entry of each list is the recipe title translated.
-- Subsequent entries are ingredient nouns. Drop quantities and units
-  (e.g. "200 g Mehl" → "Mehl" / "farine"). Drop preparation modifiers
-  ("hachée fine", "fein gehackt").
-- One ingredient → one keyword. If the source ingredient string lists
-  several, split them (e.g. "salt and pepper" → "salt", "pepper" in EN
-  terms, then translate each).
-- Use Swiss orthography in German (Strasse, weiss — no ß).
-- If the native language is French, still produce both lists (the
-  French list lets you index synonyms / standard cooking nouns even
-  when the original ingredients were colloquial). Same the other way.
-- Skip non-translatable items (brand names, "à volonté", etc.)."""
 
 
 def translate_user(title: str, ingredients: list[str], native_lang: str) -> str:

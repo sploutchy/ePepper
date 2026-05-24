@@ -1,4 +1,14 @@
-"""FastAPI server — serves images to the ESP32 display."""
+"""FastAPI server — serves images to the ESP32 display.
+
+TODO(DES-6): _check_api_key still accepts the browser session cookie as an
+alternative to the Bearer token, because the status page renders the live
+display preview with `<img src="/image?v=...">` (see
+web/templates/_status_body.html:56). That <img> tag carries the session
+cookie but cannot easily attach a Bearer header, so dropping the cookie
+branch here would silently break the preview. Cleanup path is to move the
+preview behind an /api/ui/* wrapper (or proxy /image through web.py with
+cookie auth) and then make this helper Bearer-only.
+"""
 
 import asyncio
 import logging
@@ -10,9 +20,11 @@ from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
-import display_state
+import device_telemetry
+from display import state as display_state
 import library
 from api.web import router as web_router
+from display.image import get_image_bmp
 from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
 from scheduler import seconds_until_next_local_hour
 
@@ -87,7 +99,7 @@ async def image(request: Request, page: int = Query(None, ge=1)):
     if page is None:
         page = display_state.get()["page"]
 
-    bmp_data = display_state.get_image_bmp(page=page)
+    bmp_data = get_image_bmp(page=page)
     if bmp_data is None:
         return Response(status_code=204)  # no content yet
 
@@ -222,7 +234,7 @@ async def device_status(
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    result = display_state.update_device_status(
+    result = device_telemetry.update_device_status(
         battery_mv=battery_mv,
         rssi=rssi,
         temperature_c=temperature_c,
@@ -252,7 +264,7 @@ async def get_device_status(request: Request):
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    return display_state.get_device_status()
+    return device_telemetry.get_device_status()
 
 
 # ---- OTA firmware updates ----

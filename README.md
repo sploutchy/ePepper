@@ -111,6 +111,9 @@ cd server
 cp .env.example .env
 # Edit .env: paste your Telegram bot token, an API_KEY you generate, and
 # your Telegram user id in ALLOWED_USERS.
+# Pre-create the bind-mount targets so docker doesn't auto-create them
+# as root — the compose file resolves these relative to the project root.
+mkdir -p ../data ../firmware
 docker compose -f ../docker-compose.yml up -d --build
 ```
 
@@ -191,7 +194,10 @@ their own trailing page. The header carries `Title from Source —
 page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
 for en/de/fr/it), followed by total time and servings on the meta
 line. The source is omitted entirely for OCR'd photos that yielded
-no `source_name`.
+no `source_name`. Every rendered page also carries a small
+`rendered at HH:MM` timestamp in the bottom-right corner so you can
+tell at a glance whether the panel is showing a fresh frame or a
+stale one.
 
 ### Editing recipes
 
@@ -240,12 +246,20 @@ Three physical buttons:
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather). **Required** — server won't start without it. |
 | `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
-| `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty = anyone can talk to the bot (only safe for a truly private bot). **Note:** empty also means low-battery and stale-heartbeat alerts have no one to notify and are silently skipped. |
+| `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty **denies all** (safer default — an unconfigured bot is closed, not open). Set to at least your own user id to use the bot. |
 | `API_PORT` | Server port (default: `8080`). |
-| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the repertoire hasn't changed since the previous one. Unset = backups disabled. |
+| `PHOTO_MAX_MB` | *Optional, default `8`.* Maximum size in MB for web photo uploads on `/app/add`. Larger uploads are rejected with a clear error before they hit the LLM. |
+| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the repertoire hasn't changed since the previous one. Unset = backups disabled. Also doubles as the **fallback alert recipient** for low-battery and stale-heartbeat warnings when `ALLOWED_USERS` is empty — so a closed bot still surfaces device problems somewhere. |
 | `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
-| `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `saved_at` MM-DD comparison. |
+| `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `last_displayed_at` MM-DD comparison. |
 | `DEVICE_WAKE_HOUR_LOCAL` | *Optional, default `6`.* Wall-clock hour (0–23) the e-ink panel aligns its daily timer wake to — so the panel is fresh when you walk into the kitchen at breakfast instead of drifting via a flat 24 h offset from the last button press. The server returns the seconds-until-next-hit as `next_wake_in_s` on every `/version` query. |
+| `LLM_API_URL` | *Optional.* OpenAI-compatible base URL (the client appends `/chat/completions`) — e.g. `https://api.infomaniak.com/2/ai/<product_id>/openai/v1`. Paired with `LLM_API_KEY` to enable the URL fallback and photo OCR. Unset = URL fallback skipped, photo uploads rejected. |
+| `LLM_API_KEY` | *Optional.* Bearer key for the LLM endpoint. Unset = URL fallback skipped, photo uploads rejected. |
+| `LLM_TEXT_MODEL` | *Optional, default `mistralai/Ministral-3-14B-Instruct-2512`.* Model used for the URL-flow LLM fallback when recipe-scrapers fails and no embedded JSON-LD is present. |
+| `LLM_VISION_MODEL` | *Optional, default `mistralai/Ministral-3-14B-Instruct-2512`.* Vision-capable model used to OCR uploaded recipe photos into the canonical recipe shape. |
+| `LLM_TRANSLATE_MODEL` | *Optional, default `mistralai/Ministral-3-14B-Instruct-2512`.* Model used for recipe → bilingual FTS-keyword translation. Falls back to `LLM_TEXT_MODEL` if explicitly cleared. |
+| `API_HOST` | *Optional, default `0.0.0.0`.* Bind address for the FastAPI server inside the container. |
+| `DATA_DIR` | *Optional, default `/app/data`.* In-container path for the SQLite repertoire + backup-state file. Override only if you've remapped the bind-mount target. |
 
 ### Web app (`/app/`)
 
@@ -346,6 +360,29 @@ URL/scheme on insert and stored as a regular column on `recipes`. URL
 canonicalisation and FTS rebuild run idempotently, so a snapshot from
 any prior version restores cleanly.
 
+#### Schema migrations
+
+`init_db` bootstraps a `schema_version` table (the first row is `(0,
+…)` — the baseline schema above) and then applies, in numeric order,
+any `.sql` file in `server/library/migrations/` whose numeric prefix
+exceeds the current version. Migrations are forward-only; each file
+runs in its own transaction and the version row is bumped on success.
+To add a column or table, drop a new file named
+`001_<name>.sql`, `002_<name>.sql`, … into that directory — no code
+change needed, the next container start picks it up.
+
+### LLM customisation
+
+Prompts and the model price table live as data files under
+`server/assets/`, not in Python:
+
+- `server/assets/prompts/*.txt` — one file per prompt
+  (URL fallback, photo OCR, translation, …). Edit the text, restart
+  the container; no code change.
+- `server/assets/llm_prices.json` — per-model input/output token
+  prices used to surface a rough cost in the logs. Add an entry for
+  a new SKU here when you swap `LLM_TEXT_MODEL` / `LLM_VISION_MODEL`.
+
 ### Anniversary scheduler
 
 An `asyncio` task in `server/scheduler.py` sleeps until the next local
@@ -388,14 +425,24 @@ as unlimited versioned history at no storage cost.
 The web status page and the bot's `/status` both surface the
 timestamp of the most recent successful upload.
 
-**Restore from a snapshot:** stop the container, drop the snapshot in
-place, and start again:
+**Restore from a snapshot:** use the `backup.py` CLI — it validates the
+gzip + SQLite header before overwriting, removes any leftover `-wal` /
+`-shm` sidecars, and prints the exact stop/start commands for your
+container:
 
 ```bash
-docker compose stop epepper
-gunzip -c recipes_<timestamp>.db.gz > ./data/recipes.db
-docker compose start epepper
+python backup.py restore recipes_<timestamp>.db.gz
 ```
+
+The same CLI exposes `snapshot` (write a fresh gzipped snapshot to disk
+without uploading) and `status` (print the timestamp of the last
+successful upload + DB-dirty state) — handy for one-off ops or before a
+risky change.
+
+If the server refuses to start and you suspect an env-var problem,
+`python main.py --print-config` dumps the resolved configuration
+(secrets masked) and exits without contacting Telegram, so you can
+sanity-check what the container actually sees.
 
 ### API endpoints
 
@@ -422,6 +469,8 @@ it leaked the key into container logs.
 | `POST` | `/display/clear` | Clear the panel to the idle frame. Fired by the device's PREV + REFRESH chord and by the bot's `/clear`. |
 | `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` are optional. May trigger a low-battery alert. |
 | `GET` | `/device/status` | Last-known wake-cycle report (JSON). |
+| `GET` | `/firmware/version` | Returns the integer in `firmware/version.txt` (or `0` if no firmware published). ESP32 polls this on every daily wake and OTAs itself when the value exceeds the build's baked-in `FIRMWARE_VERSION`. |
+| `GET` | `/firmware/download` | Streams `firmware/firmware.bin` as `application/octet-stream`. 404 if no firmware is published. |
 
 Every server response carries a standard `Date:` header which the
 firmware parses to keep its system clock approximately correct — no
@@ -451,7 +500,9 @@ and *(b)* receiving the device-health alerts.
 ### Device health alerts
 
 The ESP32 reports battery, RSSI, and SHT40 readings on every wake.
-Two one-shot alerts go to every `ALLOWED_USERS` recipient:
+Two one-shot alerts go to every `ALLOWED_USERS` recipient (or to
+`BACKUP_CHAT_ID` if `ALLOWED_USERS` is empty, so the alerts still
+land somewhere on a closed bot):
 
 - **Low battery** — fires the first POST below 3 500 mV; hysteresis
   re-arms only above 3 600 mV so noisy readings don't spam. Driven
@@ -494,6 +545,12 @@ cp esp32/include/config.h.example esp32/include/config.h
 #   API_KEY     (must match server .env)
 ```
 
+Wi-Fi credentials are **baked in at build time** — there is no
+on-device provisioning flow (no captive portal, no Bluetooth setup).
+Changing networks means editing `esp32/include/config.h` and
+reflashing over USB-C. That's deliberate for a single-household device
+on a single SSID; if you move house, plan on a flash.
+
 ### Flash + monitor
 
 ```bash
@@ -518,6 +575,51 @@ pio device monitor -b 115200
   SHT40 temp + humidity (if present).
 - Keeps approximate wall-clock time from the HTTP `Date:` header on
   every response, no NTP traffic.
+- On failure, renders an on-screen error frame in place of the
+  recipe — `Wi-Fi failed` if the join times out, `Server error` if
+  `/version` or `/image` returns non-2xx — so you can tell at a
+  glance whether the panel is stale or the network is down. When the
+  device is rendering from its last-known cached frame, an `OFFLINE`
+  marker is stamped in the bottom-right corner (the same corner where
+  the server writes `rendered at HH:MM`) so the cached state is
+  unmistakable.
+
+### Panel driver
+
+Panel driver selection is controlled by `-DBOARD_SCREEN_COMBO=520` in
+`esp32/platformio.ini` — the Seeed_GFX preset for the E1001's UC8179
+panel. `EPaperFixed` (`esp32/include/EPaperFixed.h` +
+`esp32/src/EPaperFixed.cpp`) overrides Seeed_GFX's partial-update
+routine to push OLD image data after the refresh so the controller's
+differential LUT starts from the correct baseline on the next partial
+refresh. The header is kept dormant on purpose — every pixel is rendered
+server-side now, so partial-update is unused — but the override is left
+in the tree in case future on-device content (e.g. an on-device clock)
+needs a working partial path again. See the file comment.
+
+### OTA updates
+
+The firmware self-flashes on every daily wake. `checkForOTAUpdate()`
+in `esp32/src/main.cpp` polls `GET /firmware/version`; if the integer
+the server returns is higher than the build's baked-in
+`FIRMWARE_VERSION`, it streams `GET /firmware/download` into the
+inactive OTA partition and reboots. Both endpoints are Bearer-authed
+because the `.bin` contains the baked-in WiFi password + API key.
+
+- **`./firmware/` directory layout.** Two files, both produced by CI:
+  - `version.txt` — single line, the integer version number.
+  - `firmware.bin` — the compiled image.
+- **`FIRMWARE_VERSION` build flag.** Baked in at compile time via
+  `-DFIRMWARE_VERSION=<n>`. CI sets `<n>` to `${{ github.run_number }}`;
+  local `pio run` builds default to `0` so they don't trigger OTAs on
+  devices running a CI build.
+- **Bind mount.** `docker-compose.yml` mounts `./firmware:/app/firmware:ro`
+  — pre-create the directory (see the install snippet above) so docker
+  doesn't auto-create it as root.
+- **Publishing.** `.github/workflows/firmware.yml` rsyncs `firmware.bin`
+  and a freshly-written `version.txt` to the VPS on every merge to main,
+  using `--delay-updates` so a partial transfer never briefly advertises
+  the new version before the binary is fully in place.
 
 ### Pin mapping (reTerminal E1001)
 
@@ -563,6 +665,9 @@ own — none unblock anything else.
   rewrites quantities in-place ("4 → 6 servings"). Works on numeric
   tokens at the head of each ingredient line; degrades gracefully when
   a quantity is absent.
+
+See [`ROADMAP.md`](ROADMAP.md) for the longer list of follow-ups from
+the recent review pass (security hardening, deferred refactors).
 
 ## License
 

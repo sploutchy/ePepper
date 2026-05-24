@@ -1,8 +1,10 @@
 /**
  * ePepper firmware configuration.
  *
- * Edit these values before flashing, or they will be overwritten
- * by WiFi provisioning on first boot.
+ * Wi-Fi credentials (and everything else below) are baked into the
+ * firmware at build time. There is no on-device provisioning UI.
+ * To change them, edit this file's working copy (config.h, alongside
+ * this example) and re-flash the device via USB-C.
  */
 
 #ifndef EPEPPER_CONFIG_H
