@@ -19,7 +19,16 @@ import display_state
 import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
-from config import API_KEY, LLM_API_KEY, LLM_API_URL, TZ
+from config import API_KEY, LLM_API_KEY, LLM_API_URL, PHOTO_MAX_MB, TZ
+
+# Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
+# without the user having to convert them first. Best-effort: a local dev
+# env that hasn't re-pip'd yet should still import this module.
+try:
+    from pillow_heif import register_heif_opener
+    register_heif_opener()
+except ImportError:
+    pass
 from display_push import push_recipe_to_display
 from processing.recipes import (
     process_recipe_image,
@@ -31,9 +40,9 @@ from status_helpers import battery_pct, format_long_date, humanize_ago, humanize
 log = logging.getLogger(__name__)
 
 # Hard cap on photo uploads. Phone shots after browser-side JPEG re-encode
-# are typically 1-3 MB; 8 MB leaves headroom while still rejecting
-# accidental drops.
-_PHOTO_MAX_BYTES = 8 * 1024 * 1024
+# are typically 1-3 MB; the default 8 MB leaves headroom while still
+# rejecting accidental drops. Tunable via PHOTO_MAX_MB in config.
+_PHOTO_MAX_BYTES = PHOTO_MAX_MB * 1024 * 1024
 
 # Stream-read chunk size for the size-capped upload reader.
 _UPLOAD_CHUNK_BYTES = 64 * 1024
@@ -636,7 +645,8 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
     if raw is None:
         return _add_error(
             request,
-            f"Image too large (limit {_PHOTO_MAX_BYTES // (1024 * 1024)} MB).",
+            f"Image too large (limit {PHOTO_MAX_MB} MB). Try a lower-resolution "
+            "shot, or send it via the Telegram bot (which downscales server-side).",
         )
     hint = _filename_hint(file.filename)
     log.info("Web add (photo OCR): %d bytes hint=%r", len(raw), hint or "")
