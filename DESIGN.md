@@ -39,7 +39,7 @@ reads recipes the way other people read essays.
 
 | Family | Role | Used for |
 |---|---|---|
-| **Fraunces** (Google Fonts, OFL) | Display | Recipe titles (`h1`), page titles, the `ePepper` wordmark, the on-display recipe headline on the status page, the LLM cost stat, instruction step numerals |
+| **Fraunces** (Google Fonts, OFL) | Display | Recipe titles (`h1`), page titles, the `ePepper` wordmark, the on-display recipe headline on the status page, instruction step numerals |
 | **Inter** (Google Fonts, OFL) | UI + body | Paragraphs, lists, form controls, navigation, captions, section labels |
 | **JetBrains Mono** (Google Fonts, OFL) | Mono | Only the `API_KEY` chip on the login hint copy — nowhere else |
 
@@ -232,9 +232,13 @@ nav and Clear button live below the preview, centered.
 
 Recipe-on-display title uses the same `.display-title` Fraunces
 treatment as the Tomorrow card so they read with identical weight.
-The LLM card uses the same headline pattern for the monthly cost:
-`~0.04 CHF this month` in serif (`inline-meta` keeps `this month`
-inline), with the call breakdown as a muted line below.
+The LLM card's monthly cost reads as a **system metric** in Inter
+body type — same vocabulary as Repertoire's `87 saved recipes` and
+Device's battery / signal lines — *not* in Fraunces. Fraunces is
+reserved for editorial content (recipe titles, page titles, the
+on-display headline); a routine cost stat is operational metadata
+and shouldn't borrow that weight. Format stays
+`~0.04 CHF this month` with the call breakdown muted below.
 
 ### Login — single column, generous
 

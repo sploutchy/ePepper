@@ -237,19 +237,21 @@
   {% endif %}
 </section>
 
-{# LLM call ledger for the current calendar month. Cost as the
-   .display-title headline ("~0.04 CHF this month", inline-meta keeps
-   the qualifier next to the number), then the call breakdown as a
-   muted detail line below. The `chf_partial` flag fires when a model
-   in the period isn't in the pricing table; surface that as a "≥"
-   prefix so the user knows the estimate undercounts. #}
+{# LLM call ledger for the current calendar month. Cost reads as a
+   system metric (same Inter body type as the Repertoire saved-count
+   and the Device battery / signal lines) — Fraunces is reserved for
+   editorial content (recipe titles, page titles), and a monthly cost
+   stat is operational metadata, not content. The `chf_partial` flag
+   fires when a model in the period isn't in the pricing table;
+   surface that as a "≥" prefix so the user knows the estimate
+   undercounts. #}
 {% if llm.enabled %}
 <section class="status-card">
   <h2><span class="status-card-h-label">{{ icon("cpu", 18) }} LLM</span></h2>
   {% if llm.calls == 0 %}
     <p class="status-line muted">No calls this month yet.</p>
   {% else %}
-    <p class="display-title inline-meta">
+    <p class="status-line">
       <strong>{{ '≥ ' if llm.chf_partial else '~' }}{{ '%.2f' % llm.chf }} CHF</strong>
       <span class="muted">this month</span>
     </p>
