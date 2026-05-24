@@ -62,6 +62,7 @@ bool downloadImage(int page);
 int requestPageChange(const char* direction);
 void reportDeviceStatus();
 void displayImage(uint8_t* data, size_t len);
+void showErrorFrame(const char* headline, const char* detail);
 bool readSHT40(float& tempC, float& rh);
 float readBatteryVoltage();
 void buzzerBeep(int count, int duration_ms);
@@ -209,6 +210,7 @@ void handleRefresh(bool force) {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
         digitalWrite(LED_PIN, HIGH);
         return;
@@ -244,6 +246,7 @@ void handlePageChange(const char* direction) {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
         digitalWrite(LED_PIN, HIGH);
         return;
@@ -275,6 +278,7 @@ void handleClear() {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        showErrorFrame("Wi-Fi failed", "Check SSID / signal");
         buzzerBeep(3, 100);
         digitalWrite(LED_PIN, HIGH);
         return;
@@ -292,6 +296,9 @@ void handleClear() {
     http.end();
     if (code != 200) {
         Serial.printf("[API] /display/clear returned %d\n", code);
+        char detail[24];
+        snprintf(detail, sizeof(detail), "HTTP %d", code);
+        showErrorFrame("Server error", detail);
         buzzerBeep(3, 100);
         digitalWrite(LED_PIN, HIGH);
         return;
@@ -810,6 +817,37 @@ void displayImage(uint8_t* data, size_t len) {
     epaper.update();
 
     Serial.printf("[Display] Pushed %dx%d image to panel\n", w, h);
+}
+
+
+// Render a short two-line failure message to the panel so the user can
+// see *why* nothing refreshed without plugging into serial. Draws via
+// the same Seeed_GFX epaper instance as displayImage(); no PSRAM
+// allocation, no long busy loop. If anything throws or the GFX call
+// stack misbehaves on a panel that didn't init cleanly, the caller
+// still falls back to the buzzer + LED indication.
+void showErrorFrame(const char* headline, const char* detail) {
+    Serial.printf("[Display] Error frame: %s — %s\n",
+                  headline ? headline : "(null)",
+                  detail   ? detail   : "");
+
+    epaper.fillScreen(TFT_WHITE);
+    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
+    epaper.setTextDatum(MC_DATUM);
+
+    epaper.setTextSize(6);
+    epaper.drawString(headline ? headline : "Error",
+                      DISPLAY_WIDTH / 2,
+                      DISPLAY_HEIGHT / 2 - 40);
+
+    if (detail && detail[0]) {
+        epaper.setTextSize(3);
+        epaper.drawString(detail,
+                          DISPLAY_WIDTH / 2,
+                          DISPLAY_HEIGHT / 2 + 40);
+    }
+
+    epaper.update();
 }
 
 
