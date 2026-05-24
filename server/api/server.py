@@ -1,4 +1,14 @@
-"""FastAPI server — serves images to the ESP32 display."""
+"""FastAPI server — serves images to the ESP32 display.
+
+TODO(DES-6): _check_api_key still accepts the browser session cookie as an
+alternative to the Bearer token, because the status page renders the live
+display preview with `<img src="/image?v=...">` (see
+web/templates/_status_body.html:56). That <img> tag carries the session
+cookie but cannot easily attach a Bearer header, so dropping the cookie
+branch here would silently break the preview. Cleanup path is to move the
+preview behind an /api/ui/* wrapper (or proxy /image through web.py with
+cookie auth) and then make this helper Bearer-only.
+"""
 
 import asyncio
 import logging
