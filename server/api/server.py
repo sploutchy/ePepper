@@ -138,65 +138,6 @@ def _is_device_fetch(request: Request) -> bool:
     return request.headers.get("user-agent", "").startswith(_DEVICE_UA_PREFIX)
 
 
-@app.post("/page/next")
-async def page_next(request: Request):
-    """Advance to next page. Called by ESP32 on button press."""
-    if not _check_api_key(request):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
-
-    state = display_state.get()
-    current = state["page"]
-    total = state["total_pages"]
-
-    if total <= 1:
-        return {"ok": False, "reason": "single_page", "page": current, "total_pages": total}
-
-    # Wrap around: last page → back to page 1
-    new_page = current + 1 if current < total else 1
-    display_state.set_page(new_page)
-    log.info("Page next: %d → %d (of %d)", current, new_page, total)
-
-    return {"ok": True, "page": new_page, "total_pages": total}
-
-
-@app.post("/page/prev")
-async def page_prev(request: Request):
-    """Go to previous page. Called by ESP32 on button press."""
-    if not _check_api_key(request):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
-
-    state = display_state.get()
-    current = state["page"]
-    total = state["total_pages"]
-
-    if total <= 1:
-        return {"ok": False, "reason": "single_page", "page": current, "total_pages": total}
-
-    # Wrap around: page 1 → last page
-    new_page = current - 1 if current > 1 else total
-    display_state.set_page(new_page)
-    log.info("Page prev: %d → %d (of %d)", current, new_page, total)
-
-    return {"ok": True, "page": new_page, "total_pages": total}
-
-
-@app.post("/page/first")
-async def page_first(request: Request):
-    """Jump to page 1. Called by ESP32 on long-press of the prev button."""
-    if not _check_api_key(request):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
-
-    state = display_state.get()
-    total = state["total_pages"]
-
-    if total <= 1:
-        return {"ok": False, "reason": "single_page", "page": state["page"], "total_pages": total}
-
-    display_state.set_page(1)
-    log.info("Page first: %d → 1 (of %d)", state["page"], total)
-    return {"ok": True, "page": 1, "total_pages": total}
-
-
 @app.post("/display/clear")
 async def display_clear(request: Request):
     """Clear the panel. Fires on the device's PREV + REFRESH chord."""
@@ -206,23 +147,6 @@ async def display_clear(request: Request):
     display_state.clear()
     log.info("Display cleared via /display/clear")
     return {"ok": True}
-
-
-@app.post("/page/last")
-async def page_last(request: Request):
-    """Jump to the last page. Called by ESP32 on long-press of the next button."""
-    if not _check_api_key(request):
-        return JSONResponse(status_code=401, content={"error": "unauthorized"})
-
-    state = display_state.get()
-    total = state["total_pages"]
-
-    if total <= 1:
-        return {"ok": False, "reason": "single_page", "page": state["page"], "total_pages": total}
-
-    display_state.set_page(total)
-    log.info("Page last: %d → %d (of %d)", state["page"], total, total)
-    return {"ok": True, "page": total, "total_pages": total}
 
 
 # Strong refs to in-flight fire-and-forget tasks. asyncio only tracks them

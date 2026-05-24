@@ -778,8 +778,10 @@ async def web_display_clear(request: Request):
 def _change_page(action: str) -> None:
     """Mutate display_state's current page based on a nav action.
 
-    Mirrors the wrap/clamp behaviour of /page/* in api/server.py so the
-    web buttons feel identical to the device's physical buttons.
+    This is now the *only* server-side page cursor: the device computes its
+    own page locally and serves it from its on-flash cache (DES-7), so this
+    drives the status-page live preview alone — a preview cursor independent
+    of whatever page the panel is actually showing.
     """
     state = display_state.get()
     total = state["total_pages"]
