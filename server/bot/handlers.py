@@ -21,6 +21,7 @@ from telegram.ext import (
 
 from config import (
     ALLOWED_USERS,
+    BACKUP_CHAT_ID,
     LLM_API_KEY,
     LLM_API_URL,
     TELEGRAM_BOT_TOKEN,
@@ -73,29 +74,48 @@ _SEARCH_PAGE_SIZE = 5
 _bot_app: Application | None = None
 
 
+def _alert_recipients() -> list[int]:
+    """Chat IDs that should receive out-of-band device alerts.
+
+    Prefers `ALLOWED_USERS`. Falls back to `BACKUP_CHAT_ID` so a freshly
+    deployed bot with empty ALLOWED_USERS still reaches the operator
+    through the backup channel they already trust. Returns [] only when
+    neither is configured.
+    """
+    if ALLOWED_USERS:
+        return list(ALLOWED_USERS)
+    if BACKUP_CHAT_ID is not None:
+        return [BACKUP_CHAT_ID]
+    return []
+
+
 async def notify_low_battery(battery_mv: int) -> None:
     """Push a one-shot low-battery warning to every allowed user.
 
     Called by the FastAPI /device/status handler the first time a wake-cycle
     report comes in below the threshold (display_state owns the hysteresis).
-    Silent when no users are configured — we don't have anywhere to send.
+    Falls back to BACKUP_CHAT_ID when ALLOWED_USERS is empty so the alert
+    still reaches the operator before the bot is fully configured.
     """
     if _bot_app is None:
         log.warning("notify_low_battery: bot not yet initialised")
         return
-    if not ALLOWED_USERS:
-        log.warning("notify_low_battery: no ALLOWED_USERS configured, skipping alert")
+    recipients = _alert_recipients()
+    if not recipients:
+        log.warning(
+            "notify_low_battery: neither ALLOWED_USERS nor BACKUP_CHAT_ID configured, skipping alert"
+        )
         return
     text = (
         f"🪫 ePepper battery is low: {battery_pct(battery_mv)}% "
         f"({battery_mv / 1000:.2f} V) — charge soon."
     )
-    for uid in ALLOWED_USERS:
+    for uid in recipients:
         try:
             await _bot_app.bot.send_message(chat_id=uid, text=text)
-            log.info("Low-battery alert sent to user %s (%dmV)", uid, battery_mv)
+            log.info("Low-battery alert sent to chat %s (%dmV)", uid, battery_mv)
         except Exception:
-            log.exception("Failed to send low-battery alert to user %s", uid)
+            log.exception("Failed to send low-battery alert to chat %s", uid)
 
 
 async def notify_stale_heartbeat(hours_since: int) -> None:
@@ -103,24 +123,28 @@ async def notify_stale_heartbeat(hours_since: int) -> None:
 
     Called by the scheduler's heartbeat_loop the first time the staleness
     threshold is crossed (display_state owns the alerted flag). Re-armed
-    automatically on the next successful /device/status POST.
+    automatically on the next successful /device/status POST. Falls back
+    to BACKUP_CHAT_ID when ALLOWED_USERS is empty.
     """
     if _bot_app is None:
         log.warning("notify_stale_heartbeat: bot not yet initialised")
         return
-    if not ALLOWED_USERS:
-        log.warning("notify_stale_heartbeat: no ALLOWED_USERS configured, skipping alert")
+    recipients = _alert_recipients()
+    if not recipients:
+        log.warning(
+            "notify_stale_heartbeat: neither ALLOWED_USERS nor BACKUP_CHAT_ID configured, skipping alert"
+        )
         return
     text = (
         f"⚠️ ePepper hasn't checked in for {hours_since}h — "
         f"battery may be flat or Wi-Fi down."
     )
-    for uid in ALLOWED_USERS:
+    for uid in recipients:
         try:
             await _bot_app.bot.send_message(chat_id=uid, text=text)
-            log.info("Stale-heartbeat alert sent to user %s (%dh)", uid, hours_since)
+            log.info("Stale-heartbeat alert sent to chat %s (%dh)", uid, hours_since)
         except Exception:
-            log.exception("Failed to send stale-heartbeat alert to user %s", uid)
+            log.exception("Failed to send stale-heartbeat alert to chat %s", uid)
 
 
 def _stash_pending(url: str, recipe: dict) -> str:
@@ -212,10 +236,14 @@ def create_bot() -> Application:
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_handler(CallbackQueryHandler(on_save_button, pattern=r"^save:"))
     app.add_handler(CallbackQueryHandler(on_save_note_button, pattern=r"^save_note:"))
+    app.add_handler(CallbackQueryHandler(on_note_cancel, pattern=r"^note:cancel:"))
     app.add_handler(CallbackQueryHandler(on_push_button, pattern=r"^push:"))
+    app.add_handler(CallbackQueryHandler(on_search_preview, pattern=r"^search_preview:"))
+    app.add_handler(CallbackQueryHandler(on_search_back, pattern=r"^search_back:"))
     app.add_handler(CallbackQueryHandler(on_search_nav, pattern=r"^search:"))
     app.add_handler(CallbackQueryHandler(on_surprise_again, pattern=r"^surprise_again:"))
     app.add_handler(CallbackQueryHandler(on_surprise_push, pattern=r"^surprise_push:"))
+    app.add_handler(CallbackQueryHandler(on_clear_button, pattern=r"^clear:"))
     app.add_handler(CallbackQueryHandler(on_quick_action, pattern=r"^quick:"))
     # Catch-all for unknown /commands — must register after every named
     # CommandHandler so known commands match first.
@@ -230,10 +258,22 @@ async def on_unknown_command(update: Update, context) -> None:
     await update.message.reply_text("Unknown command — try /help.")
 
 
+# One-shot guard so the empty-ALLOWED_USERS warning prints once per process
+# (first time anyone is checked) instead of on every incoming message.
+_empty_allowed_users_warned: bool = False
+
+
 def _is_allowed(user_id: int) -> bool:
-    """Check if user is allowed (empty list = allow all)."""
+    """Check if user is allowed (empty list = deny all)."""
+    global _empty_allowed_users_warned
     if not ALLOWED_USERS:
-        return True
+        if not _empty_allowed_users_warned:
+            log.warning(
+                "ALLOWED_USERS env var is empty — bot will reject every user. "
+                "Set ALLOWED_USERS to a comma-separated list of Telegram user IDs."
+            )
+            _empty_allowed_users_warned = True
+        return False
     return user_id in ALLOWED_USERS
 
 
@@ -261,6 +301,8 @@ _START_TEXT = (
     "• A photo of a recipe — OCR'd into your repertoire automatically\n"
     "• A recipe URL (just paste the link) — falls back to an LLM if the "
     "site isn't a known one\n\n"
+    "<i>Note: pasted URLs are pushed to the panel immediately. Use the "
+    "web app to save without displaying.</i>\n\n"
     "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your repertoire. "
     "Use the device's <b>physical buttons</b> to cycle between recipe "
     "pages.\n\n"
@@ -287,6 +329,8 @@ _HELP_TEXT = (
     "🫑 <b>ePepper — help</b>\n\n"
     "<b>➕ Add a recipe</b>\n"
     "Just paste a URL or send a photo of a cookbook / magazine page.\n"
+    "<i>Pasted URLs are pushed to the panel immediately — use the web app "
+    "to save without displaying.</i>\n"
     "  /recipe &lt;url&gt; — force-parse a URL\n\n"
     "<b>📚 Repertoire</b>\n"
     "Tap 💾 Save under a push to keep a recipe.\n"
@@ -336,7 +380,12 @@ async def cmd_recipe(update: Update, context) -> None:
         return
 
     if not context.args:
-        await update.message.reply_text("Usage: <code>/recipe &lt;url&gt;</code>", parse_mode="HTML")
+        await update.message.reply_text(
+            "Usage: <code>/recipe &lt;url&gt;</code> — force-parses a URL even "
+            "when normal auto-detection misreads it. For most sites you can "
+            "just paste the URL directly.",
+            parse_mode="HTML",
+        )
         return
 
     url = context.args[0]
@@ -346,10 +395,46 @@ async def cmd_recipe(update: Update, context) -> None:
 
 
 async def cmd_clear(update: Update, context) -> None:
+    """Ask for confirmation before wiping the panel.
+
+    Clearing is destructive and there's no undo, so we surface a two-button
+    keyboard rather than firing immediately on the unqualified `/clear`.
+    """
     if not _is_allowed(update.effective_user.id):
         return
-    display_state.clear()
-    await update.message.reply_text("🧹 Display cleared.")
+    await update.message.reply_text(
+        "🧹 Clear the display?",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("✅ Confirm clear", callback_data="clear:confirm"),
+            InlineKeyboardButton("✖ Cancel", callback_data="clear:cancel"),
+        ]]),
+    )
+
+
+async def on_clear_button(update: Update, context) -> None:
+    """Resolve the [Confirm] / [Cancel] keyboard surfaced by /clear."""
+    query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
+    try:
+        _, action = query.data.split(":", 1)
+    except ValueError:
+        await query.answer("Bad callback.", show_alert=True)
+        return
+    if action == "confirm":
+        display_state.clear()
+        await query.answer("Cleared")
+        try:
+            await query.edit_message_text("🧹 Display cleared.")
+        except Exception:
+            log.exception("on_clear_button: failed to edit message")
+    else:
+        await query.answer()
+        try:
+            await query.edit_message_text("Cancelled.")
+        except Exception:
+            log.exception("on_clear_button: failed to edit message")
 
 
 def _build_status_text() -> str:
@@ -476,7 +561,9 @@ async def cmd_comment(update: Update, context) -> None:
     text = " ".join(context.args).strip() if context.args else ""
     if not text:
         await update.message.reply_text(
-            "Usage: <code>/comment &lt;your note&gt;</code>", parse_mode="HTML"
+            "Usage: <code>/comment &lt;text&gt;</code> — add a note to the "
+            "recipe currently on the panel.",
+            parse_mode="HTML",
         )
         return
 
@@ -506,7 +593,10 @@ async def cmd_comment(update: Update, context) -> None:
             reply_markup=InlineKeyboardMarkup([[
                 InlineKeyboardButton(
                     "💾 Save & add note", callback_data=f"save_note:{pending_token}"
-                )
+                ),
+                InlineKeyboardButton(
+                    "❌ Cancel", callback_data=f"note:cancel:{pending_token}"
+                ),
             ]]),
         )
         return
@@ -557,12 +647,16 @@ def _render_search_page(
     if not results and offset == 0:
         return None
 
+    # Always stash a token so the per-result preview buttons can carry the
+    # (query, offset) context back to /search when the user taps « Back.
+    token = _stash_search(query)
+
     page_num = offset // _SEARCH_PAGE_SIZE + 1
     header = f"🔍 <b>Matches for \"{html.escape(query)}\"</b>"
     if offset > 0 or has_more:
         header += f"  ·  page {page_num}"
     lines: list[str] = [header, ""]
-    push_buttons: list[InlineKeyboardButton] = []
+    preview_buttons: list[InlineKeyboardButton] = []
     for i, r in enumerate(results, start=offset + 1):
         title = html.escape(r["title"])
         src_html = _format_source_html(r.get("url"))
@@ -572,15 +666,19 @@ def _render_search_page(
         lines.append(item_header)
         lines.append(f"<i>   {_cooked_label(r)}</i>")
         lines.append("")
-        push_buttons.append(InlineKeyboardButton(str(i), callback_data=f"push:{r['id']}"))
+        # Preview (don't push yet) — back-button needs token + offset to
+        # rebuild this exact page.
+        preview_buttons.append(InlineKeyboardButton(
+            str(i),
+            callback_data=f"search_preview:{token}:{offset}:{r['id']}",
+        ))
 
     keyboard_rows: list[list[InlineKeyboardButton]] = []
-    if push_buttons:
-        keyboard_rows.append(push_buttons)
+    if preview_buttons:
+        keyboard_rows.append(preview_buttons)
 
     nav_row: list[InlineKeyboardButton] = []
     if offset > 0 or has_more:
-        token = _stash_search(query)
         if offset > 0:
             prev_offset = max(0, offset - _SEARCH_PAGE_SIZE)
             nav_row.append(InlineKeyboardButton(
@@ -608,7 +706,9 @@ async def cmd_search(update: Update, context) -> None:
     query = " ".join(context.args).strip() if context.args else ""
     if not query:
         await update.message.reply_text(
-            "Usage: <code>/search &lt;query&gt;</code>", parse_mode="HTML"
+            "Usage: <code>/search &lt;query&gt;</code> — full-text search "
+            "across saved recipes.",
+            parse_mode="HTML",
         )
         return
 
@@ -660,6 +760,99 @@ async def on_search_nav(update: Update, context) -> None:
         )
     except Exception:
         log.exception("on_search_nav: failed to edit message")
+
+
+def _format_search_preview(row: dict) -> str:
+    """Preview card for a /search result — mirrors the surprise card style.
+
+    Shown after tapping a numbered result button so the user can confirm
+    before committing the push (a misclick on the bare number used to
+    overwrite the panel instantly).
+    """
+    title = html.escape(row["title"])
+    body = f"🔍 <b>{title}</b>"
+    src_html = _format_source_html(row.get("url"))
+    if src_html:
+        body += f" {src_html}"
+    body += f"\n<i>{_cooked_label(row)}</i>"
+    return body
+
+
+def _search_preview_keyboard(recipe_id: int, token: str, offset: int) -> InlineKeyboardMarkup:
+    """[Push] / [Back] row under a search preview card.
+
+    Push commits via the existing `push:` handler. Back carries the token +
+    offset so the search results page can be re-rendered exactly as the
+    user left it.
+    """
+    return InlineKeyboardMarkup([[
+        InlineKeyboardButton("📺 Push", callback_data=f"push:{recipe_id}"),
+        InlineKeyboardButton("« Back", callback_data=f"search_back:{token}:{offset}"),
+    ]])
+
+
+async def on_search_preview(update: Update, context) -> None:
+    """User tapped a numbered /search result — show a preview before pushing."""
+    query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
+    try:
+        _, token, offset_str, recipe_id_str = query.data.split(":")
+        offset = int(offset_str)
+        recipe_id = int(recipe_id_str)
+    except (ValueError, IndexError):
+        await query.answer("Bad callback.", show_alert=True)
+        return
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        await query.answer("Recipe missing — was it deleted?", show_alert=True)
+        return
+    await query.answer()
+    try:
+        await query.edit_message_text(
+            _format_search_preview(row),
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=_search_preview_keyboard(row["id"], token, offset),
+        )
+    except Exception:
+        log.exception("on_search_preview: failed to edit message")
+
+
+async def on_search_back(update: Update, context) -> None:
+    """User tapped « Back from a search preview — re-render the result page."""
+    query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
+    try:
+        _, token, offset_str = query.data.split(":")
+        offset = int(offset_str)
+    except (ValueError, IndexError):
+        await query.answer("Bad callback.", show_alert=True)
+        return
+    query_text = _search_queries.get(token)
+    if not query_text:
+        await query.answer(
+            "Search session expired — re-run /search.", show_alert=True
+        )
+        return
+    rendered = _render_search_page(query_text, offset=max(0, offset))
+    if rendered is None:
+        await query.answer("No matches.", show_alert=True)
+        return
+    body, keyboard = rendered
+    await query.answer()
+    try:
+        await query.edit_message_text(
+            body,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=keyboard,
+        )
+    except Exception:
+        log.exception("on_search_back: failed to edit message")
 
 
 def _format_surprise_card(row: dict) -> str:
@@ -786,7 +979,7 @@ async def on_surprise_push(update: Update, context) -> None:
 
 
 async def on_push_button(update: Update, context) -> None:
-    """User tapped a /search result — render and push that recipe."""
+    """User tapped 📺 Push under a /search preview — render and push that recipe."""
     query = update.callback_query
     if not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
@@ -806,7 +999,25 @@ async def on_push_button(update: Update, context) -> None:
     if not push_recipe_to_display(row):
         await query.answer("Couldn't render that recipe.", show_alert=True)
         return
+    total = display_state.get()["total_pages"]
+    log.info("Search pushed: id=%d title=%r", row["id"], row["title"])
     await query.answer(f"Pushed: {row['title']}")
+    # Mirror the surprise-push behaviour: replace the preview body with a
+    # final committed-confirmation and drop the buttons so a stale tap
+    # can't re-push.
+    pushed_body = (
+        _format_search_preview(row)
+        + f"\n\n✅ Pushed to display"
+        + (f" — {total} pages" if total > 1 else "")
+    )
+    try:
+        await query.edit_message_text(
+            pushed_body,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+        )
+    except Exception:
+        log.exception("on_push_button: failed to edit message")
 
 
 @asynccontextmanager
@@ -1111,6 +1322,25 @@ async def on_save_note_button(update: Update, context) -> None:
         pass
     if query.message is not None:
         await query.message.reply_text("💾 Saved and 📝 note added.")
+
+
+async def on_note_cancel(update: Update, context) -> None:
+    """User tapped ❌ Cancel on a pending /comment note — discard the stash."""
+    query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
+    try:
+        _, _, token = query.data.split(":", 2)
+    except ValueError:
+        await query.answer("Bad callback.", show_alert=True)
+        return
+    _pending_notes.pop(token, None)
+    await query.answer()
+    try:
+        await query.edit_message_text("Cancelled.")
+    except Exception:
+        log.exception("on_note_cancel: failed to edit message")
 
 
 async def on_quick_action(update: Update, context) -> None:
