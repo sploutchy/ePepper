@@ -404,7 +404,20 @@ html[data-theme="dark"] .list-select {
 .recipes > li {
   border-bottom: 1px solid var(--border);
 }
-.recipes > li:first-child { border-top: 1px solid var(--border); }
+/* No top border on the first card of each tier — the .library-tier-h
+   above already draws its own hairline. Stacking both produced a
+   double-line right under the h2 (and at tier-spanning page boundaries
+   where the h2 is suppressed, two adjacent <ul>s' last/first li
+   borders stacked into the same visual artefact). The h2's border-top
+   carries the section break; tier <ul>s only need bottom rules to
+   close out each row. */
+/* No bottom border on the last card of each tier either — it'd sit
+   ~36 px above the next h2's own border-top, producing two clearly
+   spaced hairlines per section break. Tiers end openly; the next
+   eyebrow's hairline is the single separator. The very last tier on
+   the page ends without a closing line, matching editorial layouts
+   that let content trail off rather than fence it in. */
+.recipes > li:last-child { border-bottom: 0; }
 
 .card {
   display: grid;
