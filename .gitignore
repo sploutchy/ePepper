@@ -8,8 +8,11 @@ venv/
 # Environment
 .env
 
-# Data
-data/
+# Runtime SQLite dir at the repo root (mounted into the container as
+# /app/data). `server/data/` holds tracked resources — prompt .txt
+# files and llm_prices.json — and stays versioned, hence the leading
+# slash to anchor this rule to the repo root only.
+/data/
 
 # Firmware binary + version.txt pushed by CI for OTA
 firmware/
