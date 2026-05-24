@@ -24,7 +24,7 @@ log = logging.getLogger(__name__)
 
 # CHF per 1M tokens for each model (input_rate, output_rate). Numbers
 # come from Infomaniak's AI Tools pricing page — refresh manually when
-# the catalog changes by editing `server/data/llm_prices.json`. Models
+# the catalog changes by editing `server/assets/llm_prices.json`. Models
 # absent from that file render as "—" on the status page and trigger a
 # one-time warning so the discrepancy is visible without crashing.
 #
@@ -35,7 +35,7 @@ log = logging.getLogger(__name__)
 # defaults). The Infomaniak endpoint accepts both, but it echoes
 # whichever form the request used back into the `usage.model` field —
 # so the lookup has to cover both.
-_PRICES_PATH = Path(__file__).parent.parent / "data" / "llm_prices.json"
+_PRICES_PATH = Path(__file__).parent.parent / "assets" / "llm_prices.json"
 
 # Lazily populated cache. None until first `_prices()` call, then the
 # loaded dict — empty dict counts as "loaded and empty", not "reload".

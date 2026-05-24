@@ -5,7 +5,7 @@ The model's output target is the **internal** recipe dict that
 that intermediate format cuts ~25 % off the output token count (no
 `@type: HowToStep` wrapper per step) and removes a parsing layer.
 
-System prompts live as plain .txt files under `server/data/prompts/`
+System prompts live as plain .txt files under `server/assets/prompts/`
 and are loaded lazily on first attribute access. Editing a prompt no
 longer requires a code change — drop a new revision into the data
 directory and restart. The user-message builders (which interpolate
@@ -17,8 +17,10 @@ from pathlib import Path
 
 # Resolved at import time so the lookup is one syscall, not a string
 # build per access. `__file__` is server/processing/prompts.py, so two
-# `parent` hops land at server/, then into data/prompts/.
-_PROMPTS_DIR = Path(__file__).parent.parent / "data" / "prompts"
+# `parent` hops land at server/, then into assets/prompts/. (assets/
+# rather than data/ to stay clear of the /app/data bind mount that
+# docker-compose layers over the in-image data dir at runtime.)
+_PROMPTS_DIR = Path(__file__).parent.parent / "assets" / "prompts"
 
 # File-content cache. Populated lazily by `_load` on first access for a
 # given filename, then reused for the lifetime of the process.
@@ -38,7 +40,7 @@ def _load(name: str) -> str:
     if not path.is_file():
         raise FileNotFoundError(
             f"Prompt file not found: {path} "
-            f"(expected one .txt per prompt under server/data/prompts/)"
+            f"(expected one .txt per prompt under server/assets/prompts/)"
         )
     text = path.read_text(encoding="utf-8").strip()
     _cache[name] = text
