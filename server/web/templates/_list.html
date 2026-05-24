@@ -30,7 +30,13 @@
      SQL ORDER BY that produced the sort. #}
   {% for slug, label, rows in tiers %}
     {% if rows %}
-      <h2 class="library-tier-h">{{ label }}</h2>
+      {# Skip the <h2> when the first tier of an infinite-scroll
+         continuation matches the last tier the prior batch already
+         painted — otherwise a tier spanning multiple pages would
+         print its heading once per batch. #}
+      {% if not (loop.first and slug == prev_tier) %}
+        <h2 class="library-tier-h">{{ label }}</h2>
+      {% endif %}
       <ul class="recipes recipes-tier-{{ slug }}">
         {% for r in rows %}{% include "_card.html" %}{% endfor %}
       </ul>
@@ -38,7 +44,7 @@
   {% endfor %}
   {% if has_more %}
     <ul class="recipes"><li class="loader"
-        hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}"
+        hx-get="/app/_search?q={{ q|urlencode }}&sort={{ sort|urlencode }}&source={{ source|urlencode }}&tag={{ tag|urlencode }}&offset={{ next_offset }}&prev_tier={{ last_tier|urlencode }}"
         hx-trigger="revealed"
         hx-swap="outerHTML">Loading…</li></ul>
   {% endif %}
