@@ -392,9 +392,9 @@ async def ingest_recipe(
     # Lazy imports keep this module's import footprint untouched —
     # processing.recipes is pulled in by tests and tools that don't want
     # the library / display side-effects.
-    import display_state
+    from display import state as display_state
     import library
-    from display_push import push_recipe_to_display
+    from display.push import push_recipe_to_display
 
     if isinstance(source, str):
         recipe = await process_recipe_url(source, on_llm_start=on_llm_start)

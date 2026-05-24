@@ -18,14 +18,15 @@ def push_recipe_to_display(row: dict) -> bool:
     previous display content is preserved in the failure case (atomic commit
     inside `display_state.set_recipe`).
 
-    On success, bumps `last_displayed_at` + `displayed_count` on the
-    library row so the "recently cooked" sort and anniversary scheduler
-    track actual usage.
+    Arms a pending bump of `last_displayed_at` + `displayed_count` that
+    fires on the first device fetch of the new image (see the /image
+    handler), so "recently cooked" reflects when the panel actually
+    pulled the recipe rather than when the server installed it.
 
     Skip-if-active optimization: if `row` is already the live display
     content (same recipe_id), short-circuit with a True return — the
     device would otherwise wake and burn a full e-ink refresh for no
-    visible change. `touch_displayed` is also skipped so the
+    visible change. No new bump is armed in that case, so the
     "recently shown" sort doesn't move on a no-op push. Used to live
     only in the scheduler; lifting it here means every caller (web push,
     bot search-tap, scheduler) gets the same idle-saving behavior.
@@ -47,5 +48,4 @@ def push_recipe_to_display(row: dict) -> bool:
     except Exception:
         log.exception("Failed to render recipe id=%s to display", row.get("id"))
         return False
-    library.touch_displayed(row["id"])
     return True
