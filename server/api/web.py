@@ -261,16 +261,27 @@ def _slug_for_source(name: str) -> str:
     return f"src-{s or 'misc'}"
 
 
-def _bucket_by_recency(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]:
-    """Slot recipes into the time-tiers used by the (least) recently
-    cooked sorts. Mirrors the substring matches the old _list.html
-    template did against humanize_date() output.
+def _bucket_by_recency(
+    recipes: list[dict], ascending: bool
+) -> list[tuple[str, str, list[dict]]]:
+    """Slot recipes into time-tiers for the (least) recently cooked sorts.
+
+    Mirrors the substring matches the old _list.html template did against
+    humanize_date() output. Never-cooked recipes get their own tier instead
+    of being silently absorbed into "Older" — the SQL puts them at the start
+    (NULLS FIRST on `oldest`) or end (NULLS LAST on `recent`), and the tier
+    sequence here matches: "Never cooked" anchors the top when the sort is
+    least-recent-first, and the bottom when it's most-recent-first.
     """
     this_week: list[dict] = []
     this_month: list[dict] = []
     this_year: list[dict] = []
     older: list[dict] = []
+    never: list[dict] = []
     for r in recipes:
+        if r.get("last_displayed_at") is None:
+            never.append(r)
+            continue
         phrase = humanize_date(r.get("last_displayed_at"))
         if (
             "min ago" in phrase or "h ago" in phrase or "just now" in phrase
@@ -283,12 +294,20 @@ def _bucket_by_recency(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]
             this_year.append(r)
         else:
             older.append(r)
-    tiers = [
+    # Most-recent first (default sort) flows top→bottom: this week → never.
+    # Least-recent first (ascending) reverses the time tiers so the oldest
+    # cook lands at the top and the freshest at the bottom.
+    time_tiers = [
         ("this-week", "This week", this_week),
         ("this-month", "This month", this_month),
         ("this-year", "Earlier this year", this_year),
         ("older", "Older", older),
     ]
+    never_tier = ("never", "Never cooked", never)
+    if ascending:
+        tiers = [never_tier] + list(reversed(time_tiers))
+    else:
+        tiers = time_tiers + [never_tier]
     return [t for t in tiers if t[2]]
 
 
@@ -354,7 +373,7 @@ def _bucket_recipes(
         return _bucket_by_count(recipes, ascending=sort == "least_cooked")
     if sort in ("source_az", "source_za"):
         return _bucket_by_source(recipes)
-    return _bucket_by_recency(recipes)
+    return _bucket_by_recency(recipes, ascending=sort == "oldest")
 
 
 def _list_context(
