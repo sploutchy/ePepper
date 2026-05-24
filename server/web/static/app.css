@@ -1411,17 +1411,17 @@ html[data-theme="dark"] .masthead-theme .theme-icon-dark { display: inline-block
   .iconbtn { padding: 8px 10px; }
 
   .list-controls { grid-template-columns: 1fr; }
-  /* Mobile: title fills the row, badge pins top-right on the same row,
-     meta drops to its own row below — keeps the on-air indicator
-     readable next to the title even when the card stacks. */
+  /* Mobile: title spans the row, meta + badge share the second row so
+     ON DISPLAY pins to the bottom-right next to the cooked-meta —
+     same vocabulary as desktop, just stacked. */
   .card {
     grid-template-columns: 1fr auto;
-    grid-template-areas: "title badge" "meta meta";
+    grid-template-areas: "title title" "meta badge";
     gap: 8px 12px;
   }
   .card-title > span:first-child { font-size: 19px; }
-  .card-meta { justify-content: flex-start; text-align: left; }
-  .card-badge { align-self: start; }
+  .card-meta { justify-content: flex-start; text-align: left; padding-bottom: 0; }
+  .card-badge { align-self: center; padding-bottom: 0; }
 
   .add-grid { grid-template-columns: 1fr; gap: 18px; }
   /* Inherit the desktop "padding: 24px 0" — the section already
