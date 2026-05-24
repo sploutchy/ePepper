@@ -4,7 +4,12 @@ import os
 from zoneinfo import ZoneInfo
 
 # Telegram
-TELEGRAM_BOT_TOKEN: str = os.environ["TELEGRAM_BOT_TOKEN"]
+TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+if not TELEGRAM_BOT_TOKEN:
+    raise RuntimeError(
+        "TELEGRAM_BOT_TOKEN env var is required and must not be empty. "
+        "Get one from @BotFather on Telegram."
+    )
 ALLOWED_USERS: list[int] = [
     int(uid) for uid in os.environ.get("ALLOWED_USERS", "").split(",") if uid.strip()
 ]
@@ -30,6 +35,12 @@ if not API_KEY:
 # described in plain text. Trailing slashes are trimmed.
 WEB_URL: str = os.environ.get("WEB_URL", "").rstrip("/")
 
+# Max megabytes accepted by the web photo upload endpoint. Default: 8.
+try:
+    PHOTO_MAX_MB: int = int(os.environ.get("PHOTO_MAX_MB", "8"))
+except ValueError:
+    raise RuntimeError("PHOTO_MAX_MB must be an integer if set")
+
 # Data directory (docker volume)
 DATA_DIR: str = os.environ.get("DATA_DIR", "/app/data")
 
@@ -52,9 +63,14 @@ if not 0 <= DEVICE_WAKE_HOUR_LOCAL <= 23:
 # Backup — when BACKUP_CHAT_ID is set, the midnight scheduler tick
 # uploads a gzipped DB snapshot to that chat *if the library has
 # changed since the previous upload*. Quiet days produce no message.
-BACKUP_CHAT_ID: int | None = (
-    int(os.environ["BACKUP_CHAT_ID"]) if os.environ.get("BACKUP_CHAT_ID") else None
-)
+_backup_chat_id_raw: str = os.environ.get("BACKUP_CHAT_ID", "").strip()
+if _backup_chat_id_raw:
+    try:
+        BACKUP_CHAT_ID: int | None = int(_backup_chat_id_raw)
+    except ValueError:
+        raise RuntimeError("BACKUP_CHAT_ID must be an integer if set")
+else:
+    BACKUP_CHAT_ID = None
 
 # LLM (Infomaniak AI Tools or any OpenAI-compatible endpoint).
 # When LLM_API_URL + LLM_API_KEY are both set, the URL flow grows an
