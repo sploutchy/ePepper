@@ -53,6 +53,12 @@ _pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
 # Tapping "Save & add note" drains both `_pending` and this map together.
 _pending_notes: dict[str, str] = {}
 
+# Telegram's per-message API limit is 4096 chars; we cap user-supplied
+# /comment text well below that so the echoed confirmation (which wraps
+# the note in extra prose + HTML) can never exceed the limit and raise
+# BadRequest mid-handler, which would orphan the _pending_notes entry.
+_COMMENT_MAX_CHARS = 3500
+
 # Short tokens → search queries, so paginated /search buttons can carry a
 # 6-char ref in their 64-byte callback_data instead of stuffing the full
 # query (and risking truncation / encoding issues).
@@ -473,6 +479,14 @@ async def cmd_comment(update: Update, context) -> None:
             "Usage: <code>/comment &lt;your note&gt;</code>", parse_mode="HTML"
         )
         return
+
+    # Cap before storing/echoing — a multi-KB clipboard paste would
+    # otherwise blow past Telegram's 4096-char per-message limit when
+    # echoed back, raising BadRequest and orphaning the _pending_notes
+    # entry. Trim with an ellipsis marker so the saved note and the
+    # echoed confirmation agree on what was kept.
+    if len(text) > _COMMENT_MAX_CHARS:
+        text = text[:_COMMENT_MAX_CHARS - 1] + "…"
 
     recipe_id = state.get("recipe_id")
     if recipe_id is None:
