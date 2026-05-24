@@ -71,6 +71,12 @@ _pages: dict[int, Image.Image] = {}
 # resupply comments on small mutations.
 _recipe_inputs: dict[str, Any] = {"recipe": None, "comments": [], "url": None}
 
+# Set to a library row id when set_recipe installs a saved recipe; the
+# /image handler consumes it on the first device fetch to bump
+# last_displayed_at. Reset on the next set_recipe / clear — so a recipe
+# replaced before the device ever wakes is never counted as cooked.
+_pending_displayed_bump: int | None = None
+
 
 def set_recipe(
     recipe: dict,
@@ -94,9 +100,15 @@ def set_recipe(
     if not new_pages:
         return
 
+    global _pending_displayed_bump
     _recipe_inputs.update(inputs)
     _pages.clear()
     _pages.update(new_pages)
+    # Arm a pending bump for the next device fetch. Overwriting an
+    # un-consumed value is intentional: if the previous recipe was
+    # replaced before the device ever picked it up, it was never
+    # actually cooked, so it shouldn't be counted.
+    _pending_displayed_bump = recipe_id
     _update_state(
         content_type="recipe",
         title=recipe.get("title", ""),
@@ -145,8 +157,10 @@ def set_page(page: int) -> bool:
 
 def clear() -> None:
     """Clear the display (idle state)."""
+    global _pending_displayed_bump
     _pages.clear()
     _recipe_inputs.update({"recipe": None, "comments": [], "url": None})
+    _pending_displayed_bump = None
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],
         "content_hash": hashlib.md5(b"idle").hexdigest()[:8],
@@ -164,6 +178,18 @@ def clear() -> None:
 def get() -> dict:
     """Get current display state."""
     return dict(_state)
+
+
+def consume_pending_displayed_bump() -> int | None:
+    """Return the pending recipe id (if any) and clear it. Single-shot —
+    subsequent calls return None until the next set_recipe arms a new
+    bump. The /image handler calls this on a device fetch to credit
+    last_displayed_at to the moment the panel actually pulled the image
+    rather than the moment the server pushed it."""
+    global _pending_displayed_bump
+    pending = _pending_displayed_bump
+    _pending_displayed_bump = None
+    return pending
 
 
 def get_pages() -> dict[int, Image.Image]:

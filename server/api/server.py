@@ -107,6 +107,11 @@ async def image(request: Request, page: int = Query(None, ge=1)):
     if bmp_data is None:
         return Response(status_code=204)  # no content yet
 
+    if _is_device_fetch(request):
+        pending = display_state.consume_pending_displayed_bump()
+        if pending is not None:
+            library.touch_displayed(pending)
+
     state = display_state.get()
     return Response(
         content=bmp_data,
@@ -118,6 +123,19 @@ async def image(request: Request, page: int = Query(None, ge=1)):
             "X-Total-Pages": str(state["total_pages"]),
         },
     )
+
+
+_DEVICE_UA_PREFIX = "ePepper-device/"
+
+
+def _is_device_fetch(request: Request) -> bool:
+    """Distinguish ESP32 /image fetches from browser status-page previews.
+
+    The firmware sets `User-Agent: ePepper-device/<version>`; browser
+    status-page previews of /image don't carry it, so they don't count
+    as a cook.
+    """
+    return request.headers.get("user-agent", "").startswith(_DEVICE_UA_PREFIX)
 
 
 @app.post("/page/next")

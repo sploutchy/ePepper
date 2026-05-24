@@ -377,6 +377,7 @@ void handleClear() {
     HTTPClient http;
     String url = String(SERVER_URL) + "/display/clear";
     http.begin(url);
+    http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     collectDateHeader(http);
     int code = http.POST("");
@@ -436,6 +437,7 @@ void checkForOTAUpdate() {
 
     HTTPClient http;
     http.begin(String(SERVER_URL) + "/firmware/version");
+    http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     int code = http.GET();
     if (code != 200) {
@@ -456,6 +458,7 @@ void checkForOTAUpdate() {
                   FIRMWARE_VERSION, serverVersion);
 
     http.begin(String(SERVER_URL) + "/firmware/download");
+    http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     // Default read timeout is 1 s — too tight for the long pauses that
     // can happen mid-stream on a marginal Wi-Fi link.
@@ -568,6 +571,7 @@ bool pollServer() {
     HTTPClient http;
     String url = String(SERVER_URL) + "/version";
     http.begin(url);
+    http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     collectDateHeader(http);
 
@@ -626,6 +630,7 @@ bool downloadImage(int page) {
     HTTPClient http;
     String url = String(SERVER_URL) + "/image?page=" + String(page);
     http.begin(url);
+    http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     collectDateHeader(http);
 
@@ -804,6 +809,7 @@ void reportDeviceStatus() {
 
     HTTPClient http;
     http.begin(url);
+    http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     collectDateHeader(http);
 
