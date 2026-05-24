@@ -186,7 +186,7 @@
      inline next to the timestamp so it reads as a qualifier on the
      same fact. #}
   <h2>
-    <span class="status-card-h-label">{{ icon("radio", 18) }} Device</span>
+    <span class="status-card-h-label device-reveal-trigger">{{ icon("radio", 18) }} Device</span>
     <span class="status-card-h-meta">
       {% if device.last_seen %}
         Last seen {{ humanize_ago(device.last_seen) }}
@@ -235,10 +235,12 @@
       </p>
     {% endif %}
   {% endif %}
-  {# OTA recovery — always offered (you most need it when the device
-     won't check in). Tiny link so it doesn't compete with the metrics. #}
-  <p class="status-actions">
-    <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash over USB</a>
+  {# OTA recovery — hidden by default; revealed by clicking the Device
+     title 7 times (see the reveal script in status.html). Stays out of
+     the way since OTA is the normal path and this is a rare manual
+     fallback. #}
+  <p class="status-actions flash-reveal" hidden>
+    <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash firmware</a>
   </p>
 </section>
 
