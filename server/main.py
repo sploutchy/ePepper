@@ -81,6 +81,13 @@ def _print_config() -> None:
             rendered = "***unset***"
         else:
             rendered = str(value)
+        # An empty ALLOWED_USERS means "reject everyone" — the most common
+        # self-inflicted lockout. Flag it loudly in the dump.
+        if key == "ALLOWED_USERS" and not value:
+            rendered = (
+                f"{rendered} (empty — bot rejects ALL users; "
+                "alerts fall back to BACKUP_CHAT_ID)"
+            )
         print(f"{key}={rendered}")
 
 
@@ -123,7 +130,9 @@ def _warn_if_alerts_have_no_destination() -> None:
 
 async def main() -> None:
     # Ensure data dir exists
-    os.makedirs("/app/data", exist_ok=True)
+    from config import DATA_DIR
+
+    os.makedirs(DATA_DIR, exist_ok=True)
 
     # Initialise recipe library DB
     init_db()

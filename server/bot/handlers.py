@@ -1282,7 +1282,6 @@ async def on_save_button(update: Update, context) -> None:
     recipe_id = library.upsert_recipe(
         url, recipe,
         translated_keywords=translated,
-        source=source_name(url),
     )
     library.save_recipe(recipe_id)
     log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
@@ -1333,7 +1332,6 @@ async def on_save_note_button(update: Update, context) -> None:
     recipe_id = library.upsert_recipe(
         url, recipe,
         translated_keywords=translated,
-        source=source_name(url),
     )
     library.save_recipe(recipe_id)
     library.add_comment(recipe_id, note)

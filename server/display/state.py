@@ -83,11 +83,20 @@ def set_recipe(
     comments: list[str],
     recipe_id: int | None = None,
     url: str | None = None,
+    *,
+    count_display: bool = True,
 ) -> None:
     """Render and install a recipe as the active display content.
     Renders into a local buffer first and only commits to `_pages` /
     `_recipe_inputs` on success — a render failure leaves the previous
-    display content intact rather than half-replacing it."""
+    display content intact rather than half-replacing it.
+
+    `count_display` (default True) arms a pending displayed-bump so the
+    next device /image fetch credits the cook. Set False for a silent
+    rebuild that must NOT look like a fresh cook — e.g. restoring the
+    panel after a container restart (BUG-2), where re-arming the bump
+    would mis-increment displayed_count and reset last_displayed_at for
+    a recipe nobody re-cooked, corrupting the anniversary scheduler."""
     inputs = {
         "recipe": recipe,
         "comments": list(comments),
@@ -107,8 +116,10 @@ def set_recipe(
     # Arm a pending bump for the next device fetch. Overwriting an
     # un-consumed value is intentional: if the previous recipe was
     # replaced before the device ever picked it up, it was never
-    # actually cooked, so it shouldn't be counted.
-    _pending_displayed_bump = recipe_id
+    # actually cooked, so it shouldn't be counted. Skipped entirely on a
+    # silent rebuild (count_display=False) — see the docstring.
+    if count_display:
+        _pending_displayed_bump = recipe_id
     _update_state(
         content_type="recipe",
         title=recipe.get("title", ""),

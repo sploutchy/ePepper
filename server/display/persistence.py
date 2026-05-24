@@ -45,7 +45,12 @@ def persist_current() -> None:
         state = display_state.get()
         recipe_id = state.get("recipe_id")
         if state.get("type") == "recipe" and recipe_id is not None:
-            library.set_panel_state(recipe_id, state.get("page", 1))
+            # Persist only the recipe identity (DES-D). The web-preview
+            # page is meaningless to the device — it tracks its own page —
+            # so we always store page 1 rather than the last browser
+            # preview page, which would otherwise make a restart re-render
+            # the panel on whatever page the browser happened to land on.
+            library.set_panel_state(recipe_id, 1)
         elif state.get("type") == "idle":
             library.clear_panel_state()
         # else: unsaved recipe push — leave the previously persisted
@@ -58,10 +63,12 @@ def restore_on_startup() -> None:
     """At server boot, re-render whatever was last on the panel.
 
     Reads the `display_panel` singleton row, looks up the recipe, and
-    calls `display_state.set_recipe` + `set_page` to rebuild the
-    in-memory pages. A stale row (recipe was deleted while the server
-    was down) is cleared. Failures are logged and swallowed — the
-    panel comes back idle in the worst case, never crashes startup.
+    calls `display_state.set_recipe` to rebuild the in-memory pages.
+    The rebuild is silent (count_display=False) so it doesn't look like
+    a fresh cook (BUG-2), and it always lands on page 1 since the device
+    tracks its own page (DES-D). A stale row (recipe was deleted while
+    the server was down) is cleared. Failures are logged and swallowed —
+    the panel comes back idle in the worst case, never crashes startup.
     On any restore failure the persisted row is cleared so a stuck
     recipe (e.g. missing font after upgrade) doesn't retry and fail on
     every container restart.
@@ -79,19 +86,19 @@ def restore_on_startup() -> None:
             library.clear_panel_state()
             return
         comments = [c["body"] for c in library.get_comments(row["id"])]
+        # Silent rebuild (BUG-2): count_display=False so restoring the
+        # panel doesn't arm a displayed bump and get mis-counted as a
+        # cook on the next device /image fetch. set_recipe always lands
+        # on page 1, which is exactly what we want now (DES-D) — the
+        # device tracks its own page, so we no longer restore the
+        # last web-preview page.
         display_state.set_recipe(
             row["recipe"],
             comments=comments,
             recipe_id=row["id"],
             url=row["url"],
+            count_display=False,
         )
-        # set_recipe resets page to 1; nudge to the persisted page if it
-        # still fits (rendering might paginate differently than last run
-        # if the recipe was edited via re-extract).
-        target_page = persisted.get("page", 1)
-        state = display_state.get()
-        if target_page > 1 and target_page <= state["total_pages"]:
-            display_state.set_page(target_page)
         state = display_state.get()
         log.info(
             "Restored panel: recipe_id=%s title=%r page=%d/%d",

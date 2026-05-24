@@ -27,6 +27,7 @@ from processing.safe_url import (
     UnsafeUrl,
     assert_url_safe,
 )
+from status_helpers import source_name
 
 log = logging.getLogger(__name__)
 
@@ -433,6 +434,7 @@ async def ingest_recipe(
             translated = await translate_for_search(recipe)
             recipe_id = library.upsert_recipe(
                 url, recipe, translated_keywords=translated,
+                source=source_name(url),
             )
             library.save_recipe(recipe_id)
             log.info(

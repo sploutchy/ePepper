@@ -1,13 +1,14 @@
 """FastAPI server — serves images to the ESP32 display.
 
-TODO(DES-6): _check_api_key still accepts the browser session cookie as an
-alternative to the Bearer token, because the status page renders the live
-display preview with `<img src="/image?v=...">` (see
-web/templates/_status_body.html:56). That <img> tag carries the session
-cookie but cannot easily attach a Bearer header, so dropping the cookie
-branch here would silently break the preview. Cleanup path is to move the
-preview behind an /api/ui/* wrapper (or proxy /image through web.py with
-cookie auth) and then make this helper Bearer-only.
+Auth (SEC-NEW-2): _check_api_key accepts the browser session cookie as an
+alternative to the Bearer token ONLY when a route opts in via
+allow_cookie=True. Just /image does so, because the status page renders the
+live display preview with `<img src="/image?v=...">` (see
+web/templates/_status_body.html:56): that <img> tag carries the session
+cookie but cannot easily attach a Bearer header. Every other device endpoint
+— notably /firmware/download, whose .bin carries the baked WiFi password +
+API key — is Bearer-only, so a leaked status-page session can't be used to
+exfiltrate firmware credentials.
 """
 
 import asyncio
@@ -36,8 +37,16 @@ app.mount("/app/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="
 app.include_router(web_router)
 
 
-def _check_api_key(request: Request) -> bool:
-    """Validate auth from Authorization header or a /app/ session cookie.
+def _check_api_key(request: Request, allow_cookie: bool = False) -> bool:
+    """Validate auth from the Authorization header, optionally also from a
+    /app/ session cookie.
+
+    The Bearer token (== raw API key) is always accepted. The browser
+    session cookie is accepted ONLY when `allow_cookie=True` (SEC-NEW-2):
+    just /image opts in, for the status-page `<img src="/image">` preview
+    that can't attach a Bearer header. Every other device endpoint stays
+    Bearer-only so a status-page session can't reach e.g.
+    /firmware/download and pull the baked credentials out of the .bin.
 
     The query-param fallback was dropped — uvicorn's access log records the
     full path+query, so passing the key in `?key=` leaked it on every request.
@@ -50,8 +59,11 @@ def _check_api_key(request: Request) -> bool:
         auth[7:].encode("utf-8"), API_KEY.encode("utf-8"),
     ):
         return True
-    # Browser path: random session token minted by /app/login.
-    if library.validate_session(request.cookies.get("epepper_auth", "")):
+    # Browser path: random session token minted by /app/login. Only honored
+    # on cookie-allowed routes (/image).
+    if allow_cookie and library.validate_session(
+        request.cookies.get("epepper_auth", "")
+    ):
         return True
     return False
 
@@ -82,7 +94,8 @@ async def version(request: Request):
         # device keys its on-flash page cache on this so page turns can be
         # served offline and a new recipe still invalidates the cache.
         "content_hash": state["content_hash"],
-        "page": state["page"],
+        # No `page` field (DES-D): the device computes its own page locally
+        # and never read this. It was driven only by web-preview clicks.
         "total_pages": state["total_pages"],
         "updated_at": state["updated_at"],
         "type": state["type"],
@@ -97,7 +110,11 @@ async def image(request: Request, page: int = Query(None, ge=1)):
 
     If no page param is given, serves the current active page from state.
     """
-    if not _check_api_key(request):
+    # allow_cookie=True: the status page previews this via
+    # `<img src="/image">`, which carries the session cookie but no Bearer
+    # header (SEC-NEW-2). This is the only device endpoint that accepts the
+    # cookie.
+    if not _check_api_key(request, allow_cookie=True):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     if page is None:

@@ -124,6 +124,16 @@ CREATE TABLE IF NOT EXISTS schema_version (
     version    INTEGER PRIMARY KEY,
     applied_at TEXT NOT NULL
 );
+
+-- Free-form key/value scratch space for one-shot bootstrap flags that
+-- don't warrant their own table. `fts_rebuilt` is set to '1' the first
+-- time init_db rebuilds the FTS index so the expensive O(library) rebuild
+-- runs once (or after a manual snapshot restore that clears the flag)
+-- instead of on every container start.
+CREATE TABLE IF NOT EXISTS meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
 
 
@@ -239,12 +249,23 @@ def init_db() -> None:
                 (applied_at,),
             )
         _apply_migrations(conn)
-        # TODO: once the migrations system has a real first entry, convert
-        # this unconditional rebuild into a one-shot migration (it only
-        # needs to run when the FTS index drifts, e.g. after a snapshot
-        # restore against an older schema). Keeping it here for now since
-        # it's idempotent and cheap on a small library.
-        _rebuild_fts(conn)
+        # One-shot FTS rebuild, gated behind a `meta.fts_rebuilt` sentinel.
+        # `_rebuild_fts` derives the index from several sources (recipe JSON
+        # ingredients + aggregated comments + LLM-translated keywords), so it
+        # can't be expressed as an FTS5 `'rebuild'` command (that only mirrors
+        # a single external-content table 1:1). Gating it means the
+        # O(library-size) rebuild runs once on a fresh DB and never again on
+        # routine restarts. The ongoing index is kept correct incrementally by
+        # `_fts_upsert` on every write. To force a rebuild after restoring an
+        # old snapshot, delete the `fts_rebuilt` row from `meta`.
+        row = conn.execute(
+            "SELECT value FROM meta WHERE key = 'fts_rebuilt'"
+        ).fetchone()
+        if row is None:
+            _rebuild_fts(conn)
+            conn.execute(
+                "INSERT INTO meta (key, value) VALUES ('fts_rebuilt', '1')"
+            )
     log.info("Library DB ready at %s", DB_PATH)
 
 

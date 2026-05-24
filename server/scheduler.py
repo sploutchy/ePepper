@@ -59,6 +59,13 @@ def seconds_until_next_local_hour(now: datetime, target_hour: int) -> float:
     Spring-forward nights that skip the target hour return ~23 h until
     the next one; fall-back duplicates resolve to the earlier of the
     two.
+
+    A sub-minute result (a button press in the last seconds before the
+    target hour) is rolled forward to the FOLLOWING day's target. The
+    firmware's computeSleepSeconds treats next_wake_in_s < MIN_SLEEP_S
+    (60 s) as clock skew and falls back to a flat 24 h sleep, which would
+    drift the daily wake; returning the next day's ~24 h figure instead
+    keeps the device aligned to the local hour.
     """
     target_t = time(target_hour, 0)
     today_target = datetime.combine(now.date(), target_t, tzinfo=now.tzinfo)
@@ -68,7 +75,13 @@ def seconds_until_next_local_hour(now: datetime, target_hour: int) -> float:
         target = datetime.combine(
             now.date() + timedelta(days=1), target_t, tzinfo=now.tzinfo,
         )
-    return (target.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+    seconds = (target.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+    if seconds < 60:
+        target = datetime.combine(
+            target.date() + timedelta(days=1), target_t, tzinfo=now.tzinfo,
+        )
+        seconds = (target.astimezone(timezone.utc) - now.astimezone(timezone.utc)).total_seconds()
+    return seconds
 
 
 def _push_anniversary_for(today: datetime) -> bool:
