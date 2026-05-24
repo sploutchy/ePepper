@@ -76,6 +76,18 @@ def humanize_ago(ts: int) -> str:
     return phrase
 
 
+def format_long_date(d: datetime) -> str:
+    """Editorial long-form date, e.g. "Monday May 24th". English-only —
+    used on the status page where the rest of the chrome is also English.
+    """
+    day = d.day
+    if 10 <= day % 100 <= 20:
+        suffix = "th"
+    else:
+        suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
+    return f"{d.strftime('%A %B')} {day}{suffix}"
+
+
 def rssi_quality(rssi: int) -> str:
     if rssi > -50:
         return "excellent"
