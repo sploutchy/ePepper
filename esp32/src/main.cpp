@@ -538,12 +538,20 @@ bool downloadImage(int page) {
 
     WiFiClient* stream = http.getStreamPtr();
     size_t bytesRead = 0;
+    unsigned long lastByteAt = millis();
     while (http.connected() && bytesRead < imageSize) {
         size_t available = stream->available();
         if (available) {
             size_t toRead = min(available, imageSize - bytesRead);
             stream->readBytes(imageBuffer + bytesRead, toRead);
             bytesRead += toRead;
+            lastByteAt = millis();
+        } else if (millis() - lastByteAt > 30000) {
+            // Bail if the link goes quiet for too long — better to retry on
+            // the next wake than hang forever and waste battery.
+            Serial.println("[API] Stream stalled, aborting");
+            http.end();
+            return false;
         }
         delay(1);
     }
