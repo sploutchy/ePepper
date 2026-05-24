@@ -601,7 +601,8 @@ void reportDeviceStatus() {
 
     String url = String(SERVER_URL) + "/device/status"
                  + "?battery_mv=" + String(batteryMv)
-                 + "&rssi=" + String(WiFi.RSSI());
+                 + "&rssi=" + String(WiFi.RSSI())
+                 + "&firmware_version=" + String(FIRMWARE_VERSION);
     if (envOk) {
         url += "&temperature_c=" + String(tempC, 1);
         url += "&humidity_pct=" + String(rh, 0);
