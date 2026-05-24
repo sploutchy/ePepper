@@ -13,14 +13,24 @@
  *
  * Per wake:
  *   1. Decide intent (refresh / next / prev / timer)
- *   2. WiFi up
- *   3. Read battery + SHT40, POST /device/status — server uses the fresh
- *      battery to bake the on-screen glyph into the next render
- *   4. Refresh → /version hash check, /image if changed (or always if forced)
- *      Page nav → /page/<dir>, /image
- *      Timer → same as refresh, not forced
- *   5. Display BMP (always full refresh — server owns every pixel)
- *   6. Deep sleep
+ *   2. Page nav → serve the target page straight from the on-flash cache,
+ *      NO WiFi. Falls back to the network only on a cache miss (e.g. a
+ *      cold boot after the battery was pulled, which wipes RTC state).
+ *   3. Refresh / timer → WiFi up; read battery + SHT40, POST /device/status
+ *      (server bakes the fresh battery glyph into the next render); GET
+ *      /version. If content_hash changed (or refresh was forced), download
+ *      EVERY page and write it to LittleFS, then show the active page.
+ *   4. Display BMP (always full refresh — server owns every pixel)
+ *   5. Deep sleep
+ *
+ * On-flash page cache: the server renders the whole recipe up front, so all
+ * pages share one stable content_hash (from /version). On a content change
+ * we pull every page into LittleFS as /p<N>.bmp; subsequent next/prev/first/
+ * last turns just blit the matching file. This trades one larger download
+ * per recipe for Wi-Fi-free, lower-latency page turns. The cost: a page
+ * turn's cached frame carries a stale battery glyph until the next refresh,
+ * and the server's notion of the current page (used by the web status
+ * preview) no longer tracks the device's local navigation.
  *
  * Time is set from the HTTP Date header in every server response, so we
  * never call out to NTP. Logs stay roughly correct as a side effect.
@@ -32,6 +42,8 @@
 #include <Update.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
+#include <FS.h>
+#include <LittleFS.h>
 #include <sys/time.h>
 #include <time.h>
 #include "TFT_eSPI.h"
@@ -47,6 +59,11 @@
 
 EPaperFixed epaper;
 
+// Upper bound on cached pages we'll prune. A recipe is typically 2–4 pages;
+// this just caps the cleanup loop that unlinks stale /p<N>.bmp files when a
+// new (shorter) recipe replaces a longer one.
+#define MAX_CACHED_PAGES 32
+
 enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV, WAKE_CLEAR };
 
 void handleRefresh(bool force = false);
@@ -60,8 +77,13 @@ void connectWiFi();
 void showErrorFrame();
 bool pollServer();
 bool downloadImage(int page);
-int requestPageChange(const char* direction);
 void reportDeviceStatus();
+int computeLocalPage(const char* direction);
+bool cacheAllPages();
+bool loadCachedPage(int page);
+bool writeCacheFile(int page, uint8_t* data, size_t len);
+void clearCacheAbove(int n);
+void clearCache();
 void displayImage(uint8_t* data, size_t len);
 void showErrorFrame(const char* headline, const char* detail);
 bool readSHT40(float& tempC, float& rh);
@@ -73,8 +95,13 @@ void collectDateHeader(HTTPClient& http);
 void applyDateHeader(HTTPClient& http);
 uint64_t computeSleepSeconds();
 
-// ---- RTC-persistent state (survives deep sleep) ----
-RTC_DATA_ATTR char lastHash[16] = "";
+// ---- RTC-persistent state (survives deep sleep, lost on power loss) ----
+// cachedHash is the content_hash of the recipe currently sitting in
+// LittleFS. A page turn trusts the cache when it's non-empty and the
+// /p<N>.bmp file exists; a refresh refills the cache when the server's
+// content_hash differs from it. Cleared on power loss → first wake after
+// a battery pull falls back to the network until the next refresh.
+RTC_DATA_ATTR char cachedHash[16] = "";
 RTC_DATA_ATTR int currentPage = 1;
 RTC_DATA_ATTR int totalPages = 1;
 RTC_DATA_ATTR int wakeCount = 0;
@@ -82,6 +109,17 @@ RTC_DATA_ATTR int wakeCount = 0;
 // ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
 size_t imageSize = 0;
+
+// Whether LittleFS mounted this boot. False disables the on-flash cache
+// (every page turn then falls back to the network), so a filesystem fault
+// degrades gracefully instead of bricking navigation.
+bool fsReady = false;
+
+// content_hash seen on the most recent /version poll, staged here until a
+// full cache rebuild succeeds so a partial/failed download never marks
+// stale pages as valid (we only copy it into cachedHash from cacheAllPages
+// on success).
+char pendingContentHash[16] = "";
 
 // Seconds the server told us to sleep on this wake cycle (from
 // /version → next_wake_in_s). -1 = not yet known; the sleep helper
@@ -115,6 +153,14 @@ void setup() {
     }
 
     epaper.begin();
+
+    // Mount the page cache. format-on-fail self-heals a corrupt FS and
+    // initialises the partition the first time new firmware lands on a
+    // device whose data partition was previously SPIFFS / blank.
+    fsReady = LittleFS.begin(true);
+    if (!fsReady) {
+        Serial.println("[FS] LittleFS mount failed — page cache disabled");
+    }
 
     WakeAction action = detectWakeAction();
 
@@ -222,8 +268,23 @@ void handleRefresh(bool force) {
 
     bool changed = pollServer();
     if (changed || force) {
-        if (downloadImage(currentPage)) {
+        // (Re)download every page into the cache so later turns stay offline.
+        // changed → it's a new recipe, so reset to page 1. force on unchanged
+        // content → keep the current page, just refresh the on-flash copies.
+        bool cached = cacheAllPages();
+        if (changed) currentPage = 1;
+        int show = (currentPage >= 1 && currentPage <= totalPages) ? currentPage : 1;
+
+        bool shown = false;
+        if (cached && loadCachedPage(show)) {
             displayImage(imageBuffer, imageSize);
+            shown = true;
+        } else if (downloadImage(show)) {
+            // Cache write failed (FS full / unmounted) — show the page anyway.
+            displayImage(imageBuffer, imageSize);
+            shown = true;
+        }
+        if (shown) {
             Serial.println(force ? "[Action] Forced full redraw"
                                  : "[Action] New content displayed");
         }
@@ -235,6 +296,11 @@ void handleRefresh(bool force) {
 }
 
 
+// Page navigation is the whole point of the cache: compute the target page
+// locally and blit it from LittleFS, no WiFi. The server cursor (/page/*)
+// is no longer consulted — the device owns its current page. We only touch
+// the network on a cache miss (cold boot after a battery pull wipes RTC
+// state and the files predate it, or a corrupt read).
 void handlePageChange(const char* direction) {
     Serial.printf("[Action] Page %s\n", direction);
     digitalWrite(LED_PIN, LOW);
@@ -246,6 +312,26 @@ void handlePageChange(const char* direction) {
         return;
     }
 
+    int newPage = computeLocalPage(direction);
+    if (newPage == currentPage) {
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    // Offline fast path: cache is valid (we have a content_hash) and the
+    // page file loads. No WiFi, no telemetry POST — that resumes on the
+    // next refresh / timer wake.
+    if (cachedHash[0] != '\0' && loadCachedPage(newPage)) {
+        currentPage = newPage;
+        displayImage(imageBuffer, imageSize);
+        buzzerBeep(1, 30);
+        Serial.printf("[Action] Page %d/%d displayed (cache)\n", currentPage, totalPages);
+        digitalWrite(LED_PIN, HIGH);
+        return;
+    }
+
+    // Cache miss — fall back to the network for this one page.
+    Serial.println("[Action] Cache miss — fetching over WiFi");
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
         showErrorFrame("Wi-Fi failed", "Check SSID / signal");
@@ -257,14 +343,12 @@ void handlePageChange(const char* direction) {
 
     reportDeviceStatus();
 
-    int newPage = requestPageChange(direction);
-    if (newPage > 0 && newPage != currentPage) {
+    if (downloadImage(newPage)) {
         currentPage = newPage;
-        if (downloadImage(currentPage)) {
-            displayImage(imageBuffer, imageSize);
-            buzzerBeep(1, 30);
-            Serial.printf("[Action] Page %d/%d displayed\n", currentPage, totalPages);
-        }
+        writeCacheFile(newPage, imageBuffer, imageSize);  // opportunistic refill
+        displayImage(imageBuffer, imageSize);
+        buzzerBeep(1, 30);
+        Serial.printf("[Action] Page %d/%d displayed (network)\n", currentPage, totalPages);
     }
 
     digitalWrite(LED_PIN, HIGH);
@@ -310,6 +394,7 @@ void handleClear() {
 
     currentPage = 1;
     totalPages = 1;
+    clearCache();  // drop the on-flash pages + content_hash so a re-push refetches
     if (downloadImage(1)) {
         displayImage(imageBuffer, imageSize);
         Serial.println("[Action] Cleared display");
@@ -505,16 +590,30 @@ bool pollServer() {
         return false;
     }
 
-    const char* hash = doc["hash"];
+    // content_hash is stable across page navigation (md5 over all pages),
+    // so it only flips on a genuinely new render — exactly the cache-
+    // invalidation signal we want. Fall back to the per-page `hash` if the
+    // server predates content_hash (e.g. mid-rollout before the server
+    // deploy lands), which keeps change detection working, just coarser.
+    const char* contentHash = doc["content_hash"];
+    if (!contentHash) contentHash = doc["hash"];
     totalPages = doc["total_pages"] | 1;
-    currentPage = doc["page"] | 1;
     // Server tells us when to next wake. Missing on old servers → -1
     // → fallback to DAILY_REFRESH_INTERVAL_S in computeSleepSeconds.
     nextWakeInS = doc["next_wake_in_s"] | -1;
 
-    if (hash && strcmp(hash, lastHash) != 0) {
-        strncpy(lastHash, hash, sizeof(lastHash) - 1);
-        Serial.printf("[API] New content: hash=%s pages=%d\n", hash, totalPages);
+    // Stage the hash; cacheAllPages() promotes it to cachedHash only after a
+    // full successful rebuild so a failed download can't validate a stale cache.
+    if (contentHash) {
+        strncpy(pendingContentHash, contentHash, sizeof(pendingContentHash) - 1);
+        pendingContentHash[sizeof(pendingContentHash) - 1] = '\0';
+    } else {
+        pendingContentHash[0] = '\0';
+    }
+
+    if (pendingContentHash[0] != '\0' && strcmp(pendingContentHash, cachedHash) != 0) {
+        Serial.printf("[API] New content: content_hash=%s pages=%d\n",
+                      pendingContentHash, totalPages);
         return true;
     }
 
@@ -573,41 +672,117 @@ bool downloadImage(int page) {
 }
 
 
-int requestPageChange(const char* direction) {
-    HTTPClient http;
-    String url = String(SERVER_URL) + "/page/" + direction;
-    http.begin(url);
-    http.addHeader("Authorization", String("Bearer ") + API_KEY);
-    collectDateHeader(http);
+// ---- Page cache (LittleFS) ----
+// Pages live as /p<N>.bmp — exactly the bytes /image?page=N returns, so the
+// display path is identical whether a frame came off the wire or off flash.
 
-    int code = http.POST("");
-    if (code != 200) {
-        Serial.printf("[API] /page/%s returned %d\n", direction, code);
-        http.end();
-        return -1;
+// Local cursor maths — mirrors the wrap/clamp the server's /page/* used to
+// do, now that the device owns its page. Returns the unchanged page on a
+// single-page recipe or an unknown direction.
+int computeLocalPage(const char* direction) {
+    if (totalPages <= 1) return currentPage;
+    if (strcmp(direction, "next") == 0)
+        return currentPage < totalPages ? currentPage + 1 : 1;
+    if (strcmp(direction, "prev") == 0)
+        return currentPage > 1 ? currentPage - 1 : totalPages;
+    if (strcmp(direction, "first") == 0) return 1;
+    if (strcmp(direction, "last") == 0)  return totalPages;
+    return currentPage;
+}
+
+
+bool writeCacheFile(int page, uint8_t* data, size_t len) {
+    if (!fsReady || data == nullptr || len == 0) return false;
+    char path[16];
+    snprintf(path, sizeof(path), "/p%d.bmp", page);
+    File f = LittleFS.open(path, FILE_WRITE);
+    if (!f) {
+        Serial.printf("[FS] open(%s) for write failed\n", path);
+        return false;
     }
-    applyDateHeader(http);
-
-    String body = http.getString();
-    http.end();
-
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, body);
-    if (err) {
-        Serial.printf("[API] JSON parse error: %s\n", err.c_str());
-        return -1;
+    size_t written = f.write(data, len);
+    f.close();
+    if (written != len) {
+        Serial.printf("[FS] short write %s: %u/%u\n", path, (unsigned)written, (unsigned)len);
+        LittleFS.remove(path);  // don't leave a truncated page behind
+        return false;
     }
+    return true;
+}
 
-    bool ok = doc["ok"] | false;
-    if (!ok) {
-        Serial.printf("[API] /page/%s: no change\n", direction);
-        return -1;
+
+bool loadCachedPage(int page) {
+    if (!fsReady) return false;
+    char path[16];
+    snprintf(path, sizeof(path), "/p%d.bmp", page);
+    File f = LittleFS.open(path, FILE_READ);
+    if (!f) return false;
+    size_t len = f.size();
+    size_t maxSize = DISPLAY_WIDTH * DISPLAY_HEIGHT / 8 + 1024;
+    if (len == 0 || len > maxSize) {
+        Serial.printf("[FS] %s bad size %u\n", path, (unsigned)len);
+        f.close();
+        return false;
     }
+    size_t got = f.read(imageBuffer, len);
+    f.close();
+    if (got != len) {
+        Serial.printf("[FS] short read %s: %u/%u\n", path, (unsigned)got, (unsigned)len);
+        return false;
+    }
+    imageSize = len;
+    return true;
+}
 
-    int newPage = doc["page"] | 1;
-    totalPages = doc["total_pages"] | 1;
-    Serial.printf("[API] Page %s → %d/%d\n", direction, newPage, totalPages);
-    return newPage;
+
+// Unlink any cached page above `n` (e.g. when a 5-page recipe is replaced by
+// a 2-page one). clearCacheAbove(0) wipes the lot.
+void clearCacheAbove(int n) {
+    if (!fsReady) return;
+    for (int p = n + 1; p <= MAX_CACHED_PAGES; p++) {
+        char path[16];
+        snprintf(path, sizeof(path), "/p%d.bmp", p);
+        if (LittleFS.exists(path)) LittleFS.remove(path);
+    }
+}
+
+
+void clearCache() {
+    clearCacheAbove(0);
+    cachedHash[0] = '\0';
+}
+
+
+// Download every page of the current recipe into LittleFS. WiFi must already
+// be up. On full success, promotes pendingContentHash → cachedHash (the cache
+// is now valid for offline navigation) and prunes stale higher-numbered
+// pages. Any failure leaves cachedHash untouched so we don't trust a partial
+// cache; the caller falls back to a direct network draw.
+bool cacheAllPages() {
+    if (!fsReady) {
+        Serial.println("[Cache] FS unavailable — skipping cache build");
+        return false;
+    }
+    if (totalPages < 1 || totalPages > MAX_CACHED_PAGES) {
+        Serial.printf("[Cache] Refusing to cache %d pages\n", totalPages);
+        return false;
+    }
+    for (int p = 1; p <= totalPages; p++) {
+        if (!downloadImage(p) || !writeCacheFile(p, imageBuffer, imageSize)) {
+            Serial.printf("[Cache] Page %d build failed — aborting\n", p);
+            // We may have already overwritten lower pages with new content
+            // while higher ones are still stale. Invalidate so page turns
+            // fall back to the network instead of serving a mixed cache; the
+            // next refresh that sees the same content_hash rebuilds cleanly.
+            cachedHash[0] = '\0';
+            return false;
+        }
+    }
+    clearCacheAbove(totalPages);
+    strncpy(cachedHash, pendingContentHash, sizeof(cachedHash) - 1);
+    cachedHash[sizeof(cachedHash) - 1] = '\0';
+    Serial.printf("[Cache] Stored %d page(s), content_hash=%s\n", totalPages, cachedHash);
+    return true;
 }
 
 
@@ -857,9 +1032,8 @@ void showErrorFrame(const char* headline, const char* detail) {
 
 // On Wi-Fi / server-fetch failure the panel keeps yesterday's content with
 // no on-screen sign anything's wrong. Stamp an "OFFLINE" marker in the
-// bottom-right corner — the same corner where the server draws its
-// "rendered at HH:MM" timestamp (DES-13). The user has one place to
-// glance at to tell whether the panel is showing today's content.
+// bottom-right corner so the user can tell at a glance the panel is showing
+// stale, last-known content rather than today's.
 void showErrorFrame() {
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.setTextSize(1);

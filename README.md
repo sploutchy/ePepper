@@ -194,10 +194,7 @@ their own trailing page. The header carries `Title from Source —
 page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
 for en/de/fr/it), followed by total time and servings on the meta
 line. The source is omitted entirely for OCR'd photos that yielded
-no `source_name`. Every rendered page also carries a small
-`rendered at HH:MM` timestamp in the bottom-right corner so you can
-tell at a glance whether the panel is showing a fresh frame or a
-stale one.
+no `source_name`.
 
 ### Editing recipes
 
@@ -226,6 +223,11 @@ Three physical buttons:
 - **Next** (middle): short — next page; long press — jump to last.
 - **Prev** (left): short — previous page; long press — jump to first.
 - **Prev + Refresh chord:** clear the display (renders an idle hint).
+
+Page turns (next/prev/first/last) are served from the device's on-flash
+cache — **no Wi-Fi**. A refresh pulls the whole recipe into flash up front,
+so flipping pages afterwards is local and quick. Only the refresh button
+and the daily timer touch the network. See [On-device page cache](#on-device-page-cache).
 
 ### Day-to-day rhythm
 
@@ -459,7 +461,7 @@ it leaked the key into container logs.
 
 | Method | Path | Description |
 |---|---|---|
-| `GET` | `/version` | Current image hash, page info, and `next_wake_in_s` (seconds until the device's next aligned wake at `DEVICE_WAKE_HOUR_LOCAL`). ESP32 hits this on every wake. |
+| `GET` | `/version` | Current image hash, a `content_hash` (stable across page navigation — changes only on a new render), page info, and `next_wake_in_s` (seconds until the device's next aligned wake at `DEVICE_WAKE_HOUR_LOCAL`). ESP32 hits this on every refresh/timer wake; `content_hash` is the cache key for the device's on-flash page store. |
 | `GET` | `/image` | Current page as a 1-bit BMP. Defaults to the active page. |
 | `GET` | `/image?page=N` | Specific page as BMP. |
 | `POST` | `/page/next` | Advance to next page (wraps at the end). |
@@ -563,16 +565,23 @@ pio device monitor -b 115200
 
 - Wakes on a button press or the daily timer (no schedule-driven
   polling).
-- On wake: pings `/version`, compares the hash; if changed, refetches
-  the current page's BMP and redraws.
+- **Refresh / timer wake:** pings `/version`, compares `content_hash`;
+  if it changed, downloads *every* page of the recipe into the on-flash
+  cache (LittleFS) and redraws the active page. See
+  [On-device page cache](#on-device-page-cache).
+- **Page-turn wake (next/prev/first/last):** computes the target page
+  locally and blits it straight from flash — no Wi-Fi, no server round
+  trip. Falls back to a single network fetch only on a cache miss (e.g.
+  the first turn after a battery pull, which wipes RTC state).
 - The `/version` response carries `next_wake_in_s` — the firmware
   uses it to land its next timer wake at `DEVICE_WAKE_HOUR_LOCAL`
   local time (default `06:00`) instead of drifting 24 h from the
   last button press. Server is the source of truth for when, so
   there's no UTC↔local conversion on the device. Falls back to a
   flat 24 h on /version failure or out-of-range values.
-- Posts a `/device/status` report on every wake — battery mV, RSSI,
-  SHT40 temp + humidity (if present).
+- Posts a `/device/status` report on every refresh/timer wake — battery
+  mV, RSSI, SHT40 temp + humidity (if present). Offline page turns skip
+  the report; the next refresh/timer wake catches telemetry up.
 - Keeps approximate wall-clock time from the HTTP `Date:` header on
   every response, no NTP traffic.
 - On failure, renders an on-screen error frame in place of the
@@ -580,8 +589,7 @@ pio device monitor -b 115200
   `/version` or `/image` returns non-2xx — so you can tell at a
   glance whether the panel is stale or the network is down. When the
   device is rendering from its last-known cached frame, an `OFFLINE`
-  marker is stamped in the bottom-right corner (the same corner where
-  the server writes `rendered at HH:MM`) so the cached state is
+  marker is stamped in the bottom-right corner so the cached state is
   unmistakable.
 
 ### Panel driver
@@ -596,6 +604,44 @@ refresh. The header is kept dormant on purpose — every pixel is rendered
 server-side now, so partial-update is unused — but the override is left
 in the tree in case future on-device content (e.g. an on-device clock)
 needs a working partial path again. See the file comment.
+
+### On-device page cache
+
+Page navigation runs entirely off a flash-resident cache so flipping
+through a recipe never needs Wi-Fi — the costly part of a page turn used
+to be the Wi-Fi association plus three HTTP round trips, and that's now
+gone for the common case.
+
+**How it works.** The server renders every page of a recipe up front and
+exposes a `content_hash` on `/version` that's stable across page
+navigation (md5 over *all* pages — it only changes on a new render). On a
+refresh/timer wake, if `content_hash` differs from what's cached, the
+firmware downloads every page (`GET /image?page=N`) and writes each to
+LittleFS as `/p<N>.bmp`. The new `content_hash` is recorded *only* after
+the full rebuild succeeds, so a partial/failed download never validates a
+stale cache. Subsequent next/prev/first/last turns compute the target
+page locally and blit the matching file.
+
+**Storage.** A page is a 1-bit 800×480 BMP (~48 KB). A typical 2–4 page
+recipe is ~100–200 KB; the `default_8MB.csv` partition reserves a ~1.5 MB
+LittleFS region (label `spiffs`), so dozens of pages fit. **No SD card is
+needed** — the reTerminal's SD slot stays unused. (An SD card would only
+earn its place to cache the *entire* repertoire offline, a separate
+feature with its own power/SPI-bus cost.)
+
+**Partition note.** OTA only rewrites the app slot, never the partition
+table, so a device that OTAs onto this build keeps whatever table it was
+last USB-flashed with. `LittleFS.begin(true)` formats-on-fail against the
+running table's `spiffs` partition either way, so the cache self-heals; a
+USB reflash just guarantees the full 1.5 MB region.
+
+**Known trade-offs.** A cached page carries a *stale* battery glyph until
+the next refresh (the page indicator is fine — it's baked per page). And
+because page turns no longer hit the server cursor, the web status
+preview's "current page" tracks *its own* navigation, not the device's.
+Both are deliberate: the win is Wi-Fi-free, lower-power page turns. This
+is the device-side half of `ROADMAP.md` DES-7; the server's `/page/*`
+endpoints are retained for the web status nav and any un-upgraded firmware.
 
 ### OTA updates
 
@@ -648,7 +694,7 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 | SCL | 20 | |
 | SHT40 ambient | 0x44 | Temp + humidity, read on every wake |
 | PCF8563 RTC | 0x51 | *Present on board, not used* — time is synced from the HTTP `Date:` header instead. |
-| **SD card** | | *Present on board, not used by firmware.* |
+| **SD card** | | *Present on board, not used by firmware* — the page cache lives in internal flash (LittleFS), not on SD. |
 | SD CS | 14 | |
 | SD enable | 16 | |
 | SD detect | 15 | |

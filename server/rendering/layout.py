@@ -30,7 +30,6 @@ preserved — only the visual treatment moves.
 
 import re
 import textwrap
-from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFont
 
@@ -47,7 +46,6 @@ from config import (
     FONT_SERIF_BOLD,
     FONT_SERIF_BOLD_ITALIC,
     FONT_SERIF_ITALIC,
-    TZ,
 )
 
 # 10x10 glyphs marking which physical button does what. Drawn at the very
@@ -118,26 +116,6 @@ def _draw_button_glyphs(draw, page: int, total_pages: int) -> None:
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
 
 
-def _draw_rendered_stamp(draw, panel_h: int) -> None:
-    """Stamp a tiny "HH:MM" in the bottom-right corner so the user can tell
-    at a glance whether the panel content is today's. Drawn last so it sits
-    over any existing content. The firmware mirrors this corner with an
-    OFFLINE marker on Wi-Fi / server failures (DES-13), giving the user one
-    consistent place to glance at to confirm freshness.
-    """
-    try:
-        stamp_font = ImageFont.truetype(FONT_REGULAR, 11)
-    except OSError:
-        stamp_font = ImageFont.load_default()
-    text = datetime.now(TZ).strftime("%H:%M")
-    text_w = int(stamp_font.getlength(text))
-    x = DISPLAY_WIDTH - MARGIN - text_w
-    y = panel_h - MARGIN + 4  # tuck into the bottom margin
-    if y + stamp_font.size > panel_h:
-        y = panel_h - stamp_font.size - 2
-    draw.text((x, y), text, font=stamp_font, fill=0)
-
-
 def render_idle() -> Image.Image:
     """Cleared-display panel: blank, with only the small button-position
     glyph above the physical refresh key so it's clear which button wakes
@@ -146,7 +124,6 @@ def render_idle() -> Image.Image:
     img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
     draw = ImageDraw.Draw(img)
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
-    _draw_rendered_stamp(draw, DISPLAY_HEIGHT)
     return img
 
 
@@ -543,10 +520,6 @@ def render_recipe(
 
     # --- Top: button glyphs above the physical reTerminal keys ---
     _draw_button_glyphs(draw, page, total_pages)
-
-    # --- Bottom-right: tiny "rendered at" stamp (drawn last so it sits over
-    # any column content that might have grown into the bottom margin). ---
-    _draw_rendered_stamp(draw, RECIPE_HEIGHT)
 
     return img, total_pages
 
