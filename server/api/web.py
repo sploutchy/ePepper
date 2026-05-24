@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
+from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import backup
@@ -723,38 +723,3 @@ async def delete_recipe(request: Request, recipe_id: int, hard: int = 0):
     return resp
 
 
-# --- Flash device -----------------------------------------------------------
-
-# Bind-mounted from the host via docker-compose; populated by the firmware CI
-# job. Auth-gated so the production binary (which has WiFi creds + API key
-# baked in at build time) stays behind the same login as the rest of /app.
-_FIRMWARE_DIR = Path("/app/firmware")
-_FLASH_FILES = {"manifest.json", "epepper-merged.bin"}
-
-
-@router.get("/flash", response_class=HTMLResponse)
-async def flash_page(request: Request):
-    _require_auth(request)
-    manifest_present = (_FIRMWARE_DIR / "manifest.json").exists()
-    return templates.TemplateResponse(
-        request,
-        "flash.html",
-        {**_context_globals(request), "manifest_present": manifest_present},
-    )
-
-
-@router.get("/flash/{filename}")
-async def flash_file(request: Request, filename: str):
-    _require_auth(request)
-    if filename not in _FLASH_FILES:
-        raise HTTPException(404)
-    path = _FIRMWARE_DIR / filename
-    if not path.exists():
-        raise HTTPException(404, "firmware not yet published — wait for the next CI run")
-    return FileResponse(
-        path,
-        media_type=(
-            "application/json" if filename.endswith(".json")
-            else "application/octet-stream"
-        ),
-    )

@@ -28,7 +28,9 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
+#include <HTTPUpdate.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <sys/time.h>
@@ -36,6 +38,13 @@
 #include "TFT_eSPI.h"
 #include "EPaperFixed.h"  // Kept dormant: subclass adds partial-refresh override we no longer call.
 #include "config.h"
+
+// Baked in by CI via -DFIRMWARE_VERSION=<github.run_number>. Local builds
+// land at 0 — server reports 0 when no firmware is published, so a dev
+// build won't trigger a spurious OTA against the un-versioned baseline.
+#ifndef FIRMWARE_VERSION
+#define FIRMWARE_VERSION 0
+#endif
 
 EPaperFixed epaper;
 
@@ -45,6 +54,7 @@ void handleRefresh(bool force = false);
 void handlePageChange(const char* direction);
 void handleClear();
 void handleTimerWake();
+void checkForOTAUpdate();
 void warmWindow();
 bool waitForLongPress(int btnPin, int thresholdMs);
 void connectWiFi();
@@ -301,9 +311,70 @@ void handleClear() {
 
 // Daily ambient pull — server's anniversary scheduler may have rotated
 // content in at midnight. Same wire shape as refresh, just unforced.
+// After the display is up to date, opportunistically check for a new
+// firmware build — keeps the OTA off the button-press path so the
+// user never waits ~30 s for a flash on a quick tap.
 void handleTimerWake() {
     Serial.println("[Timer] Daily wake — checking for ambient content");
     handleRefresh(false);
+    checkForOTAUpdate();  // Reboots into the new image on success; returns otherwise.
+}
+
+
+// ---- OTA ----
+// Polls /firmware/version; if the integer is higher than our build's
+// FIRMWARE_VERSION, streams /firmware/download into the inactive OTA
+// partition and reboots into it. WiFi must already be up — we piggy-back
+// on the connection from the preceding handleRefresh.
+void checkForOTAUpdate() {
+    if (WiFi.status() != WL_CONNECTED) {
+        Serial.println("[OTA] No WiFi, skipping check");
+        return;
+    }
+
+    HTTPClient http;
+    String url = String(SERVER_URL) + "/firmware/version";
+    http.begin(url);
+    http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    int code = http.GET();
+    if (code != 200) {
+        Serial.printf("[OTA] /firmware/version returned %d\n", code);
+        http.end();
+        return;
+    }
+    long serverVersion = http.getString().toInt();
+    http.end();
+
+    if (serverVersion <= FIRMWARE_VERSION) {
+        Serial.printf("[OTA] Up to date (running %d, server %ld)\n",
+                      FIRMWARE_VERSION, serverVersion);
+        return;
+    }
+
+    Serial.printf("[OTA] Update available: %d -> %ld, starting download…\n",
+                  FIRMWARE_VERSION, serverVersion);
+
+    WiFiClientSecure client;
+    // Trust on first use: the API key gates /firmware/download, so a
+    // pinned root CA buys nothing over what the Bearer header already
+    // gives us, and skipping the cert dance saves ~30 KB of flash + RAM.
+    client.setInsecure();
+
+    httpUpdate.rebootOnUpdate(true);
+    httpUpdate.setLedPin(LED_PIN, LOW);  // active-low LED → lit while flashing
+    httpUpdate.setAuthorization(String("Bearer ") + API_KEY);
+
+    String otaUrl = String(SERVER_URL) + "/firmware/download";
+    t_httpUpdate_return ret = httpUpdate.update(client, otaUrl);
+    // We only get here on failure — on success, the chip rebooted into
+    // the new partition before this line ran.
+    if (ret == HTTP_UPDATE_FAILED) {
+        Serial.printf("[OTA] Failed (%d): %s\n",
+                      httpUpdate.getLastError(),
+                      httpUpdate.getLastErrorString().c_str());
+    } else if (ret == HTTP_UPDATE_NO_UPDATES) {
+        Serial.println("[OTA] Server reported no update");
+    }
 }
 
 

@@ -856,37 +856,6 @@ html[data-theme="dark"] .list-select {
 /* Clear button is now a link.danger — inherits everything from
    button.link.danger; no card-specific override needed. */
 
-/* Flash page: progress bar + log box for the in-browser flasher. */
-.flash-progress {
-  margin: 12px 0 0;
-  height: 6px;
-  background: var(--border);
-  border-radius: 3px;
-  overflow: hidden;
-}
-.flash-progress-fill {
-  width: 0;
-  height: 100%;
-  background: var(--accent);
-  transition: width 120ms linear;
-}
-.flash-log {
-  margin: 12px 0 0;
-  padding: 12px;
-  max-height: 240px;
-  overflow-y: auto;
-  font-family: "JetBrains Mono", ui-monospace, monospace;
-  font-size: 12px;
-  line-height: 1.5;
-  color: var(--muted);
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-.flash-log:empty { display: none; }
-
 /* ----------  Recipe page  ---------- */
 .back {
   display: inline-flex;
@@ -1141,7 +1110,7 @@ button.link.accent:hover {
   border-top: 1px solid var(--border);
   text-align: center;
 }
-button.link, a.link {
+button.link {
   background: transparent;
   border: 0;
   font-size: 13px;

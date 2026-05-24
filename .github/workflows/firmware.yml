@@ -1,11 +1,10 @@
 name: Firmware
 
 # Build the ESP32 firmware. On main pushes with all secrets present, bake
-# them into config.h, merge the result into a single flat image, and push
-# bin + manifest to the VPS for the auth-gated /app/flash page. PRs / dispatch
-# from branches build with placeholder config and upload a public Actions
-# artifact for validation only — never with secrets, since public-repo
-# artifacts are downloadable by any GitHub user.
+# them into config.h, rsync firmware.bin + version.txt to the VPS, and the
+# device picks it up on its next daily wake via /firmware/version + OTA.
+# PRs / non-main dispatches build with placeholder config and upload a
+# public Actions artifact for validation only.
 
 on:
   push:
@@ -47,8 +46,8 @@ jobs:
           restore-keys: |
             pio-${{ runner.os }}-
 
-      - name: Install PlatformIO + esptool
-        run: pip install --upgrade platformio esptool
+      - name: Install PlatformIO
+        run: pip install --upgrade platformio
 
       - name: Stage config.h
         id: stage
@@ -95,45 +94,12 @@ jobs:
           echo "production=$PRODUCTION" >> "$GITHUB_OUTPUT"
 
       - name: Build firmware
+        # FIRMWARE_VERSION = the monotonically-increasing workflow run
+        # number. The device compares this against /firmware/version to
+        # decide whether to OTA itself on the next daily wake.
+        env:
+          PLATFORMIO_BUILD_FLAGS: -DFIRMWARE_VERSION=${{ github.run_number }}
         run: pio run -e reterminal_e1001
-
-      - name: Merge into single flashable image
-        # ESP Web Tools flashes a flat image starting at offset 0. Use esptool
-        # merge_bin to combine bootloader / partition table / OTA-data /
-        # firmware into one .bin laid out for a clean ESP32-S3 flash.
-        run: |
-          BUILD=.pio/build/reterminal_e1001
-          BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32/tools/partitions -name boot_app0.bin | head -1)
-          if [ -z "$BOOT_APP0" ]; then
-            echo "::error::boot_app0.bin not found — partition layout assumption broken"
-            exit 1
-          fi
-          python -m esptool --chip esp32s3 merge_bin \
-            -o "$BUILD/epepper-merged.bin" \
-            0x0     "$BUILD/bootloader.bin" \
-            0x8000  "$BUILD/partitions.bin" \
-            0xe000  "$BOOT_APP0" \
-            0x10000 "$BUILD/firmware.bin"
-
-      - name: Generate ESP Web Tools manifest
-        run: |
-          BUILD=.pio/build/reterminal_e1001
-          SHORT_SHA="${GITHUB_SHA:0:7}"
-          cat > "$BUILD/manifest.json" <<JSON
-          {
-            "name": "ePepper",
-            "version": "${SHORT_SHA}",
-            "new_install_prompt_erase": true,
-            "builds": [
-              {
-                "chipFamily": "ESP32-S3",
-                "parts": [
-                  { "path": "epepper-merged.bin", "offset": 0 }
-                ]
-              }
-            ]
-          }
-          JSON
 
       - name: Upload firmware artifact (placeholder builds only)
         if: steps.stage.outputs.production != 'true'
@@ -141,9 +107,8 @@ jobs:
         with:
           name: epepper-firmware-${{ github.sha }}
           path: |
-            esp32/.pio/build/reterminal_e1001/epepper-merged.bin
+            esp32/.pio/build/reterminal_e1001/firmware.bin
             esp32/.pio/build/reterminal_e1001/firmware.elf
-            esp32/.pio/build/reterminal_e1001/manifest.json
           if-no-files-found: error
 
       - name: Push firmware to VPS (production builds only)
@@ -151,10 +116,10 @@ jobs:
         env:
           VPS_SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
           SERVER_URL: ${{ secrets.SERVER_URL }}
-        # Self-hosted serving keeps the production firmware (which contains
-        # WiFi creds + API key after baking) behind /app/flash's session
-        # gate, instead of exposing it on a public Actions artifact or
-        # GitHub Release.
+          RUN_NUMBER: ${{ github.run_number }}
+        # OTA serving lives behind /firmware/version + /firmware/download on
+        # the VPS, both Bearer-authed. CI ships the .bin + a one-line
+        # version.txt; the device polls on its daily wake.
         run: |
           host="${SERVER_URL#https://}"
           host="${host#http://}"
@@ -173,7 +138,13 @@ jobs:
           ssh $SSH_OPTS debian@"$host" \
             "sudo mkdir -p /home/debian/epepper/firmware && sudo chown debian:debian /home/debian/epepper/firmware"
 
-          rsync -avz --chmod=F644 -e "ssh $SSH_OPTS" \
-            .pio/build/reterminal_e1001/epepper-merged.bin \
-            .pio/build/reterminal_e1001/manifest.json \
+          echo "$RUN_NUMBER" > .pio/build/reterminal_e1001/version.txt
+
+          # rsync the new binary into place. The server reads version.txt
+          # last so a partial transfer doesn't briefly advertise the new
+          # version before firmware.bin is fully written — use --delay-updates
+          # to make rsync rename everything atomically at the end.
+          rsync -avz --delay-updates --chmod=F644 -e "ssh $SSH_OPTS" \
+            .pio/build/reterminal_e1001/firmware.bin \
+            .pio/build/reterminal_e1001/version.txt \
             debian@"$host":/home/debian/epepper/firmware/

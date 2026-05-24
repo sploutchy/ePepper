@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, Response
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
 import display_state
@@ -250,3 +250,35 @@ async def get_device_status(request: Request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     return display_state.get_device_status()
+
+
+# ---- OTA firmware updates ----
+# Bind-mounted from the host via docker-compose; populated by the Firmware
+# CI workflow (firmware.bin + version.txt). The device hits /firmware/version
+# on every daily wake; if the integer in version.txt > the FIRMWARE_VERSION
+# baked into the running build, it pulls /firmware/download and self-flashes
+# via Update.h. Both routes are Bearer-authed since the .bin contains the
+# baked WiFi password + API key.
+
+_FIRMWARE_DIR = Path("/app/firmware")
+
+
+@app.get("/firmware/version")
+async def firmware_version(request: Request):
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    version_file = _FIRMWARE_DIR / "version.txt"
+    if not version_file.exists():
+        # No firmware published yet — report 0 so any running device stays put.
+        return PlainTextResponse("0")
+    return PlainTextResponse(version_file.read_text().strip())
+
+
+@app.get("/firmware/download")
+async def firmware_download(request: Request):
+    if not _check_api_key(request):
+        return JSONResponse(status_code=401, content={"error": "unauthorized"})
+    bin_file = _FIRMWARE_DIR / "firmware.bin"
+    if not bin_file.exists():
+        return JSONResponse(status_code=404, content={"error": "firmware not published"})
+    return FileResponse(bin_file, media_type="application/octet-stream")
