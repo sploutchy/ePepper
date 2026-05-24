@@ -415,7 +415,7 @@ html[data-theme="dark"] .list-select {
   padding: 22px 4px;
   color: var(--text);
   text-decoration: none;
-  transition: padding-left .2s var(--ease), background .2s var(--ease);
+  transition: background .2s var(--ease);
   position: relative;
 }
 .card-title  { grid-area: title; }
@@ -434,7 +434,6 @@ html[data-theme="dark"] .list-select {
 }
 .card:hover {
   text-decoration: none;
-  padding-left: 18px;
   background: linear-gradient(to right, var(--surface-alt), transparent 60%);
 }
 .card:hover::before { opacity: 1; }
