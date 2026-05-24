@@ -537,12 +537,20 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
 # did I first save this?". NULL `last_displayed_at` = "never cooked":
 #   - "recent" puts never-cooked at the bottom (nothing recent to surface)
 #   - "oldest" puts never-cooked at the top (nothing's more stale than that)
+# `most_cooked` / `least_cooked` order by total cooks (displayed_count).
+# `source_az` / `source_za` group recipes by their source name, with
+# null sources slotted at the end of both directions so the unsourced
+# pile is always the last tier the user sees instead of slicing into
+# the middle of the alphabet.
 # `saved_at` is the secondary tie-break so deploy-day libraries (all-NULL
 # `last_displayed_at`) match the prior newest-saved / oldest-saved ordering.
 _SORT_ORDERS: dict[str, str] = {
-    "oldest": "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
-    "recent": "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "most_cooked": "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "oldest":       "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
+    "recent":       "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "most_cooked":  "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "least_cooked": "r.displayed_count ASC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "source_az":    "r.source ASC NULLS LAST, r.title ASC",
+    "source_za":    "r.source DESC NULLS LAST, r.title ASC",
 }
 
 

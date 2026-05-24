@@ -211,7 +211,11 @@ async def logout(request: Request):
 _PAGE_SIZE = 20
 
 
-_VALID_SORTS = {"oldest", "recent", "most_cooked"}
+_VALID_SORTS = {
+    "oldest", "recent",
+    "most_cooked", "least_cooked",
+    "source_az", "source_za",
+}
 
 
 def _sanitize_sort(sort: str | None) -> str | None:
@@ -247,6 +251,112 @@ def _sanitize_tag(tag: str | None) -> str | None:
     return s
 
 
+_SOURCE_SLUG_RE = __import__("re").compile(r"[^a-z0-9]+")
+
+
+def _slug_for_source(name: str) -> str:
+    """Snake-case a source name into a stable CSS hook (`src-bon-app-tit`).
+    Only used as a className suffix on the per-source tier <ul>."""
+    s = _SOURCE_SLUG_RE.sub("-", name.lower()).strip("-")
+    return f"src-{s or 'misc'}"
+
+
+def _bucket_by_recency(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    """Slot recipes into the time-tiers used by the (least) recently
+    cooked sorts. Mirrors the substring matches the old _list.html
+    template did against humanize_date() output.
+    """
+    this_week: list[dict] = []
+    this_month: list[dict] = []
+    this_year: list[dict] = []
+    older: list[dict] = []
+    for r in recipes:
+        phrase = humanize_date(r.get("last_displayed_at"))
+        if (
+            "min ago" in phrase or "h ago" in phrase or "just now" in phrase
+            or phrase == "yesterday" or "days ago" in phrase
+        ):
+            this_week.append(r)
+        elif phrase == "last week" or "weeks ago" in phrase:
+            this_month.append(r)
+        elif phrase == "last month" or "months ago" in phrase:
+            this_year.append(r)
+        else:
+            older.append(r)
+    tiers = [
+        ("this-week", "This week", this_week),
+        ("this-month", "This month", this_month),
+        ("this-year", "Earlier this year", this_year),
+        ("older", "Older", older),
+    ]
+    return [t for t in tiers if t[2]]
+
+
+# Cooked-count buckets — fixed boundaries so the tier labels stay
+# predictable regardless of how big the repertoire grows. The "20+"
+# top bucket is the implicit cap for an unbounded count.
+_COUNT_BUCKETS: list[tuple[str, str, int, int]] = [
+    ("never",  "Never cooked", 0, 0),
+    ("once",   "Cooked once",  1, 1),
+    ("twice",  "Cooked twice", 2, 2),
+    ("few",    "Cooked 3–5×",  3, 5),
+    ("many",   "Cooked 6–20×", 6, 20),
+    ("lots",   "Cooked 20+×",  21, 10**9),
+]
+
+
+def _bucket_by_count(
+    recipes: list[dict], ascending: bool
+) -> list[tuple[str, str, list[dict]]]:
+    """Cooked-count tiers (never / once / twice / 3–5× / 6–20× / 20+×).
+    `ascending` flips the tier order for least-cooked vs most-cooked."""
+    buckets = {slug: [] for slug, _, _, _ in _COUNT_BUCKETS}
+    for r in recipes:
+        n = r.get("displayed_count") or 0
+        for slug, _label, lo, hi in _COUNT_BUCKETS:
+            if lo <= n <= hi:
+                buckets[slug].append(r)
+                break
+    out = [
+        (slug, label, buckets[slug])
+        for slug, label, _, _ in _COUNT_BUCKETS
+        if buckets[slug]
+    ]
+    if not ascending:
+        out.reverse()
+    return out
+
+
+def _bucket_by_source(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]:
+    """Group consecutive recipes sharing the same source under one
+    heading. Relies on the SQL ORDER BY having already sorted by
+    source so same-source rows arrive together."""
+    groups: list[tuple[str, str, list[dict]]] = []
+    last_key = object()
+    for r in recipes:
+        src = source_name(r.get("url")) or "Unsourced"
+        if src != last_key:
+            groups.append((_slug_for_source(src), src, []))
+            last_key = src
+        groups[-1][2].append(r)
+    return groups
+
+
+def _bucket_recipes(
+    recipes: list[dict], sort: str | None
+) -> list[tuple[str, str, list[dict]]]:
+    """Group recipes into named tiers matching the active sort.
+
+    Returns a list of (slug, label, rows) tuples in display order;
+    empty tiers are dropped. The template just iterates — no logic.
+    """
+    if sort in ("most_cooked", "least_cooked"):
+        return _bucket_by_count(recipes, ascending=sort == "least_cooked")
+    if sort in ("source_az", "source_za"):
+        return _bucket_by_source(recipes)
+    return _bucket_by_recency(recipes)
+
+
 def _list_context(
     request: Request,
     q: str,
@@ -268,6 +378,7 @@ def _list_context(
     return {
         "request": request,
         "recipes": rows,
+        "tiers": _bucket_recipes(rows, sort),
         "q": q,
         "sort": sort or "",
         "source": source or "",

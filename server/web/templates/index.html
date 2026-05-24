@@ -26,8 +26,11 @@
          autofocus>
   <select name="sort" class="list-select" aria-label="Sort">
     <option value=""             {% if not sort %}selected{% endif %}>Recently cooked</option>
-    <option value="most_cooked"  {% if sort == 'most_cooked' %}selected{% endif %}>Most cooked</option>
     <option value="oldest"       {% if sort == 'oldest' %}selected{% endif %}>Least recently cooked</option>
+    <option value="most_cooked"  {% if sort == 'most_cooked' %}selected{% endif %}>Most cooked</option>
+    <option value="least_cooked" {% if sort == 'least_cooked' %}selected{% endif %}>Least cooked</option>
+    <option value="source_az"    {% if sort == 'source_az' %}selected{% endif %}>By source · A → Z</option>
+    <option value="source_za"    {% if sort == 'source_za' %}selected{% endif %}>By source · Z → A</option>
   </select>
   {% if sources %}
     <select name="source" class="list-select" aria-label="Source">
