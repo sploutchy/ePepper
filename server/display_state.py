@@ -1,55 +1,45 @@
-"""Shared display state — tracks current image, recipe, and device status.
+"""In-memory display state — the current image, recipe, and page navigation.
 
-Pure in-memory state. Persistence across restarts is handled by a
+Pure state + mutation API. Persistence across restarts is handled by a
 separately-wired listener (see `display_persistence.persist_current`
 registered from `main.py` via `register_change_listener`) so this
-module stays below `library` in the import layering — no lazy
-`import library` lurking inside a function body to dodge a cycle.
+module stays below `library` in the import layering.
 
-Device status (battery / RSSI / heartbeat) also stays in-memory — the
-ESP32 re-populates it on its next wake cycle.
+BMP serialization lives in `display_image.py`; device telemetry
+(battery / heartbeat / alert hysteresis) in `device_telemetry.py`.
 """
 
 import hashlib
-import io
 import logging
 import time
 from typing import Any, Callable
 
 from PIL import Image
 
-from config import DISPLAY_WIDTH, DISPLAY_HEIGHT
-from rendering.layout import render_idle, render_recipe
+from rendering.layout import render_recipe
 from status_helpers import source_name
 
 log = logging.getLogger(__name__)
 
-# Optional listener fired after every mutation to the panel state
-# (set_recipe / set_page / clear). Injected at startup so this module
-# doesn't import `library` (or anything above it in the layering).
-# Typically wired to `display_persistence.persist_current`.
+# Fires after every mutation (set_recipe / set_page / clear). Injected
+# at startup so this module doesn't import `library` (or anything
+# above it in the layering); typically wired to
+# `display_persistence.persist_current`.
 _change_listener: Callable[[], None] | None = None
 
 
 def register_change_listener(fn: Callable[[], None]) -> None:
-    """Install the panel-state change listener (typically the persistence hook).
-
-    Called once from server startup; replaces the lazy `import library`
-    that used to live inside `_persist_panel_state` purely to dodge the
-    import cycle. The listener is invoked AFTER each successful
-    mutation, with no arguments — read current state via `get()`.
-    """
+    """Install the panel-state change listener (typically the persistence
+    hook). Called once at server startup. Invoked AFTER each successful
+    mutation with no arguments — read current state via `get()`."""
     global _change_listener
     _change_listener = fn
 
 
 def _notify_changed() -> None:
-    """Fire the registered change listener; swallow listener errors.
-
-    No listener registered = no-op (useful in unit tests where
-    persistence isn't wired). A misbehaving listener must never take
-    down the in-memory display flow that just succeeded.
-    """
+    """Fire the registered change listener; swallow listener errors so a
+    misbehaving listener can't take down the display flow that just
+    succeeded. No listener = no-op (useful in unit tests)."""
     if _change_listener is None:
         return
     try:
@@ -75,24 +65,8 @@ _state: dict[str, Any] = {
 _pages: dict[int, Image.Image] = {}
 
 # Cached render inputs so push_recipe_to_display callers don't have to
-# resupply comments on small mutations. Only populated for recipe
-# content; photos render once and never reflow.
-_recipe_inputs: dict[str, Any] = {
-    "recipe": None,
-    "comments": [],
-    "url": None,
-}
-
-# Device status (reported by ESP32 on every wake — button press or
-# daily timer). Whichever fires more recently overwrites the others.
-_device: dict[str, Any] = {
-    "battery_mv": 0,
-    "rssi": 0,
-    "temperature_c": None,
-    "humidity_pct": None,
-    "firmware_version": None,
-    "last_seen": 0,
-}
+# resupply comments on small mutations.
+_recipe_inputs: dict[str, Any] = {"recipe": None, "comments": [], "url": None}
 
 
 def set_recipe(
@@ -102,11 +76,9 @@ def set_recipe(
     url: str | None = None,
 ) -> None:
     """Render and install a recipe as the active display content.
-
     Renders into a local buffer first and only commits to `_pages` /
     `_recipe_inputs` on success — a render failure leaves the previous
-    display content intact rather than half-replacing it.
-    """
+    display content intact rather than half-replacing it."""
     inputs = {
         "recipe": recipe,
         "comments": list(comments),
@@ -134,11 +106,9 @@ def set_recipe(
 
 
 def _render_pages(inputs: dict) -> dict[int, Image.Image]:
-    """Render every page from `inputs` into a fresh dict, with no side effects.
-
+    """Render every page from `inputs` into a fresh dict, no side effects.
     Returning a new dict (instead of mutating `_pages`) lets `set_recipe`
-    commit atomically.
-    """
+    commit atomically."""
     recipe = inputs["recipe"]
     if recipe is None:
         return {}
@@ -192,109 +162,11 @@ def get() -> dict:
     return dict(_state)
 
 
-def get_image_bmp(page: int = 1) -> bytes | None:
-    """Get a page as BMP bytes."""
-    img = _pages.get(page)
-    if img is None:
-        # In the idle state, render a hint panel pointing at the refresh
-        # button. Without it the cleared display is blank and there's no
-        # cue for which physical key wakes content back up.
-        if _state["type"] == "idle":
-            img = render_idle()
-        else:
-            return None
-    buf = io.BytesIO()
-    img.save(buf, format="BMP")
-    return buf.getvalue()
-
-
-# Low-battery alert thresholds. Cross BELOW LOW_BATTERY_MV → fire an alert
-# once; only re-arm after the reading climbs back above LOW_BATTERY_MV +
-# HYSTERESIS to avoid repeated alerts on a noisy reading near the boundary.
-LOW_BATTERY_MV = 3500
-LOW_BATTERY_HYSTERESIS_MV = 100
-
-_low_battery_alerted = False
-
-# Heartbeat staleness. Firmware reports on button press + a daily timer wake;
-# 25 h gives the daily timer a buffer for clock drift / a slow Wi-Fi reconnect.
-# Alert once when crossed; re-arm only when the next POST arrives (handled in
-# update_device_status). The check itself runs proactively from scheduler.py
-# because the absence of POSTs is exactly what we're detecting.
-STALE_HEARTBEAT_S = 25 * 3600
-
-_stale_heartbeat_alerted = False
-
-
-def update_device_status(
-    battery_mv: int,
-    rssi: int,
-    temperature_c: float | None = None,
-    humidity_pct: float | None = None,
-    firmware_version: int | None = None,
-) -> dict:
-    """Update device status from an ESP32 wake-cycle report.
-
-    `temperature_c` / `humidity_pct` / `firmware_version` are optional so
-    older firmware builds that don't yet report them keep working.
-
-    Returns `{"low_battery_alert_mv": int | None}`. When non-None, the
-    battery just crossed below the threshold and the caller is expected
-    to deliver this alert (e.g. via Telegram). Hysteresis prevents the
-    alert from firing again until the battery climbs above
-    LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV.
-    """
-    global _low_battery_alerted, _stale_heartbeat_alerted
-
-    update = {
-        "battery_mv": battery_mv,
-        "rssi": rssi,
-        "temperature_c": temperature_c,
-        "humidity_pct": humidity_pct,
-        "last_seen": int(time.time()),
-    }
-    # Preserve the previously-reported version when this POST omits the
-    # field — a pre-OTA firmware build wouldn't send it, and we don't
-    # want a single stale POST to blank out a known value.
-    if firmware_version is not None:
-        update["firmware_version"] = firmware_version
-    _device.update(update)
-
-    # Fresh POST means the device is back — re-arm the staleness alert.
-    _stale_heartbeat_alerted = False
-
-    alert_mv: int | None = None
-    if battery_mv > 0:
-        if battery_mv < LOW_BATTERY_MV and not _low_battery_alerted:
-            _low_battery_alerted = True
-            alert_mv = battery_mv
-        elif battery_mv > LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV:
-            _low_battery_alerted = False
-
-    return {"low_battery_alert_mv": alert_mv}
-
-
-def check_heartbeat_stale() -> int | None:
-    """Return hours-since-last-seen if the heartbeat just went stale, else None.
-
-    Returns None when the device has never reported (last_seen == 0), the
-    threshold hasn't been crossed, or we already alerted for this episode.
-    The flag is cleared the next time update_device_status() runs.
-    """
-    global _stale_heartbeat_alerted
-    last_seen = _device.get("last_seen", 0)
-    if last_seen <= 0:
-        return None
-    delta_s = int(time.time()) - last_seen
-    if delta_s > STALE_HEARTBEAT_S and not _stale_heartbeat_alerted:
-        _stale_heartbeat_alerted = True
-        return delta_s // 3600
-    return None
-
-
-def get_device_status() -> dict:
-    """Get last known device status."""
-    return dict(_device)
+def get_pages() -> dict[int, Image.Image]:
+    """Live (read-only) handle to the rendered pages; callers must not
+    mutate. Exposed so `display_image` doesn't reach into module-private
+    `_pages`."""
+    return _pages
 
 
 def _update_state(

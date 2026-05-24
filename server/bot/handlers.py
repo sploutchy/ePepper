@@ -29,6 +29,7 @@ from config import (
     WEB_URL,
 )
 import backup
+import device_telemetry
 import display_state
 import library
 from display_push import push_recipe_to_display
@@ -93,7 +94,7 @@ async def notify_low_battery(battery_mv: int) -> None:
     """Push a one-shot low-battery warning to every allowed user.
 
     Called by the FastAPI /device/status handler the first time a wake-cycle
-    report comes in below the threshold (display_state owns the hysteresis).
+    report comes in below the threshold (device_telemetry owns the hysteresis).
     Falls back to BACKUP_CHAT_ID when ALLOWED_USERS is empty so the alert
     still reaches the operator before the bot is fully configured.
     """
@@ -122,7 +123,7 @@ async def notify_stale_heartbeat(hours_since: int) -> None:
     """Push a one-shot warning when the device hasn't checked in for ≥25 h.
 
     Called by the scheduler's heartbeat_loop the first time the staleness
-    threshold is crossed (display_state owns the alerted flag). Re-armed
+    threshold is crossed (device_telemetry owns the alerted flag). Re-armed
     automatically on the next successful /device/status POST. Falls back
     to BACKUP_CHAT_ID when ALLOWED_USERS is empty.
     """
@@ -444,7 +445,7 @@ def _build_status_text() -> str:
     /help quick-action button without smuggling Update / context through.
     """
     state = display_state.get()
-    device = display_state.get_device_status()
+    device = device_telemetry.get_device_status()
 
     sections = ["🫑 <b>ePepper Status</b>"]
 
@@ -504,7 +505,7 @@ def _build_status_text() -> str:
     if device["last_seen"]:
         stale_suffix = (
             " ⚠️ overdue"
-            if int(time.time()) - device["last_seen"] > display_state.STALE_HEARTBEAT_S
+            if int(time.time()) - device["last_seen"] > device_telemetry.STALE_HEARTBEAT_S
             else ""
         )
         device_lines = [

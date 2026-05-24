@@ -15,6 +15,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import backup
+import device_telemetry
 import display_state
 import fooby_cache
 import library
@@ -680,7 +681,7 @@ def _status_ctx(request: Request) -> dict:
     they can't drift apart.
     """
     display = display_state.get()
-    device = display_state.get_device_status()
+    device = device_telemetry.get_device_status()
     pct = battery_pct(device["battery_mv"]) if device.get("battery_mv") else None
     # Latest firmware version published by CI (rsynced into the bind-mounted
     # firmware/ dir). None when no firmware has been pushed yet, in which
@@ -698,11 +699,11 @@ def _status_ctx(request: Request) -> dict:
     )
     is_overdue = (
         bool(device.get("last_seen"))
-        and overdue_s > display_state.STALE_HEARTBEAT_S
+        and overdue_s > device_telemetry.STALE_HEARTBEAT_S
     )
     is_low_battery = (
         device.get("battery_mv", 0) > 0
-        and device["battery_mv"] < display_state.LOW_BATTERY_MV
+        and device["battery_mv"] < device_telemetry.LOW_BATTERY_MV
     )
     # Tomorrow's preview — mirrors what the midnight scheduler will push:
     #   1. If an anniversary candidate lands on tomorrow's MM-DD, show that.

@@ -23,6 +23,7 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 
 import backup
+import device_telemetry
 import display_state
 import fooby_cache
 import library
@@ -332,7 +333,7 @@ async def heartbeat_loop() -> None:
             log.info("Heartbeat scheduler cancelled")
             raise
         try:
-            hours_since = display_state.check_heartbeat_stale()
+            hours_since = device_telemetry.check_heartbeat_stale()
             if hours_since is not None:
                 # Lazy import mirrors api/server.py's notify_low_battery wiring
                 # and avoids a circular import at module load time.

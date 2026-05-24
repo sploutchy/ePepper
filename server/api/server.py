@@ -20,9 +20,11 @@ from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
 from fastapi.staticfiles import StaticFiles
 
+import device_telemetry
 import display_state
 import library
 from api.web import router as web_router
+from display_image import get_image_bmp
 from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
 from scheduler import seconds_until_next_local_hour
 
@@ -97,7 +99,7 @@ async def image(request: Request, page: int = Query(None, ge=1)):
     if page is None:
         page = display_state.get()["page"]
 
-    bmp_data = display_state.get_image_bmp(page=page)
+    bmp_data = get_image_bmp(page=page)
     if bmp_data is None:
         return Response(status_code=204)  # no content yet
 
@@ -232,7 +234,7 @@ async def device_status(
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    result = display_state.update_device_status(
+    result = device_telemetry.update_device_status(
         battery_mv=battery_mv,
         rssi=rssi,
         temperature_c=temperature_c,
@@ -262,7 +264,7 @@ async def get_device_status(request: Request):
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
-    return display_state.get_device_status()
+    return device_telemetry.get_device_status()
 
 
 # ---- OTA firmware updates ----
