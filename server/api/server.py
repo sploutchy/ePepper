@@ -115,17 +115,11 @@ _DEVICE_UA_PREFIX = "ePepper-device/"
 def _is_device_fetch(request: Request) -> bool:
     """Distinguish ESP32 /image fetches from browser status-page previews.
 
-    The firmware sets `User-Agent: ePepper-device/<version>`; that's the
-    strict signal. Lenient fallback: a Bearer-authed request from an
-    unknown UA is also treated as the device, so firmware in the field
-    that predates the UA change still bumps last_displayed_at.
-    TODO: drop the Bearer fallback once all panels run firmware that
-    sets the ePepper-device user agent.
+    The firmware sets `User-Agent: ePepper-device/<version>`; browser
+    status-page previews of /image don't carry it, so they don't count
+    as a cook.
     """
-    ua = request.headers.get("user-agent", "")
-    if ua.startswith(_DEVICE_UA_PREFIX):
-        return True
-    return request.headers.get("Authorization", "").startswith("Bearer ")
+    return request.headers.get("user-agent", "").startswith(_DEVICE_UA_PREFIX)
 
 
 @app.post("/page/next")
