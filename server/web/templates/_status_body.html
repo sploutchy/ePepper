@@ -122,8 +122,23 @@
   {# Use the same .display-title treatment as the Display card above so
      the "what's queued" line reads with identical weight and color. #}
   {% if next_anniversary %}
+    {# Anniversary: title links to the saved recipe (the user wants to
+       jump into their own copy, not the external page). Source is
+       surfaced below in the same vocabulary as the Display card — the
+       source name links to the original recipe URL when it's http
+       (cookbook://, jsonld:// surrogates stay plain text). #}
     <p class="display-title">
       <strong><a href="/app/recipes/{{ next_anniversary.id }}">{{ next_anniversary.title }}</a></strong>
+      {% set src = source_name(next_anniversary.url) %}
+      {% if src %}
+        <span class="muted">from
+          {% if next_anniversary.url.startswith("http") -%}
+            <a href="{{ next_anniversary.url }}" target="_blank" rel="noopener">{{ src }}</a>
+          {%- else -%}
+            {{ src }}
+          {%- endif %}
+        </span>
+      {% endif %}
       <span class="muted">
         {%- if next_anniversary_years_ago == 1 %}cooked last year
         {%- elif next_anniversary_years_ago and next_anniversary_years_ago > 1 %}cooked {{ next_anniversary_years_ago }} years ago
@@ -132,9 +147,16 @@
       </span>
     </p>
   {% elif fooby_preview %}
+    {# Fooby inspiration: title is plain text — the recipe isn't in
+       the library yet, so there's nothing to navigate to inside the
+       app. The word "Fooby" carries the link out to the original
+       page, matching the user's mental model of "this came from
+       there". #}
     <p class="display-title">
-      <strong><a href="{{ fooby_preview.url }}" target="_blank" rel="noopener">{{ fooby_preview.title }}</a></strong>
-      <span class="muted">inspiration from Fooby</span>
+      <strong>{{ fooby_preview.title }}</strong>
+      <span class="muted">inspiration from
+        <a href="{{ fooby_preview.url }}" target="_blank" rel="noopener">Fooby</a>
+      </span>
     </p>
   {% else %}
     <p class="status-line muted">
