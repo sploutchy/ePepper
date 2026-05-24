@@ -303,11 +303,42 @@ void handlePageChange(const char* direction) {
     Serial.printf("[Action] Page %s\n", direction);
     digitalWrite(LED_PIN, LOW);
 
-    if (totalPages <= 1) {
+    // Warm single-page: we genuinely know this recipe has one page (we have a
+    // trustworthy cached content_hash), so the page-turn is a no-op. Cold state
+    // — totalPages reset to 1 AND no cached hash, e.g. after a battery pull
+    // wipes RTC — is NOT trustworthy: the recipe may well be multi-page, so we
+    // fall through to a network refresh below rather than dead-ending here.
+    if (totalPages <= 1 && cachedHash[0] != '\0') {
         Serial.println("[Action] Single page, nothing to do");
         buzzerBeep(2, 50);
         digitalWrite(LED_PIN, HIGH);
         return;
+    }
+
+    // Cold state: bring up WiFi, re-poll /version and rebuild the cache (reusing
+    // the same path as handleRefresh) so the real page count is restored, then
+    // serve the requested page below. If the recipe really is single-page after
+    // the rebuild, the warm guard above will fire on the next press.
+    if (totalPages <= 1 && cachedHash[0] == '\0') {
+        Serial.println("[Action] Cold state — refreshing to recover page count");
+        connectWiFi();
+        if (WiFi.status() != WL_CONNECTED) {
+            buzzerBeep(3, 100);
+            showOfflineMarker();
+            digitalWrite(LED_PIN, HIGH);
+            return;
+        }
+        reportDeviceStatus();
+        pollServer();          // updates totalPages + stages pendingContentHash
+        cacheAllPages();       // promotes the hash on success
+        currentPage = 1;
+        if (totalPages <= 1) {
+            // Genuinely single-page — the existing beep is now correct.
+            Serial.println("[Action] Single page, nothing to do");
+            buzzerBeep(2, 50);
+            digitalWrite(LED_PIN, HIGH);
+            return;
+        }
     }
 
     int newPage = computeLocalPage(direction);
@@ -570,8 +601,13 @@ bool pollServer() {
 
     int code = http.GET();
     if (code != 200) {
+        // Server reachable but erroring (bad API key → 401, 5xx, down).
+        // Stamp the OFFLINE corner marker so the failure is visible on the
+        // panel instead of looking identical to a normal "nothing new" exit.
+        // Non-destructive partial update — leaves the cached frame intact.
         Serial.printf("[API] /version returned %d\n", code);
         http.end();
+        showOfflineMarker();
         return false;
     }
 
@@ -629,8 +665,11 @@ bool downloadImage(int page) {
 
     int code = http.GET();
     if (code != 200) {
+        // Server reachable but erroring — surface it on the panel (see the
+        // matching note in pollServer). Non-destructive corner partial update.
         Serial.printf("[API] /image returned %d\n", code);
         http.end();
+        showOfflineMarker();
         return false;
     }
     applyDateHeader(http);
@@ -777,6 +816,14 @@ bool cacheAllPages() {
         }
     }
     clearCacheAbove(totalPages);
+    // Never promote an empty hash: a hashless server (no content_hash) would
+    // otherwise poison cachedHash so the cachedHash[0] != '\0' guard fails
+    // forever and every page turn falls back to the network. Leave cachedHash
+    // as-is (invalid) so the cache is intentionally not trusted offline.
+    if (pendingContentHash[0] == '\0') {
+        Serial.printf("[Cache] Stored %d page(s), no content_hash — cache not promoted\n", totalPages);
+        return true;
+    }
     strncpy(cachedHash, pendingContentHash, sizeof(cachedHash) - 1);
     cachedHash[sizeof(cachedHash) - 1] = '\0';
     Serial.printf("[Cache] Stored %d page(s), content_hash=%s\n", totalPages, cachedHash);
