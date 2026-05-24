@@ -156,7 +156,10 @@ template renders it as a plain `<p class="step-solo">` instead of
 `<ol><li>` — the `<h3>` already carries the section identity, and a
 solitary `01` stamped next to one instruction reads as label, not
 flourish. The italic numeral is the page's only flourish; spending
-it on a non-sequence burns the brand accent on nothing.
+it on a non-sequence burns the brand accent on nothing. The **e-ink
+renderer mirrors this rule**: single-step sections drop the inline
+`1.` prefix and render as plain body text under the italic-serif
+sub-heading.
 
 Meta line under the title (`from X · saved Y · cooked Z`) wraps
 between segments but never inside one — each phrase is an
