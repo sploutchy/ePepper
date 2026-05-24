@@ -376,6 +376,21 @@ def _bucket_recipes(
     return _bucket_by_recency(recipes, ascending=sort == "oldest")
 
 
+_TIER_SLUG_RE = __import__("re").compile(r"^[a-z0-9-]{1,64}$")
+
+
+def _sanitize_tier(tier: str | None) -> str:
+    """Whitelist what we accept in the `prev_tier` query param so a
+    crafted value can't slip into the template output unescaped or
+    break the matching logic. Tier slugs are lowercase + digits +
+    hyphens only (see _bucket_by_* — fixed strings + _slug_for_source's
+    re.sub output)."""
+    if not tier:
+        return ""
+    s = tier.strip().lower()
+    return s if _TIER_SLUG_RE.match(s) else ""
+
+
 def _list_context(
     request: Request,
     q: str,
@@ -383,6 +398,7 @@ def _list_context(
     sort: str | None,
     source: str | None,
     tag: str | None,
+    prev_tier: str = "",
 ) -> dict:
     rows = library.list_recipes(
         offset=offset,
@@ -394,10 +410,16 @@ def _list_context(
     )
     has_more = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]
+    tiers = _bucket_recipes(rows, sort)
     return {
         "request": request,
         "recipes": rows,
-        "tiers": _bucket_recipes(rows, sort),
+        "tiers": tiers,
+        # The last rendered tier slug travels with the load-more URL so
+        # the next batch's first tier suppresses its <h2> when it would
+        # otherwise duplicate the heading the client already painted.
+        "prev_tier": prev_tier,
+        "last_tier": tiers[-1][0] if tiers else "",
         "q": q,
         "sort": sort or "",
         "source": source or "",
@@ -442,14 +464,24 @@ async def search_partial(
     sort: str | None = None,
     source: str | None = None,
     tag: str | None = None,
+    prev_tier: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
-    sort, source, or tag filter changes, or the Load more button is tapped."""
+    sort, source, or tag filter changes, or the Load more button is tapped.
+
+    `prev_tier` is the slug of the last tier the previous batch painted;
+    when this batch's first tier matches, we skip its <h2> so the
+    paginated stream doesn't double-print the heading on a tier that
+    spans multiple pages.
+    """
     _require_auth(request)
     sort = _sanitize_sort(sort)
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
-    ctx = _list_context(request, q, offset, sort, source, tag)
+    ctx = _list_context(
+        request, q, offset, sort, source, tag,
+        prev_tier=_sanitize_tier(prev_tier),
+    )
     # `is_partial` toggles the OOB swap of the library-header meta line
     # (count + active sort/filter label). Suppressed on infinite-scroll
     # appends (offset > 0) — those don't change the filter state, so
