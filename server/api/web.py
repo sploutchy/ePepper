@@ -26,7 +26,7 @@ from processing.recipes import (
     process_recipe_url,
     translate_for_search,
 )
-from status_helpers import battery_pct, humanize_ago, humanize_date, rssi_quality, source_name
+from status_helpers import battery_pct, format_long_date, humanize_ago, humanize_date, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
 
@@ -555,7 +555,7 @@ def _status_ctx(request: Request) -> dict:
         "last_backup_at": backup.get_last_backup_at(),
         "next_anniversary": next_anniv,
         "next_anniversary_years_ago": next_anniv_years_ago,
-        "next_anniversary_date": tomorrow.strftime("%d.%m"),
+        "next_anniversary_date": format_long_date(tomorrow),
         "fooby_preview": fooby_preview,
         "llm": llm,
         "firmware_server_version": firmware_server_version,
