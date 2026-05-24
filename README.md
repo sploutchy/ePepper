@@ -465,7 +465,7 @@ it leaked the key into container logs.
 | `GET` | `/image` | Current page as a 1-bit BMP. Defaults to the active page. |
 | `GET` | `/image?page=N` | Specific page as BMP. The device fetches each page explicitly to fill its on-flash cache; there is no server-side page cursor (DES-7). |
 | `POST` | `/display/clear` | Clear the panel to the idle frame. Fired by the device's PREV + REFRESH chord and by the bot's `/clear`. |
-| `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` are optional. May trigger a low-battery alert. |
+| `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…&firmware_version=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` / `firmware_version` are optional. May trigger a low-battery alert. |
 | `GET` | `/device/status` | Last-known wake-cycle report (JSON). |
 | `GET` | `/firmware/version` | Returns the integer in `firmware/version.txt` (or `0` if no firmware published). ESP32 polls this on every daily wake and OTAs itself when the value exceeds the build's baked-in `FIRMWARE_VERSION`. |
 | `GET` | `/firmware/download` | Streams `firmware/firmware.bin` as `application/octet-stream`. 404 if no firmware is published. |
@@ -489,7 +489,7 @@ and *(b)* receiving the device-health alerts.
 | `/recipe <url>` | Force-parse a URL even if the on_text fallback misreads it. |
 | `/comment <text>` | Add a note to the currently-displayed saved recipe. Doesn't re-push to the panel — the note shows on the next display. |
 | `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
-| `/surprise` | Push a random saved recipe to the display. |
+| `/surprise` | Show a random saved recipe as a preview card with 🎲 Another / 📺 Push buttons — re-roll until you like it, then push (mirrors `/search`). Doesn't touch the display until you tap Push. |
 | `/clear` | Clear the panel (renders a blank white frame). |
 | `/status` | Sectioned device + repertoire snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
 | `/start` | Brief welcome + how to send recipes. |
@@ -580,13 +580,14 @@ pio device monitor -b 115200
   the report; the next refresh/timer wake catches telemetry up.
 - Keeps approximate wall-clock time from the HTTP `Date:` header on
   every response, no NTP traffic.
-- On failure, renders an on-screen error frame in place of the
-  recipe — `Wi-Fi failed` if the join times out, `Server error` if
-  `/version` or `/image` returns non-2xx — so you can tell at a
-  glance whether the panel is stale or the network is down. When the
-  device is rendering from its last-known cached frame, an `OFFLINE`
-  marker is stamped in the bottom-right corner so the cached state is
-  unmistakable.
+- On failure, the panel keeps its last content and stamps a small
+  non-destructive `OFFLINE` marker (64×16) into the bottom-right
+  corner via a partial update — covering both a Wi-Fi join failure
+  *and* a non-2xx `/version` or `/image` response (server reachable
+  but erroring: bad API key, 5xx, …). A normal 200 with an unchanged
+  `content_hash` draws nothing — the panel just stays as-is. The
+  corner marker means "couldn't reach or talk to the server this
+  wake; what you see may be stale."
 
 ### Panel driver
 
@@ -650,9 +651,19 @@ the server returns is higher than the build's baked-in
 inactive OTA partition and reboots. Both endpoints are Bearer-authed
 because the `.bin` contains the baked-in WiFi password + API key.
 
-- **`./firmware/` directory layout.** Two files, both produced by CI:
+For when OTA can't reach the device (bad build, bricked partition),
+`/app/flash` offers a no-toolchain recovery flash from desktop
+Chrome/Edge (ESP Web Tools over Web Serial, HTTPS required) — revealed
+by 7 clicks on the Status page's Device card. It consumes the
+CI-produced `epepper-merged.bin` + `manifest.json`.
+
+- **`./firmware/` directory layout.** Four files, all produced by CI
+  and served by the server:
   - `version.txt` — single line, the integer version number.
-  - `firmware.bin` — the compiled image.
+  - `firmware.bin` — the compiled app image (used by OTA).
+  - `epepper-merged.bin` — the full flashable image, and
+  - `manifest.json` — the ESP Web Tools manifest. The last two back
+    the `/app/flash` browser-USB recovery page (see Firmware above).
 - **`FIRMWARE_VERSION` build flag.** Baked in at compile time via
   `-DFIRMWARE_VERSION=<n>`. CI sets `<n>` to `${{ github.run_number }}`;
   local `pio run` builds default to `0` so they don't trigger OTAs on
