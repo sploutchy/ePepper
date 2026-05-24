@@ -106,6 +106,9 @@ jobs:
         # recovery path flashes a fresh / bricked chip from the browser via
         # ESP Web Tools (Web Serial), which needs the whole image laid out
         # from offset 0: bootloader + partition table + OTA-data + app.
+        # Only built for production — PR builds just validate that pio run
+        # compiles, then stop.
+        if: steps.stage.outputs.production == 'true'
         run: |
           BUILD=.pio/build/reterminal_e1001
           BOOT_APP0=$(find ~/.platformio/packages/framework-arduinoespressif32/tools/partitions -name boot_app0.bin | head -1)
@@ -121,6 +124,7 @@ jobs:
             0x10000 "$BUILD/firmware.bin"
 
       - name: Generate ESP Web Tools manifest
+        if: steps.stage.outputs.production == 'true'
         run: |
           BUILD=.pio/build/reterminal_e1001
           cat > "$BUILD/manifest.json" <<JSON
@@ -138,17 +142,6 @@ jobs:
             ]
           }
           JSON
-
-      - name: Upload firmware artifact (placeholder builds only)
-        if: steps.stage.outputs.production != 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: epepper-firmware-${{ github.sha }}
-          path: |
-            esp32/.pio/build/reterminal_e1001/firmware.bin
-            esp32/.pio/build/reterminal_e1001/firmware.elf
-            esp32/.pio/build/reterminal_e1001/epepper-merged.bin
-          if-no-files-found: error
 
       - name: Push firmware to VPS (production builds only)
         if: steps.stage.outputs.production == 'true'
