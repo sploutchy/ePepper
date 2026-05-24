@@ -11,7 +11,7 @@ import time
 from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
-from fastapi.responses import HTMLResponse, RedirectResponse, Response
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
 import backup
@@ -732,5 +732,43 @@ async def delete_recipe(request: Request, recipe_id: int, hard: int = 0):
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"
     return resp
+
+
+# --- Flash device (OTA recovery) --------------------------------------------
+
+# Browser-based recovery path for when OTA can't reach the device (bad build,
+# bricked partition). Serves the full merged image to ESP Web Tools over Web
+# Serial. Session-gated: the merged .bin has WiFi creds + API key baked in,
+# same as the OTA app image. Files are rsynced in by the firmware CI job.
+_FIRMWARE_DIR = Path("/app/firmware")
+_FLASH_FILES = {"manifest.json", "epepper-merged.bin"}
+
+
+@router.get("/flash", response_class=HTMLResponse)
+async def flash_page(request: Request):
+    _require_auth(request)
+    manifest_present = (_FIRMWARE_DIR / "manifest.json").exists()
+    return templates.TemplateResponse(
+        request,
+        "flash.html",
+        {**_context_globals(request), "manifest_present": manifest_present},
+    )
+
+
+@router.get("/flash/{filename}")
+async def flash_file(request: Request, filename: str):
+    _require_auth(request)
+    if filename not in _FLASH_FILES:
+        raise HTTPException(404)
+    path = _FIRMWARE_DIR / filename
+    if not path.exists():
+        raise HTTPException(404, "firmware not yet published — wait for the next CI run")
+    return FileResponse(
+        path,
+        media_type=(
+            "application/json" if filename.endswith(".json")
+            else "application/octet-stream"
+        ),
+    )
 
 

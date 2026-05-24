@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}Flash device · ePepper{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <h1>Flash device</h1>
+</div>
+
+<section class="status-card">
+  <p class="status-line">
+    Recovery path for when OTA can't reach the device — a bad build, or a
+    chip that won't boot. Normally firmware updates itself over Wi-Fi; you
+    only need this to re-flash over the cable.
+  </p>
+  <p class="status-line muted">
+    Plug the reTerminal into this computer over USB-C, click Install, and
+    pick the serial port. Needs Chrome, Edge, or Chromium on a desktop
+    (Web Serial). On Linux your user must be in the <code>dialout</code>
+    group to open the port.
+  </p>
+
+  {% if manifest_present %}
+    <p class="status-actions">
+      <esp-web-install-button
+          manifest="/app/flash/manifest.json"
+          erase-first>
+        <span slot="unsupported">
+          Web Serial isn't available here. Open this page in Chrome, Edge,
+          or Brave on a desktop.
+        </span>
+        <span slot="not-allowed">
+          This page must be served over HTTPS to flash.
+        </span>
+      </esp-web-install-button>
+    </p>
+  {% else %}
+    <p class="status-line muted">
+      No firmware published yet. Trigger the Firmware workflow on main
+      and refresh this page.
+    </p>
+  {% endif %}
+</section>
+
+<script
+    type="module"
+    src="https://unpkg.com/esp-web-tools@10/dist/web/install-button.js">
+</script>
+{% endblock %}
