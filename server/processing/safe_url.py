@@ -41,7 +41,7 @@ MAX_REDIRECTS = 3
 async def assert_url_safe(url: str) -> None:
     """Raise UnsafeUrl if `url` lacks a host, fails DNS, or resolves to a
     non-public IP (private, loopback, link-local, multicast, reserved,
-    or unspecified)."""
+    unspecified, or otherwise non-global — e.g. RFC 6598 CGNAT space)."""
     host = urlparse(url).hostname
     if not host:
         raise UnsafeUrl(f"URL has no host: {url!r}")
@@ -66,6 +66,11 @@ async def assert_url_safe(url: str) -> None:
             or ip.is_multicast
             or ip.is_reserved
             or ip.is_unspecified
+            # `not is_global` catches RFC 6598 shared/CGNAT space
+            # (100.64.0.0/10) and any future special-use range that
+            # `ipaddress` reports as neither private nor reserved. The
+            # explicit checks above stay for clearer error attribution.
+            or not ip.is_global
         ):
             raise UnsafeUrl(
                 f"URL {url!r} resolves to non-public address: {host} -> {addr}"
