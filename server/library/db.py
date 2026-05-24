@@ -316,6 +316,14 @@ def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None
     out-of-band.
     """
     from status_helpers import source_name
+    from processing.recipes import normalize_recipe_for_render
+
+    # Canonicalize the instruction list shape (dedupe degenerate headings
+    # etc.) before serialization so the stored parsed_json is already in
+    # the form the renderers consume. The renderers still call
+    # normalize_recipe_for_render() defensively for legacy rows written
+    # before this point.
+    recipe = normalize_recipe_for_render(recipe)
     now = int(time.time())
     payload = json.dumps(recipe, ensure_ascii=False)
     title = recipe.get("title") or "Untitled"

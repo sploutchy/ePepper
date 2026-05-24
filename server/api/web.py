@@ -31,6 +31,7 @@ except ImportError:
     pass
 from display_push import push_recipe_to_display
 from processing.recipes import (
+    normalize_recipe_for_render,
     process_recipe_image,
     process_recipe_url,
     translate_for_search,
@@ -109,32 +110,25 @@ def _instruction_groups(recipe: dict) -> list[dict]:
     Input: parser flattens recipes to a list of {"type": "heading"|"step",
     "text": ...}. Steps without a preceding heading land in an initial
     headless group.
+
+    The dedupe / cleanup rules (drop empty items, collapse duplicate
+    headings, collapse heading-only runs) live in
+    `processing.recipes.normalize_recipe_for_render` so the BMP renderer
+    and this one share a single source of truth. Kept here as
+    defense-in-depth for any legacy `parsed_json` rows written before the
+    upsert path started normalizing on write.
     """
-    items = recipe.get("instructions") or []
+    items = normalize_recipe_for_render(recipe).get("instructions") or []
     groups: list[dict] = [{"heading": None, "steps": []}]
-    # Defensive: some LLM extractions emit a section heading before every
-    # step (e.g. "Preparation" repeated per item), which would render one
-    # <h3>Preparation</h3>+<ol><li>…</li></ol> block per step. Skip a
-    # heading whose text matches the most recently opened group, and
-    # collapse consecutive heading-only groups (no step between).
-    last_heading_text: str | None = None
     for item in items:
-        if isinstance(item, dict) and item.get("type") == "heading":
-            text = (item.get("text") or "").strip()
-            if not text or text == last_heading_text:
-                continue
+        if item.get("type") == "heading":
+            text = item.get("text", "")
             if not groups[-1]["steps"] and groups[-1]["heading"] is not None:
                 groups[-1]["heading"] = text
             else:
                 groups.append({"heading": text, "steps": []})
-            last_heading_text = text
         else:
-            text = (
-                item.get("text") if isinstance(item, dict) else str(item)
-            ) or ""
-            text = text.strip()
-            if text:
-                groups[-1]["steps"].append(text)
+            groups[-1]["steps"].append(item.get("text", ""))
     # Drop the empty leading group if nothing landed in it.
     if not groups[0]["steps"] and groups[0]["heading"] is None and len(groups) > 1:
         groups = groups[1:]

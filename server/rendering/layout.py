@@ -34,6 +34,7 @@ from datetime import datetime
 
 from PIL import Image, ImageDraw, ImageFont
 
+from processing.recipes import normalize_recipe_for_render
 from config import (
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
@@ -222,6 +223,12 @@ def render_recipe(
         font_title = ImageFont.load_default()
         font_source = font_meta = font_section = font_heading = font_body = font_notes = font_folio = font_title
 
+    # Defense in depth: legacy `parsed_json` rows persisted before the
+    # upsert path started normalizing on write still need the dedupe
+    # pass. New rows come in already canonical, so this is a no-op for
+    # the modern path.
+    recipe = normalize_recipe_for_render(recipe)
+
     lang = recipe.get("lang", "en")
     strings = _L10N.get(lang, _L10N["en"])
 
@@ -291,6 +298,10 @@ def render_recipe(
         ingr_pages.append(current_page)
 
     # --- Pre-wrap instructions into blocks ---
+    # normalize_recipe_for_render above has already canonicalized the
+    # instruction list (typed dicts, dedup'd headings); the only fixup
+    # left here is the legacy "bare string step" case which the
+    # normalizer also coerces — left for paranoia.
     raw_instructions = recipe.get("instructions", [])
     instructions: list[dict] = []
     for item in raw_instructions:
@@ -298,13 +309,6 @@ def render_recipe(
             instructions.append({"type": "step", "text": item})
         else:
             instructions.append(item)
-    # Defensive: some LLM extractions emit a section heading before every
-    # step (e.g. "Preparation" repeated per item), which would draw an
-    # underlined italic heading per line AND restart the step counter to 1
-    # each time. Drop a heading whose text matches the most recent kept
-    # heading, and collapse runs of consecutive headings to the last one
-    # before a step.
-    instructions = _dedupe_section_headings(instructions)
 
     all_blocks: list[dict] = []
     # Sub-headings restart the step counter (matches the web app and the
@@ -545,36 +549,6 @@ def render_recipe(
     _draw_rendered_stamp(draw, RECIPE_HEIGHT)
 
     return img, total_pages
-
-
-def _dedupe_section_headings(items: list[dict]) -> list[dict]:
-    """Strip degenerate heading repetition before the renderer touches it.
-
-    Two patterns get collapsed:
-      - "Preparation" → step → "Preparation" → step → … (same-text heading
-        re-emitted per step). Only the first heading is kept; the rest are
-        dropped so all steps land under one section with continuous numbering.
-      - "Prep" → "Cook" → step (consecutive headings with no step between).
-        Only the last is kept — it's the one that actually introduces the
-        upcoming step.
-
-    Empty-text headings are dropped outright.
-    """
-    out: list[dict] = []
-    last_heading_text: str | None = None
-    for item in items:
-        if item.get("type") == "heading":
-            text = (item.get("text") or "").strip()
-            if not text or text == last_heading_text:
-                continue
-            if out and out[-1].get("type") == "heading":
-                out[-1] = {"type": "heading", "text": text}
-            else:
-                out.append({"type": "heading", "text": text})
-            last_heading_text = text
-        else:
-            out.append(item)
-    return out
 
 
 def _wrap_to_width(text: str, font, max_w: int) -> list[str]:

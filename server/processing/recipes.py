@@ -351,14 +351,68 @@ def validate_llm_recipe(raw: dict) -> dict | None:
     lang_raw = _str_or_empty(raw.get("lang")).strip().lower()
     lang = lang_raw if lang_raw in ("en", "de", "fr", "it") else "en"
 
-    return _swissify({
+    return normalize_recipe_for_render(_swissify({
         "title": title,
         "total_time": total_time,
         "servings": servings,
         "ingredients": ingredients,
         "instructions": instructions,
         "lang": lang,
-    })
+    }))
+
+
+def normalize_recipe_for_render(recipe: dict) -> dict:
+    """Canonicalize the recipe shape so renderers don't have to dedupe at draw time.
+
+    Applies the small set of structural cleanups that LLM extractions
+    regularly trip over. Idempotent — running this twice on the same input
+    is a no-op. The renderer-side rules ("a section of one step drops its
+    N. prefix" on the BMP, ".step-solo" on the web) are *display* choices
+    that consume this normalized list; they're not encoded here.
+
+    Rules applied to `recipe["instructions"]`:
+      - Drop items whose text is empty / whitespace-only.
+      - Drop a heading whose text matches the most recently kept heading
+        (the "Preparation → step → Preparation → step → …" pattern).
+      - Of a run of consecutive headings with no step between, keep only
+        the last (it's the one that actually introduces the next step).
+
+    Returns a shallow-copied dict so callers can't accidentally mutate the
+    input. The instructions list itself is freshly built; other fields are
+    passed through by reference.
+    """
+    if not isinstance(recipe, dict):
+        return recipe
+    out = dict(recipe)
+    items = recipe.get("instructions") or []
+    cleaned: list[dict] = []
+    last_heading_text: str | None = None
+    for item in items:
+        if not isinstance(item, dict):
+            # Stray non-dict entries (validator usually catches these);
+            # coerce as a step so we don't crash the renderer downstream.
+            text = str(item).strip()
+            if text:
+                cleaned.append({"type": "step", "text": text})
+            continue
+        kind = item.get("type", "step")
+        text = (item.get("text") or "").strip()
+        if not text:
+            continue  # drop empty heading/step
+        if kind == "heading":
+            if text == last_heading_text:
+                continue  # drop duplicate-of-most-recent heading
+            if cleaned and cleaned[-1].get("type") == "heading":
+                # Consecutive heading run: overwrite the previous one
+                # rather than appending a second underlined block.
+                cleaned[-1] = {"type": "heading", "text": text}
+            else:
+                cleaned.append({"type": "heading", "text": text})
+            last_heading_text = text
+        else:
+            cleaned.append({"type": "step", "text": text})
+    out["instructions"] = cleaned
+    return out
 
 
 def _swissify(recipe: dict) -> dict:
