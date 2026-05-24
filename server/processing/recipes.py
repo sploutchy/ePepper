@@ -13,13 +13,19 @@ well-behaved site never touches the LLM and never spends a token.
 
 import logging
 import re
+from urllib.parse import urljoin
 
 from recipe_scrapers import scrape_html
 import aiohttp
 
 from config import LLM_TEXT_MODEL, LLM_TRANSLATE_MODEL, LLM_VISION_MODEL
 from processing import llm
-from processing.safe_url import assert_url_safe
+from processing.safe_url import (
+    MAX_REDIRECTS,
+    REDIRECT_STATUSES,
+    UnsafeUrl,
+    assert_url_safe,
+)
 
 log = logging.getLogger(__name__)
 
@@ -495,38 +501,64 @@ def _coerce_instructions(v) -> list[dict]:
 
 
 async def _fetch_html(url: str) -> str:
-    """Fetch HTML content from a URL, capped at `_MAX_HTML_BYTES`."""
+    """Fetch HTML content from a URL, capped at `_MAX_HTML_BYTES`.
+
+    Redirects are followed manually (up to `MAX_REDIRECTS` hops) with
+    `assert_url_safe` re-invoked on every `Location`, so a public host
+    can't 302 us into the LAN or onto a cloud-metadata endpoint.
+    """
     await assert_url_safe(url)
     headers = {
         "User-Agent": "Mozilla/5.0 (compatible; ePepper/1.0; recipe display)"
     }
     session = _get_session()
-    async with session.get(url, headers=headers, timeout=aiohttp.ClientTimeout(total=15)) as resp:
-        log.info("HTTP %d from %s", resp.status, url)
-        resp.raise_for_status()
-        # Fast path: trust an honest Content-Length header when present.
-        declared = resp.content_length
-        if declared is not None and declared > _MAX_HTML_BYTES:
-            raise _ResponseTooLarge(
-                f"{url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
-            )
-        # Stream so a server that lies about (or omits) Content-Length
-        # still can't OOM us.
-        buf = bytearray()
-        async for chunk in resp.content.iter_chunked(64 * 1024):
-            buf.extend(chunk)
-            if len(buf) > _MAX_HTML_BYTES:
+    timeout = aiohttp.ClientTimeout(total=15)
+    current_url = url
+    for _ in range(MAX_REDIRECTS + 1):
+        async with session.get(
+            current_url,
+            headers=headers,
+            timeout=timeout,
+            allow_redirects=False,
+        ) as resp:
+            log.info("HTTP %d from %s", resp.status, current_url)
+            if resp.status in REDIRECT_STATUSES:
+                location = resp.headers.get("Location")
+                if not location:
+                    raise UnsafeUrl(
+                        f"{current_url} returned {resp.status} without Location"
+                    )
+                next_url = urljoin(current_url, location)
+                await assert_url_safe(next_url)
+                current_url = next_url
+                continue
+            resp.raise_for_status()
+            # Fast path: trust an honest Content-Length header when present.
+            declared = resp.content_length
+            if declared is not None and declared > _MAX_HTML_BYTES:
                 raise _ResponseTooLarge(
-                    f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
+                    f"{current_url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
                 )
-        # A bogus Content-Type charset (unknown codec name) makes
-        # bytes.decode raise LookupError *before* it consults errors=,
-        # so fall back to utf-8 instead of crashing the fetch.
-        charset = resp.charset or "utf-8"
-        try:
-            return buf.decode(charset, errors="replace")
-        except LookupError:
-            return buf.decode("utf-8", errors="replace")
+            # Stream so a server that lies about (or omits) Content-Length
+            # still can't OOM us.
+            buf = bytearray()
+            async for chunk in resp.content.iter_chunked(64 * 1024):
+                buf.extend(chunk)
+                if len(buf) > _MAX_HTML_BYTES:
+                    raise _ResponseTooLarge(
+                        f"{current_url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
+                    )
+            # A bogus Content-Type charset (unknown codec name) makes
+            # bytes.decode raise LookupError *before* it consults errors=,
+            # so fall back to utf-8 instead of crashing the fetch.
+            charset = resp.charset or "utf-8"
+            try:
+                return buf.decode(charset, errors="replace")
+            except LookupError:
+                return buf.decode("utf-8", errors="replace")
+    raise UnsafeUrl(
+        f"{url} exceeded redirect cap of {MAX_REDIRECTS} hops"
+    )
 
 
 def _safe_call(fn):
