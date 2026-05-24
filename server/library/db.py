@@ -299,7 +299,12 @@ def _rebuild_fts(conn: sqlite3.Connection) -> None:
         )
 
 
-def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None) -> int:
+def upsert_recipe(
+    url: str,
+    recipe: dict,
+    translated_keywords: str | None = None,
+    source: str | None = None,
+) -> int:
     """Insert or update a recipe by URL. Returns the recipe id.
 
     Always overwrites title / parsed_json / lang so a re-fetched recipe
@@ -314,15 +319,21 @@ def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None
     existing value untouched (an upsert that re-fetches a recipe doesn't
     invalidate the translation). The startup backfill task fills NULLs
     out-of-band.
-    """
-    from status_helpers import source_name
-    from processing.recipes import normalize_recipe_for_render
 
-    # Canonicalize the instruction list shape (dedupe degenerate headings
-    # etc.) before serialization so the stored parsed_json is already in
-    # the form the renderers consume. The renderers still call
-    # normalize_recipe_for_render() defensively for legacy rows written
-    # before this point.
+    `source` is the humanized source name derived from the URL by
+    `status_helpers.source_name`; the caller computes it so this module
+    stays below `status_helpers` in the import layering. None / "" is
+    persisted as NULL (matches the historical behaviour for unsourced
+    rows). Stored lowercased for case-insensitive grouping in the
+    library filters.
+    """
+    # Lazy import (processing → library cycle): processing/recipes.py
+    # imports library.upsert_recipe, and we import its normalizer here
+    # for defence-in-depth. Callers normally validate via
+    # processing.recipes.validate_llm_recipe (which also normalizes), so
+    # this call is redundant on the happy path but protects test / admin
+    # paths that bypass the validator.
+    from processing.recipes import normalize_recipe_for_render
     recipe = normalize_recipe_for_render(recipe)
     now = int(time.time())
     payload = json.dumps(recipe, ensure_ascii=False)
@@ -330,8 +341,7 @@ def upsert_recipe(url: str, recipe: dict, translated_keywords: str | None = None
     lang = recipe.get("lang") or "en"
     canonical = normalize_url(url)
     ingredients = _ingredients_text(payload)
-    src = source_name(canonical)
-    source_lower = src.lower() if src else None
+    source_lower = source.lower() if source else None
 
     with _connect() as conn:
         if translated_keywords is None:
@@ -872,8 +882,8 @@ def get_panel_state() -> dict | None:
     Returns `{"recipe_id": int, "page": int}` when a saved recipe is
     flagged as the active panel content, else None (panel is meant to
     be idle, or only an unsaved push was active and didn't get
-    persisted). The caller (display_state.restore_persisted) re-derives
-    the rest from `recipe_id` via get_recipe + get_comments.
+    persisted). The caller (display_persistence.restore_on_startup)
+    re-derives the rest from `recipe_id` via get_recipe + get_comments.
     """
     with _connect() as conn:
         row = conn.execute(

@@ -11,10 +11,13 @@ import sys
 
 import uvicorn
 
+import display_persistence
 import display_state
+import library
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
+from processing import llm as processing_llm
 from scheduler import (
     backfill_translations,
     heartbeat_loop,
@@ -125,9 +128,18 @@ async def main() -> None:
     # Initialise recipe library DB
     init_db()
 
+    # Wire cross-layer dependencies that the lower layers can't import
+    # without creating cycles:
+    #   - display_state notifies display_persistence after every mutation
+    #     so saved-recipe state survives a container restart.
+    #   - processing.llm hands per-call accounting to library so the
+    #     status page can show monthly cost.
+    display_state.register_change_listener(display_persistence.persist_current)
+    processing_llm.register_usage_sink(library.record_llm_call)
+
     # Re-render whatever recipe was on the panel before the restart —
-    # only kicks in for saved recipes (see display_state docstring).
-    display_state.restore_persisted()
+    # only kicks in for saved recipes (see display_persistence docstring).
+    display_persistence.restore_on_startup()
 
     # Surface lockdown / alert-destination problems before the long-running
     # tasks start — easy to miss buried in steady-state logs.
