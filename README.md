@@ -463,11 +463,7 @@ it leaked the key into container logs.
 |---|---|---|
 | `GET` | `/version` | Current image hash, a `content_hash` (stable across page navigation — changes only on a new render), page info, and `next_wake_in_s` (seconds until the device's next aligned wake at `DEVICE_WAKE_HOUR_LOCAL`). ESP32 hits this on every refresh/timer wake; `content_hash` is the cache key for the device's on-flash page store. |
 | `GET` | `/image` | Current page as a 1-bit BMP. Defaults to the active page. |
-| `GET` | `/image?page=N` | Specific page as BMP. |
-| `POST` | `/page/next` | Advance to next page (wraps at the end). |
-| `POST` | `/page/prev` | Previous page (wraps at page 1). |
-| `POST` | `/page/first` | Jump to page 1 (long-press of prev). |
-| `POST` | `/page/last` | Jump to last page (long-press of next). |
+| `GET` | `/image?page=N` | Specific page as BMP. The device fetches each page explicitly to fill its on-flash cache; there is no server-side page cursor (DES-7). |
 | `POST` | `/display/clear` | Clear the panel to the idle frame. Fired by the device's PREV + REFRESH chord and by the bot's `/clear`. |
 | `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` are optional. May trigger a low-battery alert. |
 | `GET` | `/device/status` | Last-known wake-cycle report (JSON). |
@@ -640,8 +636,10 @@ the next refresh (the page indicator is fine — it's baked per page). And
 because page turns no longer hit the server cursor, the web status
 preview's "current page" tracks *its own* navigation, not the device's.
 Both are deliberate: the win is Wi-Fi-free, lower-power page turns. This
-is the device-side half of `ROADMAP.md` DES-7; the server's `/page/*`
-endpoints are retained for the web status nav and any un-upgraded firmware.
+completes `ROADMAP.md` DES-7: the device owns page navigation, and the
+stateful server-side `/page/*` cursor has been removed. The web status
+page keeps its own preview cursor (`/app/display/page/*`), independent of
+the panel.
 
 ### OTA updates
 
