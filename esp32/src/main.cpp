@@ -28,9 +28,8 @@
 
 #include <Arduino.h>
 #include <WiFi.h>
-#include <WiFiClientSecure.h>
 #include <HTTPClient.h>
-#include <HTTPUpdate.h>
+#include <Update.h>
 #include <ArduinoJson.h>
 #include <Wire.h>
 #include <sys/time.h>
@@ -324,8 +323,15 @@ void handleTimerWake() {
 // ---- OTA ----
 // Polls /firmware/version; if the integer is higher than our build's
 // FIRMWARE_VERSION, streams /firmware/download into the inactive OTA
-// partition and reboots into it. WiFi must already be up — we piggy-back
-// on the connection from the preceding handleRefresh.
+// partition via Update.write() and reboots into it. WiFi must already
+// be up — we piggy-back on the connection from the preceding handleRefresh.
+//
+// We don't use the HTTPUpdate helper because arduino-esp32's version
+// can't attach custom request headers, and /firmware/download is
+// Bearer-authed. Update.write() over a raw HTTPClient stream gives us
+// header control + the same auto-rollback safety from the dual-partition
+// layout (a partial / corrupted write is never marked as the boot
+// partition, so the bootloader falls back to the running image).
 void checkForOTAUpdate() {
     if (WiFi.status() != WL_CONNECTED) {
         Serial.println("[OTA] No WiFi, skipping check");
@@ -333,8 +339,7 @@ void checkForOTAUpdate() {
     }
 
     HTTPClient http;
-    String url = String(SERVER_URL) + "/firmware/version";
-    http.begin(url);
+    http.begin(String(SERVER_URL) + "/firmware/version");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
     int code = http.GET();
     if (code != 200) {
@@ -354,27 +359,85 @@ void checkForOTAUpdate() {
     Serial.printf("[OTA] Update available: %d -> %ld, starting download…\n",
                   FIRMWARE_VERSION, serverVersion);
 
-    WiFiClientSecure client;
-    // Trust on first use: the API key gates /firmware/download, so a
-    // pinned root CA buys nothing over what the Bearer header already
-    // gives us, and skipping the cert dance saves ~30 KB of flash + RAM.
-    client.setInsecure();
-
-    httpUpdate.rebootOnUpdate(true);
-    httpUpdate.setLedPin(LED_PIN, LOW);  // active-low LED → lit while flashing
-    httpUpdate.setAuthorization(String("Bearer ") + API_KEY);
-
-    String otaUrl = String(SERVER_URL) + "/firmware/download";
-    t_httpUpdate_return ret = httpUpdate.update(client, otaUrl);
-    // We only get here on failure — on success, the chip rebooted into
-    // the new partition before this line ran.
-    if (ret == HTTP_UPDATE_FAILED) {
-        Serial.printf("[OTA] Failed (%d): %s\n",
-                      httpUpdate.getLastError(),
-                      httpUpdate.getLastErrorString().c_str());
-    } else if (ret == HTTP_UPDATE_NO_UPDATES) {
-        Serial.println("[OTA] Server reported no update");
+    http.begin(String(SERVER_URL) + "/firmware/download");
+    http.addHeader("Authorization", String("Bearer ") + API_KEY);
+    // Default read timeout is 1 s — too tight for the long pauses that
+    // can happen mid-stream on a marginal Wi-Fi link.
+    http.setTimeout(15000);
+    code = http.GET();
+    if (code != 200) {
+        Serial.printf("[OTA] /firmware/download returned %d\n", code);
+        http.end();
+        return;
     }
+
+    int contentLength = http.getSize();
+    if (contentLength <= 0) {
+        Serial.println("[OTA] Missing or zero Content-Length");
+        http.end();
+        return;
+    }
+    Serial.printf("[OTA] Image size: %d bytes\n", contentLength);
+
+    if (!Update.begin(contentLength)) {
+        Serial.printf("[OTA] Update.begin failed: %s\n", Update.errorString());
+        http.end();
+        return;
+    }
+
+    digitalWrite(LED_PIN, LOW);  // active-low LED on while flashing
+
+    WiFiClient* stream = http.getStreamPtr();
+    uint8_t buf[1024];
+    size_t bytesRead = 0;
+    int lastPctLogged = -1;
+    unsigned long lastByteAt = millis();
+    while (bytesRead < (size_t)contentLength) {
+        size_t available = stream->available();
+        if (available) {
+            size_t toRead = min(available, sizeof(buf));
+            toRead = min(toRead, (size_t)contentLength - bytesRead);
+            size_t got = stream->readBytes(buf, toRead);
+            if (got == 0) continue;
+            if (Update.write(buf, got) != got) {
+                Serial.printf("[OTA] Update.write failed: %s\n", Update.errorString());
+                Update.abort();
+                digitalWrite(LED_PIN, HIGH);
+                http.end();
+                return;
+            }
+            bytesRead += got;
+            lastByteAt = millis();
+            int pct = (int)(bytesRead * 100 / contentLength);
+            if (pct / 10 > lastPctLogged / 10) {
+                Serial.printf("[OTA] %d%% (%u/%d bytes)\n", pct, (unsigned)bytesRead, contentLength);
+                lastPctLogged = pct;
+            }
+        } else {
+            // Bail if the link goes quiet for too long — better to retry on
+            // the next daily wake than hang forever and waste battery.
+            if (millis() - lastByteAt > 30000) {
+                Serial.println("[OTA] Stream stalled, aborting");
+                Update.abort();
+                digitalWrite(LED_PIN, HIGH);
+                http.end();
+                return;
+            }
+            delay(5);
+        }
+    }
+
+    digitalWrite(LED_PIN, HIGH);
+    http.end();
+
+    if (!Update.end(true)) {  // true = set boot partition
+        Serial.printf("[OTA] Update.end failed: %s\n", Update.errorString());
+        return;
+    }
+
+    Serial.println("[OTA] Update applied, rebooting into new firmware…");
+    delay(100);  // let Serial flush
+    ESP.restart();
 }
 
 
