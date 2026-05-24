@@ -14,9 +14,14 @@
   </p>
   <p class="status-line muted">
     Plug the reTerminal into this computer over USB-C, click Install, and
-    pick the serial port. Needs Chrome, Edge, or Chromium on a desktop
-    (Web Serial). On Linux your user must be in the <code>dialout</code>
-    group to open the port.
+    pick the serial port. Needs desktop Chrome or Edge (Web Serial).
+  </p>
+  <p class="status-line muted">
+    On Linux, use the full Chrome/Edge installed from the official
+    <code>.deb</code> — the Snap and Flatpak builds are sandboxed and
+    can't see <code>/dev/ttyUSB*</code>, so the port picker comes up
+    empty even when the device is plugged in. Your user also needs to be
+    in the <code>dialout</code> group to open the port.
   </p>
 
   {% if manifest_present %}
@@ -25,8 +30,9 @@
           manifest="/app/flash/manifest.json"
           erase-first>
         <span slot="unsupported">
-          Web Serial isn't available here. Open this page in Chrome, Edge,
-          or Brave on a desktop.
+          Web Serial isn't available here. Open this page in full desktop
+          Chrome or Edge installed from the official package — not the
+          sandboxed Snap/Flatpak build, and not a phone.
         </span>
         <span slot="not-allowed">
           This page must be served over HTTPS to flash.
