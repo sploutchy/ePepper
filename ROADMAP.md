@@ -35,11 +35,18 @@ stateful — the server tracks the "current page" while the device asks for
 next/prev. A server restart during an unsaved push loses the cursor, and the
 design also blocks multi-device support (see DES-1 in the review).
 
-Plan:
-1. Remove the `/page/*` endpoints from `server/api/server.py`.
-2. Have the firmware compute next/prev locally using its RTC-stored
-   `currentPage` and `totalPages` (`esp32/src/main.cpp:557-592`).
-3. Replace cursor calls with `GET /image?page=N` only (already supported).
+**Partly done (on-device page cache).** The firmware now computes
+next/prev/first/last locally (`computeLocalPage` in `esp32/src/main.cpp`)
+and serves pages from a LittleFS cache, so the device no longer calls
+`/page/*`. The cache is keyed on the new `content_hash` from `/version`.
+See the "On-device page cache" section in the README.
 
-Breaking change: old firmware in the field will lose page navigation until
-re-flashed. Roll out the firmware OTA first, then drop the server endpoints.
+Remaining:
+1. Remove the `/page/*` endpoints from `server/api/server.py` once no
+   un-upgraded firmware remains in the field.
+2. Migrate the web status-page nav (`api/web.py:_change_page`) off the
+   server-side cursor too, or accept that its "current page" is a
+   preview-only cursor independent of the device.
+
+Note the endpoints are intentionally retained for now: they still back the
+web status preview's page nav and any device still on pre-cache firmware.

@@ -78,6 +78,10 @@ async def version(request: Request):
     ))
     return {
         "hash": state["hash"],
+        # Stable across page navigation; flips only on a new render. The
+        # device keys its on-flash page cache on this so page turns can be
+        # served offline and a new recipe still invalidates the cache.
+        "content_hash": state["content_hash"],
         "page": state["page"],
         "total_pages": state["total_pages"],
         "updated_at": state["updated_at"],

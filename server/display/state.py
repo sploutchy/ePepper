@@ -50,7 +50,10 @@ def _notify_changed() -> None:
 
 # Current display state
 _state: dict[str, Any] = {
-    "hash": "",
+    "hash": "",             # per-page md5; flips on page nav. Drives the web preview's ?v= cache-buster.
+    "content_hash": "",     # md5 over ALL pages; stable across page nav, changes only on a new render.
+                            # The device keys its on-flash page cache on this so a page turn can be
+                            # served offline and a genuinely new recipe still invalidates the cache.
     "type": "idle",         # "recipe", "idle"
     "page": 1,
     "total_pages": 1,
@@ -146,6 +149,7 @@ def clear() -> None:
     _recipe_inputs.update({"recipe": None, "comments": [], "url": None})
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],
+        "content_hash": hashlib.md5(b"idle").hexdigest()[:8],
         "type": "idle",
         "page": 1,
         "total_pages": 1,
@@ -183,6 +187,7 @@ def _update_state(
     _state["total_pages"] = total_pages
     _state["updated_at"] = int(time.time())
     _state["hash"] = _compute_hash(1)
+    _state["content_hash"] = _compute_content_hash()
     _state["lang"] = lang
     _state["recipe_id"] = recipe_id
     _state["url"] = url
@@ -197,3 +202,17 @@ def _compute_hash(page: int) -> str:
     if img is None:
         return ""
     return hashlib.md5(img.tobytes()).hexdigest()[:8]
+
+
+def _compute_content_hash() -> str:
+    """md5 over every page's pixels, in page order — a stable identity for
+    the whole rendered recipe. Unlike `_compute_hash` it doesn't move when
+    only the current page changes, so the device can treat its on-flash
+    page cache as valid across page turns and only re-download when this
+    value actually changes (a new recipe / re-render)."""
+    if not _pages:
+        return ""
+    h = hashlib.md5()
+    for page in sorted(_pages):
+        h.update(_pages[page].tobytes())
+    return h.hexdigest()[:8]
