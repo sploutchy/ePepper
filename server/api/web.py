@@ -490,8 +490,29 @@ async def search_partial(
     # _list_context skips the page-level globals (saved_count, etc.)
     # because cards don't need them; the OOB meta does, so add it.
     ctx["saved_count"] = library.count_saved()
-    template = "_list_append.html" if offset > 0 else "_list.html"
-    return templates.TemplateResponse(request, template, ctx)
+    response = templates.TemplateResponse(request, "_list.html", ctx)
+    # Filter-change responses (offset == 0) push the user-facing URL
+    # so a browser reload re-hits index() with the active sort/filter
+    # params. Without this, the <select> auto-restores its UI value
+    # on reload but the server falls back to default ordering because
+    # the URL bar still reads /app/ with no query string.
+    # Pagination responses (offset > 0) leave the URL alone — the
+    # user is already on the right URL and we don't want to encode
+    # offset in history.
+    if offset == 0:
+        response.headers["HX-Replace-Url"] = _user_facing_url(q, sort, source, tag)
+    return response
+
+
+def _user_facing_url(
+    q: str, sort: str | None, source: str | None, tag: str | None,
+) -> str:
+    """Build the URL the browser bar should reflect for an active
+    filter set. Empty / falsy values are omitted so the URL stays
+    clean ("/app/" rather than "/app/?q=&sort=&source=&tag=")."""
+    from urllib.parse import urlencode
+    params = [(k, v) for k, v in [("q", q), ("sort", sort), ("source", source), ("tag", tag)] if v]
+    return "/app/" + ("?" + urlencode(params) if params else "")
 
 
 # --- Add recipe -------------------------------------------------------------
