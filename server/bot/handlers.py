@@ -34,8 +34,8 @@ from display import state as display_state
 import library
 from display.push import push_recipe_to_display
 from processing.recipes import (
-    process_recipe_image,
-    process_recipe_url,
+    IngestError,
+    ingest_recipe,
     translate_for_search,
 )
 from status_helpers import battery_pct, humanize_ago, humanize_date, rssi_quality, source_name
@@ -1059,7 +1059,7 @@ async def _typing_indicator(bot, chat_id: int):
 async def on_photo(update: Update, context) -> None:
     """Handle photo messages — OCR via LLM, then push the recipe to the display.
 
-    Falls through to `_present_recipe` so the result lands in exactly the
+    Falls through to `_present_result` so the result lands in exactly the
     same Save-button flow as a pasted URL.
     """
     if not _is_allowed(update.effective_user.id):
@@ -1086,14 +1086,19 @@ async def on_photo(update: Update, context) -> None:
     # OCR is always an LLM call — wrap it in the typing indicator so the
     # 10-30 s wait reads as "bot is working" instead of "did this freeze?".
     async with _typing_indicator(context.bot, msg.chat_id):
-        result = await process_recipe_image(bytes(image_bytes), hint=hint)
-    if result is None:
-        await msg.edit_text("❌ Couldn't read a recipe from that photo.")
-        return
+        try:
+            result = await ingest_recipe(
+                bytes(image_bytes), push=True, persist=False, hint=hint,
+            )
+        except IngestError:
+            await msg.edit_text("❌ Couldn't read a recipe from that photo.")
+            return
 
-    recipe, url = result
-    log.info("Photo OCR ingested: title=%r url=%s", recipe.get("title"), url)
-    await _present_recipe(url, recipe, msg)
+    log.info(
+        "Photo OCR ingested: title=%r url=%s action=%s",
+        result["recipe"].get("title"), result["url"], result["action"],
+    )
+    await _present_result(result, msg)
 
 
 async def on_text(update: Update, context) -> None:
@@ -1130,12 +1135,15 @@ async def _fetch_and_display_recipe(url: str, msg) -> None:
             log.debug("placeholder edit on LLM start failed", exc_info=True)
 
     async with _typing_indicator(msg.get_bot(), msg.chat_id):
-        recipe = await process_recipe_url(url, on_llm_start=_on_llm_start)
-    if recipe is None:
-        log.warning("Failed to parse recipe from URL: %s", url)
-        await msg.edit_text("❌ Couldn't read a recipe from that URL.")
-        return
-    await _present_recipe(url, recipe, msg)
+        try:
+            result = await ingest_recipe(
+                url, push=True, persist=False, on_llm_start=_on_llm_start,
+            )
+        except IngestError:
+            log.warning("Failed to parse recipe from URL: %s", url)
+            await msg.edit_text("❌ Couldn't read a recipe from that URL.")
+            return
+    await _present_result(result, msg)
 
 
 def _push_inline_actions(
@@ -1166,37 +1174,47 @@ def _push_inline_actions(
     return InlineKeyboardMarkup([row])
 
 
-async def _present_recipe(url: str, recipe: dict, msg) -> None:
-    """Push a parsed recipe to the display.
+async def _present_result(result: dict, msg) -> None:
+    """Render the ingest_recipe outcome back into the Telegram message.
 
-    If `url` matches an already-saved row, restore its comments and skip
-    the Save prompt. Otherwise stash in the pending map and offer a
-    💾 Save button — the DB row is only created when the user taps Save.
+    Two states:
+      - Already-saved (`recipe_id` set): no Save button, just the web
+        link for one-tap access to notes / scaling.
+      - New URL (`recipe_id is None`): stash the parsed dict in the
+        pending map and offer 💾 Save — the library row is only created
+        when the user taps it. Pending-stash is Telegram-specific UX, so
+        it lives here rather than inside ingest_recipe.
+
+    A "parsed-only" action means push failed (parse succeeded but the
+    e-ink render raised). Surface the render error to the user.
     """
-    existing = library.find_by_url(url)
-    if existing is not None:
-        if not push_recipe_to_display(existing):
-            await msg.edit_text("❌ Couldn't render that recipe to the display.")
-            return
-        total = display_state.get()["total_pages"]
+    if result["action"] == "parsed-only":
+        await msg.edit_text("❌ Couldn't render that recipe to the display.")
+        return
+
+    url = result["url"]
+    recipe = result["recipe"]
+    recipe_id = result["recipe_id"]
+    state = display_state.get()
+    total_pages = state["total_pages"]
+
+    if recipe_id is not None:
+        # Already in the library — ingest_recipe pushed via the saved
+        # row, with its real comments + touch_displayed bump. Title comes
+        # from display_state so the message echoes what landed on the
+        # panel (the saved row, possibly stale vs. the re-parsed dict).
         await msg.edit_text(
-            _format_push_reply(existing["title"], existing.get("url"), total),
+            _format_push_reply(state.get("title", ""), url, total_pages),
             parse_mode="HTML",
             disable_web_page_preview=True,
             reply_markup=_push_inline_actions(
-                recipe_id=existing["id"], pending_token=None
+                recipe_id=recipe_id, pending_token=None,
             ),
         )
         return
 
-    try:
-        display_state.set_recipe(recipe, comments=[], recipe_id=None, url=url)
-    except Exception:
-        log.exception("Failed to render recipe %r to display", recipe.get("title"))
-        await msg.edit_text("❌ Couldn't render that recipe to the display.")
-        return
-    total_pages = display_state.get()["total_pages"]
-
+    # New URL / unseen photo — stash the parsed dict so the 💾 Save
+    # callback can persist on demand.
     token = _stash_pending(url, recipe)
     await msg.edit_text(
         _format_push_reply(recipe["title"], url, total_pages),

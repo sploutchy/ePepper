@@ -13,6 +13,7 @@ well-behaved site never touches the LLM and never spends a token.
 
 import logging
 import re
+from typing import Awaitable, Callable
 from urllib.parse import urljoin
 
 from recipe_scrapers import scrape_html
@@ -28,6 +29,50 @@ from processing.safe_url import (
 )
 
 log = logging.getLogger(__name__)
+
+
+class IngestError(Exception):
+    """Raised by `ingest_recipe` when the parse step yields nothing useful.
+
+    Callers catch this once and surface a uniform user-facing error
+    instead of re-implementing the "None means failed" check at every
+    site. Distinct from `processing.llm.LLMError` because the parse can
+    fail without ever touching the LLM (e.g. unreachable host, captcha
+    page, image decode bust).
+    """
+
+
+# -- ingest_recipe behavior matrix ------------------------------------------
+# Cheat sheet for the policy each surface had before this function existed.
+# `ingest_recipe(source, *, push, persist)` is the single entry point now;
+# every caller just picks the right flags.
+#
+#   surface              source  push   persist  notes
+#   ─────────────────────────────────────────────────────────────────────────
+#   web URL-add          URL     False  True     dedupes via find_by_url;
+#                                                lands on detail page.
+#   web photo-upload     bytes   False  True     same, but OCR'd; `hint`
+#                                                is the filename.
+#   bot URL-paste        URL     True   False    pushes immediately, stashes
+#                                                a pending token so the
+#                                                💾 Save button can persist
+#                                                later. The bot still owns
+#                                                _stash_pending — ingest
+#                                                returns the parsed dict.
+#   bot photo-upload     bytes   True   False    same; `hint` is the photo
+#                                                caption.
+#   scheduler Fooby      URL     True   False    transient "inspiration of
+#                                                the day" — user can still
+#                                                save it later by re-pasting.
+#   scheduler anniversary — — —  reused push_recipe_to_display directly
+#                                with a library row (no ingest needed).
+#
+# The "skip if already on display" check the scheduler used to do by hand
+# now lives in display_push.push_recipe_to_display for the persisted
+# branch, and in ingest_recipe itself for the parse-only-push branch
+# (compares the active display URL to the just-parsed URL). Callers see
+# action == "already-active" and can log accordingly.
+# ---------------------------------------------------------------------------
 
 # Cap on HTML body size we'll pull from a recipe URL. Big enough for any
 # real recipe page (a generous one is ~1 MB with images inlined as data:),
@@ -294,6 +339,205 @@ async def process_recipe_image(
     url = resolve_url(url, recipe)  # collapses to content hash if empty
     log.info("OCR: recipe %r url=%s source=%r", recipe["title"], url, source_name)
     return recipe, url
+
+
+async def ingest_recipe(
+    source: str | bytes | bytearray,
+    *,
+    push: bool,
+    persist: bool,
+    hint: str | None = None,
+    comments: list[str] | None = None,
+    on_llm_start: Callable[[], Awaitable[None]] | None = None,
+) -> dict:
+    """Canonical "parse → translate → upsert → save → push" pipeline.
+
+    `source` dispatches by type: a `str` is a recipe URL (fed to
+    `process_recipe_url`); `bytes` / `bytearray` is an image blob (fed
+    to `process_recipe_image`, with `hint` passed through to the OCR
+    prompt as user-supplied context — filename for web uploads, photo
+    caption for Telegram).
+
+    `push` controls whether the result lands on the e-ink panel.
+    `persist` controls whether the recipe is written to the library
+    (translate + upsert + save). The four (push, persist) combinations
+    are all real surfaces — see the behavior matrix at the top of this
+    module.
+
+    `comments` are extra notes to render alongside the recipe page. Only
+    consulted when `push=True and persist=False` (the bot/Fooby "render
+    transient" path); the persisted branch routes through
+    `push_recipe_to_display` which pulls the recipe's saved comments
+    from the library, so an override here would be ignored.
+
+    `on_llm_start` is forwarded to `process_recipe_url` for URL sources
+    (the Telegram bot uses it to swap its placeholder reply into a
+    "Converting with an LLM…" state). Ignored for byte sources because
+    OCR is always an LLM call — the caller can light the indicator
+    itself before calling in.
+
+    Returns `{recipe_id, url, recipe, action}` where `action` is one of:
+      - "saved+pushed"  — persisted to the library AND drawn on the panel
+      - "saved"         — persisted, no push
+      - "pushed"        — drawn on the panel, not persisted
+      - "parsed-only"   — parsed and returned; caller does the rest
+      - "already-active" — push was requested but the panel was already
+                          showing this recipe (skipped to save an e-ink
+                          refresh); persist still ran if requested.
+
+    Raises `IngestError` when the parse step yields no recipe — every
+    parser (recipe-scrapers, JSON-LD, LLM) tried and missed. The caller
+    catches once and renders a uniform "couldn't read a recipe" error.
+    """
+    # Lazy imports keep this module's import footprint untouched —
+    # processing.recipes is pulled in by tests and tools that don't want
+    # the library / display side-effects.
+    import display_state
+    import library
+    from display_push import push_recipe_to_display
+
+    if isinstance(source, str):
+        recipe = await process_recipe_url(source, on_llm_start=on_llm_start)
+        if recipe is None:
+            raise IngestError(f"No recipe parsed from URL: {source}")
+        url = source
+    elif isinstance(source, (bytes, bytearray)):
+        image_bytes = bytes(source)
+        result = await process_recipe_image(image_bytes, hint=hint)
+        if result is None:
+            raise IngestError("No recipe parsed from image bytes")
+        recipe, url = result
+    else:
+        raise TypeError(
+            f"ingest_recipe source must be str or bytes, got {type(source).__name__}"
+        )
+
+    recipe_id: int | None = None
+    persisted = False
+
+    # Dedupe lookup runs even when persist=False — the bot's URL-paste
+    # path wants to know "is this already in the library so I should push
+    # the saved row (with its comments + Save-state) instead of stashing
+    # another pending token?". When persist=True, the lookup also avoids
+    # a wasted re-translate / re-upsert on an existing URL.
+    existing = library.find_by_url(url)
+
+    if persist:
+        if existing is not None:
+            recipe_id = existing["id"]
+            log.info(
+                "ingest_recipe: existing row id=%d url=%s — skipping translate/upsert",
+                recipe_id, url,
+            )
+        else:
+            translated = await translate_for_search(recipe)
+            recipe_id = library.upsert_recipe(
+                url, recipe, translated_keywords=translated,
+            )
+            library.save_recipe(recipe_id)
+            log.info(
+                "ingest_recipe: persisted id=%d title=%r url=%s",
+                recipe_id, recipe.get("title"), url,
+            )
+        persisted = True
+    elif existing is not None:
+        # Already in the library but the caller didn't ask for a persist
+        # step — still surface the existing id so they can route the push
+        # through push_recipe_to_display (pulls real comments, bumps
+        # touch_displayed) and skip the pending-stash UX.
+        recipe_id = existing["id"]
+
+    pushed = False
+    already_active = False
+    if push:
+        if recipe_id is not None:
+            # Re-read the row so push_recipe_to_display gets the canonical
+            # shape (parsed_json + url + id + timestamps) — find_by_url +
+            # upsert_recipe both return that shape, but re-reading is the
+            # least-surprising contract.
+            row = library.get_recipe(recipe_id)
+            if row is None:
+                # Shouldn't happen — we just wrote it. Treat as a soft
+                # failure: the parse succeeded, persistence reported success,
+                # but the row vanished. Surface as parsed-only so the caller
+                # doesn't claim a push that didn't land.
+                log.warning(
+                    "ingest_recipe: row id=%d vanished between save and push",
+                    recipe_id,
+                )
+            else:
+                # push_recipe_to_display owns the skip-if-active check now;
+                # a True return covers both "rendered+touched" and
+                # "already on display, skipped". The bool collapses both
+                # into success — we re-check display_state for the
+                # already_active flag so the action string is honest.
+                state_before = display_state.get()
+                was_active = (
+                    state_before.get("type") == "recipe"
+                    and state_before.get("recipe_id") == row["id"]
+                )
+                ok = push_recipe_to_display(row)
+                if not ok:
+                    log.warning(
+                        "ingest_recipe: push failed for id=%d", recipe_id,
+                    )
+                else:
+                    pushed = True
+                    if was_active:
+                        already_active = True
+        else:
+            # Non-persisted push (Fooby inspiration, bot pending-stash). No
+            # library row exists, so we render via display_state directly —
+            # touch_displayed has nothing to update and skip-if-active is
+            # checked against the URL since recipe_id is None on both sides.
+            state_before = display_state.get()
+            if (
+                state_before.get("type") == "recipe"
+                and state_before.get("url") == url
+                and state_before.get("recipe_id") is None
+            ):
+                log.info(
+                    "ingest_recipe: transient recipe url=%s already on display; skipping",
+                    url,
+                )
+                pushed = True
+                already_active = True
+            else:
+                try:
+                    display_state.set_recipe(
+                        recipe,
+                        comments=list(comments or []),
+                        recipe_id=None,
+                        url=url,
+                    )
+                except Exception:
+                    log.exception(
+                        "ingest_recipe: render failed for transient url=%s", url,
+                    )
+                else:
+                    pushed = True
+                    log.info(
+                        "ingest_recipe: pushed transient recipe %r (%s)",
+                        recipe.get("title"), url,
+                    )
+
+    if already_active:
+        action = "already-active"
+    elif persisted and pushed:
+        action = "saved+pushed"
+    elif persisted:
+        action = "saved"
+    elif pushed:
+        action = "pushed"
+    else:
+        action = "parsed-only"
+
+    return {
+        "recipe_id": recipe_id,
+        "url": url,
+        "recipe": recipe,
+        "action": action,
+    }
 
 
 _SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")

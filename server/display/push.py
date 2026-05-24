@@ -21,7 +21,21 @@ def push_recipe_to_display(row: dict) -> bool:
     On success, bumps `last_displayed_at` + `displayed_count` on the
     library row so the "recently cooked" sort and anniversary scheduler
     track actual usage.
+
+    Skip-if-active optimization: if `row` is already the live display
+    content (same recipe_id), short-circuit with a True return — the
+    device would otherwise wake and burn a full e-ink refresh for no
+    visible change. `touch_displayed` is also skipped so the
+    "recently shown" sort doesn't move on a no-op push. Used to live
+    only in the scheduler; lifting it here means every caller (web push,
+    bot search-tap, scheduler) gets the same idle-saving behavior.
     """
+    state = display_state.get()
+    if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
+        log.info(
+            "Recipe id=%s already on display; skipping push", row["id"],
+        )
+        return True
     comments = [c["body"] for c in library.get_comments(row["id"])]
     try:
         display_state.set_recipe(

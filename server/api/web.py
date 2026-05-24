@@ -31,12 +31,7 @@ try:
 except ImportError:
     pass
 from display.push import push_recipe_to_display
-from processing.recipes import (
-    normalize_recipe_for_render,
-    process_recipe_image,
-    process_recipe_url,
-    translate_for_search,
-)
+from processing.recipes import IngestError, ingest_recipe, normalize_recipe_for_render
 from status_helpers import battery_pct, format_long_date, humanize_ago, humanize_date, rssi_quality, source_name
 
 log = logging.getLogger(__name__)
@@ -604,18 +599,15 @@ async def add_url(request: Request, url: str = Form(...)):
         log.info("Web add (existing URL): id=%d url=%s", existing["id"], url)
         return _hx_redirect(f"/app/recipes/{existing['id']}")
 
-    recipe = await process_recipe_url(url)
-    if recipe is None:
+    try:
+        result = await ingest_recipe(url, push=False, persist=True)
+    except IngestError:
         return _add_error(request, "Couldn't parse a recipe from that URL.")
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(
-        url, recipe,
-        translated_keywords=translated,
-        source=source_name(url),
+    log.info(
+        "Web add (URL): id=%s title=%r url=%s",
+        result["recipe_id"], result["recipe"].get("title"), url,
     )
-    library.save_recipe(recipe_id)
-    log.info("Web add (URL): id=%d title=%r url=%s", recipe_id, recipe.get("title"), url)
-    return _hx_redirect(f"/app/recipes/{recipe_id}")
+    return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
 @router.post("/add/file", response_class=HTMLResponse)
@@ -649,26 +641,19 @@ async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
         )
     hint = _filename_hint(file.filename)
     log.info("Web add (photo OCR): %d bytes hint=%r", len(raw), hint or "")
-    result = await process_recipe_image(raw, hint=hint)
-    if result is None:
+    # ingest_recipe handles parse → translate → upsert → save. We still log
+    # an "existing OCR" hit separately so the deduped-photo path is
+    # observable in the access log (find_by_url runs inside ingest_recipe
+    # but doesn't surface the "already had this" signal).
+    try:
+        result = await ingest_recipe(raw, push=False, persist=True, hint=hint)
+    except IngestError:
         return _add_error(request, "Couldn't read a recipe from that photo.")
-    recipe, url = result
-    existing = library.find_by_url(url)
-    if existing is not None:
-        log.info("Web add (existing OCR): id=%d", existing["id"])
-        return _hx_redirect(f"/app/recipes/{existing['id']}")
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(
-        url, recipe,
-        translated_keywords=translated,
-        source=source_name(url),
-    )
-    library.save_recipe(recipe_id)
     log.info(
-        "Web add (photo OCR): id=%d title=%r url=%s",
-        recipe_id, recipe.get("title"), url,
+        "Web add (photo OCR): id=%s title=%r url=%s",
+        result["recipe_id"], result["recipe"].get("title"), result["url"],
     )
-    return _hx_redirect(f"/app/recipes/{recipe_id}")
+    return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
 # --- Status page -----------------------------------------------------------

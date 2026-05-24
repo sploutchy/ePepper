@@ -30,7 +30,7 @@ import library
 from config import TZ
 from display.push import push_recipe_to_display
 from processing.fooby_inspiration import fetch_weekly_inspiration_urls
-from processing.recipes import process_recipe_url
+from processing.recipes import IngestError, ingest_recipe, process_recipe_url
 
 log = logging.getLogger(__name__)
 
@@ -75,21 +75,16 @@ def _push_anniversary_for(today: datetime) -> bool:
     """Push today's anniversary recipe if one exists. Returns True when handled
     (either pushed successfully or already on display); False when no candidate
     exists or rendering failed — in which case the caller should run the Fooby
-    fallback so the panel doesn't stay frozen on yesterday's content."""
+    fallback so the panel doesn't stay frozen on yesterday's content.
+
+    The "skip if already on display" optimization now lives in
+    push_recipe_to_display itself, so the True branch covers both
+    "rendered fresh" and "already showing this row" (the latter logs
+    inside push_recipe_to_display).
+    """
     row = library.pick_anniversary_recipe(today.strftime("%m-%d"), today.year)
     if row is None:
         return False
-    # Skip the push if this recipe is already the active display content —
-    # otherwise the device wakes and does a full panel refresh for no
-    # visible change (e.g. user pushed today's anniversary manually
-    # earlier in the day).
-    state = display_state.get()
-    if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
-        log.info(
-            "Anniversary recipe id=%d already on display; skipping push",
-            row["id"],
-        )
-        return True
     if not push_recipe_to_display(row):
         log.warning(
             "Anniversary push failed for id=%d; caller should fall back",
@@ -138,25 +133,28 @@ async def _push_fooby_inspiration_for(today: datetime) -> None:
         idx = today.weekday() % len(urls)
         url = urls[idx]
 
-    state = display_state.get()
-    if state.get("type") == "recipe" and state.get("url") == url:
-        log.info("Fooby inspiration %s already on display; skipping push", url)
-        return
-
-    recipe = await process_recipe_url(url)
-    if recipe is None:
+    # ingest_recipe handles the "already on display" short-circuit
+    # internally (compares URL when the recipe isn't in the library);
+    # action == "already-active" just logs and bails. A parse miss raises
+    # IngestError, which we swallow so the panel stays on whatever it was
+    # showing rather than going blank.
+    try:
+        result = await ingest_recipe(url, push=True, persist=False)
+    except IngestError:
         log.info("Fooby inspiration: failed to parse %s; leaving display unchanged", url)
         return
 
-    display_state.set_recipe(
-        recipe,
-        comments=[],
-        recipe_id=None,
-        url=url,
-    )
+    if result["action"] == "already-active":
+        log.info("Fooby inspiration %s already on display; skipping push", url)
+        return
+    if result["action"] == "parsed-only":
+        log.warning(
+            "Fooby inspiration: parse ok but push failed for %s", url,
+        )
+        return
     log.info(
         "Pushed Fooby weekly inspiration: %r (%s)",
-        recipe.get("title"), url,
+        result["recipe"].get("title"), url,
     )
 
 
