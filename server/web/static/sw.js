@@ -10,7 +10,7 @@
 // strategy changes; routine CSS / JS edits now ride the
 // stale-while-revalidate path below and roll out on the second load
 // after deploy.
-const CACHE = 'epepper-shell-v5';
+const CACHE = 'epepper-shell-v6';
 const SHELL = [
   '/app/static/app.css',
   '/app/static/htmx.min.js',
