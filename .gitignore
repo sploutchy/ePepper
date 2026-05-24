@@ -17,3 +17,6 @@ firmware/
 # IDE
 .vscode/
 .idea/
+
+# Claude Code session worktrees
+.claude/
