@@ -196,6 +196,17 @@
         Humidity: <strong>{{ '%.0f' % device.humidity_pct }} %</strong>
       </p>
     {% endif %}
+    {% if device.firmware_version %}
+      <p class="status-line">
+        <span class="status-icon">{{ icon("cpu", 18) }}</span>
+        Firmware: <strong>v{{ device.firmware_version }}</strong>
+        {% if firmware_server_version and firmware_server_version > device.firmware_version %}
+          <span class="warn-inline">{{ icon("alert-triangle", 14) }} update pending (v{{ firmware_server_version }})</span>
+        {% else %}
+          <span class="muted">up to date</span>
+        {% endif %}
+      </p>
+    {% endif %}
   {% else %}
     <p class="status-line muted">Never seen.</p>
   {% endif %}

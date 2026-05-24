@@ -487,6 +487,16 @@ def _status_ctx(request: Request) -> dict:
     display = display_state.get()
     device = display_state.get_device_status()
     pct = battery_pct(device["battery_mv"]) if device.get("battery_mv") else None
+    # Latest firmware version published by CI (rsynced into the bind-mounted
+    # firmware/ dir). None when no firmware has been pushed yet, in which
+    # case the template skips the "update pending" chip.
+    firmware_server_version: int | None = None
+    try:
+        version_file = Path("/app/firmware/version.txt")
+        if version_file.exists():
+            firmware_server_version = int(version_file.read_text().strip())
+    except (ValueError, OSError):
+        pass
     overdue_s = (
         int(time.time()) - device["last_seen"]
         if device.get("last_seen") else 0
@@ -548,6 +558,7 @@ def _status_ctx(request: Request) -> dict:
         "next_anniversary_date": tomorrow.strftime("%d.%m"),
         "fooby_preview": fooby_preview,
         "llm": llm,
+        "firmware_server_version": firmware_server_version,
         # _context_globals only fires on the full /status page render; the
         # 30 s HTMX partial calls this directly, so re-include the bits the
         # status partial needs (saved_count for the Library card, source_name

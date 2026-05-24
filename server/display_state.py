@@ -61,6 +61,7 @@ _device: dict[str, Any] = {
     "rssi": 0,
     "temperature_c": None,
     "humidity_pct": None,
+    "firmware_version": None,
     "last_seen": 0,
 }
 
@@ -207,12 +208,12 @@ def update_device_status(
     rssi: int,
     temperature_c: float | None = None,
     humidity_pct: float | None = None,
+    firmware_version: int | None = None,
 ) -> dict:
     """Update device status from an ESP32 wake-cycle report.
 
-    `temperature_c` / `humidity_pct` are sent from the SHT40 when the device
-    reads it on wake. They default to None when omitted so older firmware
-    that doesn't yet report them keeps working.
+    `temperature_c` / `humidity_pct` / `firmware_version` are optional so
+    older firmware builds that don't yet report them keep working.
 
     Returns `{"low_battery_alert_mv": int | None}`. When non-None, the
     battery just crossed below the threshold and the caller is expected
@@ -222,13 +223,19 @@ def update_device_status(
     """
     global _low_battery_alerted, _stale_heartbeat_alerted
 
-    _device.update({
+    update = {
         "battery_mv": battery_mv,
         "rssi": rssi,
         "temperature_c": temperature_c,
         "humidity_pct": humidity_pct,
         "last_seen": int(time.time()),
-    })
+    }
+    # Preserve the previously-reported version when this POST omits the
+    # field — a pre-OTA firmware build wouldn't send it, and we don't
+    # want a single stale POST to blank out a known value.
+    if firmware_version is not None:
+        update["firmware_version"] = firmware_version
+    _device.update(update)
 
     # Fresh POST means the device is back — re-arm the staleness alert.
     _stale_heartbeat_alerted = False

@@ -212,10 +212,12 @@ async def device_status(
     rssi: int = Query(0),
     temperature_c: float | None = Query(None),
     humidity_pct: float | None = Query(None),
+    firmware_version: int | None = Query(None),
 ):
     """ESP32 wake-cycle report — fires on a button press and on the daily
-    timer wake. `temperature_c` / `humidity_pct` are optional so a
-    pre-SHT40 firmware build still posts a valid request.
+    timer wake. `temperature_c` / `humidity_pct` / `firmware_version` are
+    optional so older firmware builds that don't yet report them still post
+    valid requests.
     """
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
@@ -225,6 +227,7 @@ async def device_status(
         rssi=rssi,
         temperature_c=temperature_c,
         humidity_pct=humidity_pct,
+        firmware_version=firmware_version,
     )
 
     alert_mv = result.get("low_battery_alert_mv")
