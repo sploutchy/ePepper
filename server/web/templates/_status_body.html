@@ -235,6 +235,11 @@
       </p>
     {% endif %}
   {% endif %}
+  {# OTA recovery — always offered (you most need it when the device
+     won't check in). Tiny link so it doesn't compete with the metrics. #}
+  <p class="status-actions">
+    <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash over USB</a>
+  </p>
 </section>
 
 {# LLM call ledger for the current calendar month. Cost reads as a
