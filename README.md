@@ -194,10 +194,7 @@ their own trailing page. The header carries `Title from Source —
 page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
 for en/de/fr/it), followed by total time and servings on the meta
 line. The source is omitted entirely for OCR'd photos that yielded
-no `source_name`. Every rendered page also carries a small
-`rendered at HH:MM` timestamp in the bottom-right corner so you can
-tell at a glance whether the panel is showing a fresh frame or a
-stale one.
+no `source_name`.
 
 ### Editing recipes
 
@@ -592,8 +589,7 @@ pio device monitor -b 115200
   `/version` or `/image` returns non-2xx — so you can tell at a
   glance whether the panel is stale or the network is down. When the
   device is rendering from its last-known cached frame, an `OFFLINE`
-  marker is stamped in the bottom-right corner (the same corner where
-  the server writes `rendered at HH:MM`) so the cached state is
+  marker is stamped in the bottom-right corner so the cached state is
   unmistakable.
 
 ### Panel driver
@@ -639,14 +635,13 @@ last USB-flashed with. `LittleFS.begin(true)` formats-on-fail against the
 running table's `spiffs` partition either way, so the cache self-heals; a
 USB reflash just guarantees the full 1.5 MB region.
 
-**Known trade-offs.** A cached page carries a *stale* battery glyph and
-`rendered at HH:MM` stamp until the next refresh (the page indicator is
-fine — it's baked per page). And because page turns no longer hit the
-server cursor, the web status preview's "current page" tracks *its own*
-navigation, not the device's. Both are deliberate: the win is Wi-Fi-free,
-lower-power page turns. This is the device-side half of `ROADMAP.md`
-DES-7; the server's `/page/*` endpoints are retained for the web status
-nav and any un-upgraded firmware.
+**Known trade-offs.** A cached page carries a *stale* battery glyph until
+the next refresh (the page indicator is fine — it's baked per page). And
+because page turns no longer hit the server cursor, the web status
+preview's "current page" tracks *its own* navigation, not the device's.
+Both are deliberate: the win is Wi-Fi-free, lower-power page turns. This
+is the device-side half of `ROADMAP.md` DES-7; the server's `/page/*`
+endpoints are retained for the web status nav and any un-upgraded firmware.
 
 ### OTA updates
 

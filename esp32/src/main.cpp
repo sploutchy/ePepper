@@ -28,9 +28,9 @@
  * we pull every page into LittleFS as /p<N>.bmp; subsequent next/prev/first/
  * last turns just blit the matching file. This trades one larger download
  * per recipe for Wi-Fi-free, lower-latency page turns. The cost: a page
- * turn's cached frame carries a stale battery glyph + "rendered at" stamp
- * until the next refresh, and the server's notion of the current page (used
- * by the web status preview) no longer tracks the device's local navigation.
+ * turn's cached frame carries a stale battery glyph until the next refresh,
+ * and the server's notion of the current page (used by the web status
+ * preview) no longer tracks the device's local navigation.
  *
  * Time is set from the HTTP Date header in every server response, so we
  * never call out to NTP. Logs stay roughly correct as a side effect.
@@ -1032,9 +1032,8 @@ void showErrorFrame(const char* headline, const char* detail) {
 
 // On Wi-Fi / server-fetch failure the panel keeps yesterday's content with
 // no on-screen sign anything's wrong. Stamp an "OFFLINE" marker in the
-// bottom-right corner — the same corner where the server draws its
-// "rendered at HH:MM" timestamp (DES-13). The user has one place to
-// glance at to tell whether the panel is showing today's content.
+// bottom-right corner so the user can tell at a glance the panel is showing
+// stale, last-known content rather than today's.
 void showErrorFrame() {
     epaper.setTextColor(TFT_BLACK, TFT_WHITE);
     epaper.setTextSize(1);
