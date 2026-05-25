@@ -156,12 +156,14 @@ Two input formats, both surfaces accept both:
 
 **From the web app:** open `/app/add`, paste a URL, or pick a photo.
 
-**From Telegram:** paste a URL into the chat, or send a photo (optional
-caption is forwarded to the OCR LLM as a hint).
+**From Telegram:** paste a URL into the chat (the bot confirms before it
+pushes), or send a photo (optional caption is forwarded to the OCR LLM as
+a hint). Any non-URL text is offered back as a repertoire search.
 
-Adding via the web lands the recipe in the repertoire immediately. Adding
-via the Telegram bot pushes to the panel right away; tap 💾 **Save** on
-the resulting message to keep it in the repertoire.
+Adding via the web lands the recipe in the repertoire immediately. A URL
+pasted to the Telegram bot is pushed to the panel once you tap ✅ to
+confirm; tap 💾 **Save** on the resulting message to keep it in the
+repertoire.
 
 ### Browsing the repertoire
 
@@ -185,8 +187,8 @@ keyboard.
 ### Pushing to the display
 
 From the web app, open a recipe and click **Display**. From the bot,
-tap the result number in a `/search` reply, or paste a URL the
-repertoire already knows.
+tap the result number in a `/search` reply, or paste a URL (the bot
+confirms, then pushes — even one the repertoire already knows).
 
 The panel renders title + ingredients + numbered steps across as
 many pages as fit (a tall recipe might be 2–3 pages). Notes get
@@ -299,9 +301,9 @@ signing in.
 ### Recipe repertoire (SQLite)
 
 Recipes persist to `data/recipes.db` (stdlib `sqlite3`, no extra
-dependency) **only when you explicitly save them**. The bot's URL/JSON
-paste pushes the recipe to the panel and stashes it in memory; tapping
-💾 Save commits it to the repertoire. The web Add flow saves the recipe
+dependency) **only when you explicitly save them**. The bot's URL paste
+confirms, then pushes the recipe to the panel and stashes it in memory;
+tapping 💾 Save commits it to the repertoire. The web Add flow saves the recipe
 to the repertoire immediately and leaves the panel alone (click *Display*
 to push). An image push is never persisted.
 
@@ -486,7 +488,7 @@ and *(b)* receiving the device-health alerts.
 
 | Command | What it does |
 |---|---|
-| `/recipe <url>` | Force-parse a URL even if the on_text fallback misreads it. |
+| `/recipe <url>` | Force-parse a URL and push it immediately, skipping the paste confirmation — handy when auto-detection misreads a link. |
 | `/comment <text>` | Add a note to the currently-displayed saved recipe. Doesn't re-push to the panel — the note shows on the next display. |
 | `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
 | `/surprise` | Show a random saved recipe as a preview card with 🎲 Another / 📺 Push buttons — re-roll until you like it, then push (mirrors `/search`). Doesn't touch the display until you tap Push. |

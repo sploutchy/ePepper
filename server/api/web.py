@@ -6,6 +6,7 @@ Routes live under /app/ to keep the existing device-facing endpoints clean.
 """
 
 import logging
+import re
 import secrets
 import time
 from datetime import datetime, timedelta
@@ -93,6 +94,26 @@ def _fmt_saved(ts: int | None) -> str:
     return humanize_date(ts)
 
 
+def _fmt_servings(raw) -> str | None:
+    """Render the recipe's servings string as a glanceable "Serves N".
+
+    `servings` is free-form across sources ("4", "4 servings", "Pour 4
+    personnes", "4-6"). The web UI is English regardless of recipe
+    language, so we pull the first integer (or range) and prefix it with
+    "Serves"; when there's no number to anchor on we fall back to the raw
+    string. None/empty yields None so the template can drop the line.
+    """
+    if not raw:
+        return None
+    s = str(raw).strip()
+    if not s:
+        return None
+    m = re.search(r"\d+(?:\s*[–-]\s*\d+)?", s)
+    if m:
+        return f"Serves {m.group(0).replace(' ', '')}"
+    return s
+
+
 def _ingredients(recipe: dict) -> list[str]:
     ings = recipe.get("ingredients") or []
     return [str(i) for i in ings if i]
@@ -135,6 +156,7 @@ def _context_globals(request: Request) -> dict:
     return {
         "request": request,
         "fmt_saved": _fmt_saved,
+        "fmt_servings": _fmt_servings,
         "ingredients": _ingredients,
         "instruction_groups": _instruction_groups,
         "source_name": source_name,
