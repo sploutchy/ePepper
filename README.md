@@ -156,14 +156,12 @@ Two input formats, both surfaces accept both:
 
 **From the web app:** open `/app/add`, paste a URL, or pick a photo.
 
-**From Telegram:** paste a URL into the chat (the bot confirms before it
-pushes), or send a photo (optional caption is forwarded to the OCR LLM as
-a hint). Any non-URL text is offered back as a repertoire search.
+**From Telegram:** paste a URL into the chat, or send a photo (optional
+caption is forwarded to the OCR LLM as a hint).
 
-Adding via the web lands the recipe in the repertoire immediately. A URL
-pasted to the Telegram bot is pushed to the panel once you tap ✅ to
-confirm; tap 💾 **Save** on the resulting message to keep it in the
-repertoire.
+Adding via the web lands the recipe in the repertoire immediately. Adding
+via the Telegram bot pushes to the panel right away; tap 💾 **Save** on
+the resulting message to keep it in the repertoire.
 
 ### Browsing the repertoire
 
@@ -187,8 +185,8 @@ keyboard.
 ### Pushing to the display
 
 From the web app, open a recipe and click **Display**. From the bot,
-tap the result number in a `/search` reply, or paste a URL (the bot
-confirms, then pushes — even one the repertoire already knows).
+tap the result number in a `/search` reply, or paste a URL (which pushes
+to the panel right away, even one the repertoire already knows).
 
 The panel renders title + ingredients + numbered steps across as
 many pages as fit (a tall recipe might be 2–3 pages). Notes get
@@ -222,11 +220,10 @@ Three physical buttons:
 
 - **Refresh** (right / green): short — re-fetch; long press — force a
   full panel redraw.
-- **Next** (middle): short — next page; long press — jump to last.
-- **Prev** (left): short — previous page; long press — jump to first.
-- **Prev + Refresh chord:** clear the display (renders an idle hint).
+- **Next** (middle): next page.
+- **Prev** (left): previous page.
 
-Page turns (next/prev/first/last) are served from the device's on-flash
+Page turns (next/prev) are served from the device's on-flash
 cache — **no Wi-Fi**. A refresh pulls the whole recipe into flash up front,
 so flipping pages afterwards is local and quick. Only the refresh button
 and the daily timer touch the network. See [On-device page cache](#on-device-page-cache).
@@ -316,7 +313,7 @@ Schema:
 
 `saved_at` is the canonical "first saved" timestamp — never moves once
 set. `last_displayed_at` is bumped every time the row is pushed to the
-panel (web *Display* button, bot `/surprise`, `/search` push, anniversary
+panel (web *Display* button, bot `/search` push, anniversary
 scheduler, …) and drives the repertoire's "recently cooked" sort + the
 anniversary picker. NULL is a first-class state ("never cooked") — rows
 in a repertoire upgraded from before this column existed start NULL and only
@@ -331,7 +328,7 @@ repertoire knows how many times you've cooked each recipe. The repertoire card
 and detail page render `cooked N×, last <when>` (or just `cooked <when>`
 after a single cook), where `<when>` is a humanised relative phrase —
 `yesterday`, `3 days ago`, `last week`, `last month`, `2 years ago`, etc.
-The bot's search results and surprise card share the same wording via
+The bot's search results share the same wording via
 `status_helpers.humanize_date`. There's a **Most cooked** sort option in
 the repertoire header. Counts start at 0 for everything on
 upgrade; only future pushes accumulate.
@@ -377,15 +374,11 @@ change needed, the next container start picks it up.
 
 ### LLM customisation
 
-Prompts and the model price table live as data files under
-`server/assets/`, not in Python:
+Prompts live as data files under `server/assets/`, not in Python:
 
 - `server/assets/prompts/*.txt` — one file per prompt
   (URL fallback, photo OCR, translation, …). Edit the text, restart
   the container; no code change.
-- `server/assets/llm_prices.json` — per-model input/output token
-  prices used to surface a rough cost in the logs. Add an entry for
-  a new SKU here when you swap `LLM_TEXT_MODEL` / `LLM_VISION_MODEL`.
 
 ### Anniversary scheduler
 
@@ -466,7 +459,7 @@ it leaked the key into container logs.
 | `GET` | `/version` | Current image hash, a `content_hash` (stable across page navigation — changes only on a new render), page info, and `next_wake_in_s` (seconds until the device's next aligned wake at `DEVICE_WAKE_HOUR_LOCAL`). ESP32 hits this on every refresh/timer wake; `content_hash` is the cache key for the device's on-flash page store. |
 | `GET` | `/image` | Current page as a 1-bit BMP. Defaults to the active page. |
 | `GET` | `/image?page=N` | Specific page as BMP. The device fetches each page explicitly to fill its on-flash cache; there is no server-side page cursor (DES-7). |
-| `POST` | `/display/clear` | Clear the panel to the idle frame. Fired by the device's PREV + REFRESH chord and by the bot's `/clear`. |
+| `POST` | `/display/clear` | Clear the panel to the idle frame. Used by the web status page's Clear button. |
 | `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…&firmware_version=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` / `firmware_version` are optional. May trigger a low-battery alert. |
 | `GET` | `/device/status` | Last-known wake-cycle report (JSON). |
 | `GET` | `/firmware/version` | Returns the integer in `firmware/version.txt` (or `0` if no firmware published). ESP32 polls this on every daily wake and OTAs itself when the value exceeds the build's baked-in `FIRMWARE_VERSION`. |
@@ -488,10 +481,8 @@ and *(b)* receiving the device-health alerts.
 
 | Command | What it does |
 |---|---|
-| `/recipe <url>` | Force-parse a URL and push it immediately, skipping the paste confirmation — handy when auto-detection misreads a link. |
 | `/comment <text>` | Add a note to the currently-displayed saved recipe. Doesn't re-push to the panel — the note shows on the next display. |
 | `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
-| `/surprise` | Show a random saved recipe as a preview card with 🎲 Another / 📺 Push buttons — re-roll until you like it, then push (mirrors `/search`). Doesn't touch the display until you tap Push. |
 | `/clear` | Clear the panel (renders a blank white frame). |
 | `/status` | Sectioned device + repertoire snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
 | `/start` | Brief welcome + how to send recipes. |
@@ -582,14 +573,12 @@ pio device monitor -b 115200
   the report; the next refresh/timer wake catches telemetry up.
 - Keeps approximate wall-clock time from the HTTP `Date:` header on
   every response, no NTP traffic.
-- On failure, the panel keeps its last content and stamps a small
-  non-destructive `OFFLINE` marker (64×16) into the bottom-right
-  corner via a partial update — covering both a Wi-Fi join failure
-  *and* a non-2xx `/version` or `/image` response (server reachable
-  but erroring: bad API key, 5xx, …). A normal 200 with an unchanged
-  `content_hash` draws nothing — the panel just stays as-is. The
-  corner marker means "couldn't reach or talk to the server this
-  wake; what you see may be stale."
+- On failure (a Wi-Fi join failure *or* a non-2xx `/version` / `/image`
+  response — bad API key, 5xx, …), the panel keeps its last content
+  unchanged and the device chirps the error beep (three short tones).
+  Nothing is drawn over the existing frame, so what you see may be
+  stale. A normal 200 with an unchanged `content_hash` also draws
+  nothing — the panel just stays as-is.
 
 ### Panel driver
 
@@ -686,8 +675,8 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 |---|---|---|
 | **Buttons** | | Active-low, 10K pull-up, 100nF debounce |
 | KEY0 — Refresh | 3 | Right (green) — short: refresh, long: force full redraw |
-| KEY1 — Next page | 4 | Middle — short: next, long: jump to last page |
-| KEY2 — Prev page | 5 | Left — short: prev, long: jump to first page |
+| KEY1 — Next page | 4 | Middle — next page |
+| KEY2 — Prev page | 5 | Left — previous page |
 | **Display (SPI)** | | UC8179 via 50P FPC |
 | EPD CLK | 7 | |
 | EPD MOSI | 9 | |
@@ -700,15 +689,10 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 | Buzzer | 45 | Active-high, MLT-8530 piezo |
 | Battery ADC | 1 | Enable via GPIO21 |
 | Battery enable | 21 | High to read ADC |
-| **I²C (bus 0)** | | SHT40 used; PCF8563 RTC present but unused |
+| **I²C (bus 0)** | | SHT40 |
 | SDA | 19 | |
 | SCL | 20 | |
 | SHT40 ambient | 0x44 | Temp + humidity, read on every wake |
-| PCF8563 RTC | 0x51 | *Present on board, not used* — time is synced from the HTTP `Date:` header instead. |
-| **SD card** | | *Present on board, not used by firmware* — the page cache lives in internal flash (LittleFS), not on SD. |
-| SD CS | 14 | |
-| SD enable | 16 | |
-| SD detect | 15 | |
 
 ## Roadmap
 

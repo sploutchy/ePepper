@@ -49,49 +49,11 @@
   {% endif %}
 
   {# Live preview of the e-ink frame — nested inside the Display
-     section so there's no hairline between title and image, and the
-     page-nav + Clear controls below act on the visible page. #}
+     section so there's no hairline between title and image. Shows
+     page 1 of the current recipe. #}
   {% if display.hash %}
     <div class="display-preview">
       <img src="/image?v={{ display.hash }}" alt="Current display">
-    </div>
-  {% endif %}
-
-  {% if display.type == "recipe" and display.total_pages > 1 %}
-    {# Page navigation — mirrors the device's physical buttons so you can
-       step through pages from the couch. Each tap re-renders this whole
-       partial via HTMX so the preview + the "page X of Y" line update
-       together. #}
-    <div class="page-nav">
-      <button class="iconbtn"
-              hx-post="/app/display/page/first"
-              hx-target="#status-body"
-              hx-swap="innerHTML"
-              title="First page" aria-label="First page">
-        {{ icon("skip-back", 18) }}
-      </button>
-      <button class="iconbtn"
-              hx-post="/app/display/page/prev"
-              hx-target="#status-body"
-              hx-swap="innerHTML"
-              title="Previous page" aria-label="Previous page">
-        {{ icon("chevron-left", 18) }}
-      </button>
-      <span class="page-nav-indicator muted">{{ display.page }} / {{ display.total_pages }}</span>
-      <button class="iconbtn"
-              hx-post="/app/display/page/next"
-              hx-target="#status-body"
-              hx-swap="innerHTML"
-              title="Next page" aria-label="Next page">
-        {{ icon("chevron-right", 18) }}
-      </button>
-      <button class="iconbtn"
-              hx-post="/app/display/page/last"
-              hx-target="#status-body"
-              hx-swap="innerHTML"
-              title="Last page" aria-label="Last page">
-        {{ icon("skip-forward", 18) }}
-      </button>
     </div>
   {% endif %}
 
@@ -186,7 +148,7 @@
      inline next to the timestamp so it reads as a qualifier on the
      same fact. #}
   <h2>
-    <span class="status-card-h-label device-reveal-trigger">{{ icon("radio", 18) }} Device</span>
+    <span class="status-card-h-label">{{ icon("radio", 18) }} Device</span>
     <span class="status-card-h-meta">
       {% if device.last_seen %}
         Last seen {{ humanize_ago(device.last_seen) }}
@@ -235,39 +197,11 @@
       </p>
     {% endif %}
   {% endif %}
-  {# OTA recovery — hidden by default; revealed by clicking the Device
-     title 7 times (see the reveal script in status.html). Stays out of
-     the way since OTA is the normal path and this is a rare manual
-     fallback. #}
-  <p class="status-actions flash-reveal" hidden>
+  {# OTA recovery — browser-based flasher for when OTA can't reach the
+     device. OTA is the normal path; this is a rare manual fallback. #}
+  <p class="status-actions">
     <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash firmware</a>
   </p>
 </section>
-
-{# LLM call ledger for the current calendar month. Cost reads as a
-   system metric (same Inter body type as the Repertoire saved-count
-   and the Device battery / signal lines) — Fraunces is reserved for
-   editorial content (recipe titles, page titles), and a monthly cost
-   stat is operational metadata, not content. The `chf_partial` flag
-   fires when a model in the period isn't in the pricing table;
-   surface that as a "≥" prefix so the user knows the estimate
-   undercounts. #}
-{% if llm.enabled %}
-<section class="status-card">
-  <h2><span class="status-card-h-label">{{ icon("cpu", 18) }} LLM</span></h2>
-  {% if llm.calls == 0 %}
-    <p class="status-line muted">No calls this month yet.</p>
-  {% else %}
-    <p class="status-line">
-      <strong>{{ '≥ ' if llm.chf_partial else '~' }}{{ '%.2f' % llm.chf }} CHF</strong>
-      <span class="muted">this month</span>
-    </p>
-    <p class="status-line muted">
-      {{ llm.calls }} call{{ '' if llm.calls == 1 else 's' }}
-      ({{ llm.url_calls }} URL, {{ llm.ocr_calls }} OCR, {{ llm.translate_calls }} translate)
-    </p>
-  {% endif %}
-</section>
-{% endif %}
 
 </div> {# /.status-cards #}

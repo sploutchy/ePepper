@@ -17,7 +17,6 @@ import library
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
-from processing import llm as processing_llm
 from scheduler import (
     backfill_translations,
     heartbeat_loop,
@@ -141,10 +140,7 @@ async def main() -> None:
     # without creating cycles:
     #   - display_state notifies display_persistence after every mutation
     #     so saved-recipe state survives a container restart.
-    #   - processing.llm hands per-call accounting to library so the
-    #     status page can show monthly cost.
     display_state.register_change_listener(display_persistence.persist_current)
-    processing_llm.register_usage_sink(library.record_llm_call)
 
     # Re-render whatever recipe was on the panel before the restart —
     # only kicks in for saved recipes (see display_persistence docstring).

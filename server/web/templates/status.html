@@ -24,31 +24,4 @@
      hx-swap="innerHTML">
   {% include "_status_body.html" %}
 </div>
-
-{# Easter-egg reveal for the firmware flasher: 7 clicks on the Device card
-   title unhides the "Flash firmware" link. Lives out here (not in the
-   swapped partial) so the click counter survives the 30 s auto-refresh;
-   clicks are delegated from document and the reveal is re-applied after
-   each HTMX swap, since the partial always re-renders the link hidden. #}
-<script>
-  (function () {
-    var clicks = 0;
-    var revealed = false;
-    function showFlash() {
-      document.querySelectorAll('.flash-reveal').forEach(function (el) {
-        el.hidden = false;
-      });
-    }
-    document.addEventListener('click', function (e) {
-      if (!e.target.closest('.device-reveal-trigger')) return;
-      if (++clicks >= 7) {
-        revealed = true;
-        showFlash();
-      }
-    });
-    document.body.addEventListener('htmx:afterSwap', function () {
-      if (revealed) showFlash();
-    });
-  })();
-</script>
 {% endblock %}

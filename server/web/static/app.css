@@ -221,14 +221,6 @@ main {
 
 /* ----------  Utility  ---------- */
 .muted { color: var(--muted); }
-.eyebrow {
-  font-family: var(--font-body);
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--muted);
-}
 
 /* ----------  Login  ---------- */
 body.centered {
@@ -302,20 +294,6 @@ body.centered {
 /* (No .login button override — Sign in now lives inside .input-action
    as the merged paste/submit button next to the access-code field. See
    .input-action / .input-action-btn above.) */
-
-.login-hint {
-  font-size: 14px;
-  line-height: 1.6;
-  margin: 0;
-}
-.login-hint code {
-  font-family: var(--font-mono);
-  font-size: 13px;
-  background: var(--surface-alt);
-  padding: 1px 6px;
-  border-radius: 4px;
-  color: var(--text);
-}
 
 /* ----------  List controls (library search) ---------- */
 .list-controls {
@@ -729,9 +707,9 @@ html[data-theme="dark"] .list-select {
    absent — the old 320 px floor stretched landscape frames into
    squares. */
 /* The preview is nested inside the Display .status-card, sitting between
-   the title row and the page-nav / Clear controls. No border or extra
-   chrome — the section's bottom hairline is enough — just margin so the
-   image has breathing room above and below. */
+   the title row and the Clear control. No border or extra chrome — the
+   section's bottom hairline is enough — just margin so the image has
+   breathing room above and below. */
 .display-preview {
   background: transparent;
   border: 0;
@@ -824,15 +802,6 @@ html[data-theme="dark"] .list-select {
   letter-spacing: 0.04em;
   margin-top: 4px;
 }
-/* .display-title.inline-meta — keep the qualifier on the same line as
-   the headline. Used by the LLM cost line ("~0.04 CHF this month"),
-   where the "this month" is short enough to fit beside the cost. */
-.display-title.inline-meta .muted {
-  display: inline;
-  margin-top: 0;
-  margin-left: 10px;
-}
-
 .status-card > p { margin: 0 0 6px; font-size: 15px; }
 .status-card > p:last-child { margin-bottom: 0; }
 .status-card .muted { font-size: 14px; }
@@ -843,27 +812,6 @@ html[data-theme="dark"] .list-select {
    etc.) — muted so they read as "label decoration", not as primary
    attention pulls the way the section-title accent icons do. */
 .status-icon { display: inline-flex; color: var(--muted); }
-
-.page-nav {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  margin-top: 16px;
-  /* No top border / top padding — that hairline separated the display
-     info from the buttons, but the buttons themselves are visually
-     bounded and the extra rule felt like noise. */
-}
-.page-nav .iconbtn {
-  padding: 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-}
-.page-nav-indicator {
-  margin: 0 8px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
 
 .status-actions {
   margin: 16px 0 0;
@@ -1176,9 +1124,6 @@ button.link.danger {
   font-weight: 500;
 }
 button.link.danger:hover { background: var(--danger-soft); color: var(--danger); }
-
-/* Sections under instructions */
-.instructions-block { /* container for sub-sectioned instructions */ }
 
 /* ----------  Status alert banner & inline warning chip  ----------
    Editorial callout for low-battery / overdue alerts on the status page,

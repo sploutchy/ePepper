@@ -5,7 +5,6 @@ Tables (full column list in `_SCHEMA` below):
     comments     — free-text notes attached to a recipe
     sessions     — web-app session tokens (sha256 hashes, never raw)
     recipes_fts  — FTS5 index for /search
-    llm_calls    — per-call accounting for the monthly cost surface
 
 `saved_at` is NULL until the user explicitly saves the recipe; until then
 the row is just a cached copy of the parsed recipe so we can re-render it
@@ -89,17 +88,6 @@ CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
     title, ingredients, notes, translated,
     tokenize='unicode61 remove_diacritics 2'
 );
-
--- Per-call LLM accounting, drives the monthly cost surface on /status.
-CREATE TABLE IF NOT EXISTS llm_calls (
-    ts            INTEGER NOT NULL,
-    kind          TEXT NOT NULL,
-    model         TEXT NOT NULL,
-    input_tokens  INTEGER NOT NULL,
-    output_tokens INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_llm_calls_ts ON llm_calls(ts);
 
 -- Singleton-row table tracking what's currently on the e-ink panel, so a
 -- container restart can re-render the same recipe + page instead of
