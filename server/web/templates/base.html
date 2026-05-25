@@ -17,7 +17,7 @@
   <title>{% block title %}ePepper{% endblock %}</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/app/static/app.css">
   {# Apply a saved manual override before paint. When no choice is saved,
      we leave data-theme unset so the CSS @media (prefers-color-scheme)
@@ -83,15 +83,6 @@
       var next = current === 'dark' ? 'light' : 'dark';
       html.dataset.theme = next;
       try { localStorage.setItem('epepper-theme', next); } catch (e) {}
-    }
-
-    // Register the PWA service worker. Best-effort — silent on failure so
-    // a SW that disappears can't break the page. The SW only caches the
-    // static shell; dynamic content stays network-first.
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', function() {
-        navigator.serviceWorker.register('/app/sw.js').catch(function() {});
-      });
     }
   </script>
 </body>

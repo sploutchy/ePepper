@@ -31,9 +31,6 @@
  * turn's cached frame carries a stale battery glyph until the next refresh,
  * and the server's notion of the current page (used by the web status
  * preview) no longer tracks the device's local navigation.
- *
- * Time is set from the HTTP Date header in every server response, so we
- * never call out to NTP. Logs stay roughly correct as a side effect.
  */
 
 #include <Arduino.h>
@@ -44,8 +41,6 @@
 #include <Wire.h>
 #include <FS.h>
 #include <LittleFS.h>
-#include <sys/time.h>
-#include <time.h>
 #include "TFT_eSPI.h"
 #include "config.h"
 
@@ -69,7 +64,6 @@ void handleRefresh(bool force = false);
 void handlePageChange(const char* direction);
 void handleTimerWake();
 void checkForOTAUpdate();
-void warmWindow();
 bool waitForLongPress(int btnPin, int thresholdMs);
 void connectWiFi();
 bool pollServer();
@@ -83,11 +77,8 @@ void clearCacheAbove(int n);
 void displayImage(uint8_t* data, size_t len);
 bool readSHT40(float& tempC, float& rh);
 float readBatteryVoltage();
-void buzzerBeep(int count, int duration_ms);
 void goToSleep(uint64_t seconds);
 WakeAction detectWakeAction();
-void collectDateHeader(HTTPClient& http);
-void applyDateHeader(HTTPClient& http);
 uint64_t computeSleepSeconds();
 
 // ---- RTC-persistent state (survives deep sleep, lost on power loss) ----
@@ -99,7 +90,6 @@ uint64_t computeSleepSeconds();
 RTC_DATA_ATTR char cachedHash[16] = "";
 RTC_DATA_ATTR int currentPage = 1;
 RTC_DATA_ATTR int totalPages = 1;
-RTC_DATA_ATTR int wakeCount = 0;
 
 // ---- Transient state ----
 uint8_t* imageBuffer = nullptr;
@@ -128,13 +118,10 @@ void setup() {
     Serial.begin(115200);
     delay(100);
 
-    wakeCount++;
-    Serial.printf("\n[ePepper] Wake #%d\n", wakeCount);
+    Serial.println("\n[ePepper] Wake");
 
     pinMode(LED_PIN, OUTPUT);
     digitalWrite(LED_PIN, HIGH);  // LED off (active-low)
-    pinMode(BUZZER_PIN, OUTPUT);
-    digitalWrite(BUZZER_PIN, LOW);
 
     pinMode(BTN_REFRESH, INPUT);
     pinMode(BTN_NEXT, INPUT);
@@ -166,8 +153,9 @@ void setup() {
     if (action == WAKE_REFRESH) {
         isLong = waitForLongPress(BTN_REFRESH, LONG_PRESS_MS);
     }
-    // Drain the held button so the warm window doesn't re-fire the same
-    // physical press once we return to it.
+    // Drain the held button before sleeping: ext1 wakes on ANY_LOW, so a
+    // button still held at sleep entry would immediately re-wake us into a
+    // loop. Wait for release first.
     int heldPin = -1;
     if (action == WAKE_REFRESH) heldPin = BTN_REFRESH;
     else if (action == WAKE_NEXT) heldPin = BTN_NEXT;
@@ -189,12 +177,6 @@ void setup() {
         case WAKE_TIMER:
             handleTimerWake();
             break;
-    }
-
-    // After a button press, hold awake (WiFi connected) for a warm window
-    // so quick follow-up presses skip the cold-start + WiFi reconnect.
-    if (action != WAKE_TIMER) {
-        warmWindow();
     }
 
     goToSleep(computeSleepSeconds());
@@ -231,7 +213,6 @@ void handleRefresh(bool force) {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
-        buzzerBeep(3, 100);
         return;
     }
 
@@ -291,7 +272,6 @@ void handlePageChange(const char* direction) {
         Serial.println("[Action] Cold state — refreshing to recover page count");
         connectWiFi();
         if (WiFi.status() != WL_CONNECTED) {
-            buzzerBeep(3, 100);
             return;
         }
         reportDeviceStatus();
@@ -323,7 +303,6 @@ void handlePageChange(const char* direction) {
     Serial.println("[Action] Cache miss — fetching over WiFi");
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
-        buzzerBeep(3, 100);
         return;
     }
 
@@ -506,7 +485,6 @@ bool pollServer() {
     http.begin(url);
     http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
-    collectDateHeader(http);
 
     int code = http.GET();
     if (code != 200) {
@@ -516,8 +494,6 @@ bool pollServer() {
         http.end();
         return false;
     }
-
-    applyDateHeader(http);
 
     String body = http.getString();
     http.end();
@@ -567,7 +543,6 @@ bool downloadImage(int page) {
     http.begin(url);
     http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
-    collectDateHeader(http);
 
     int code = http.GET();
     if (code != 200) {
@@ -575,7 +550,6 @@ bool downloadImage(int page) {
         http.end();
         return false;
     }
-    applyDateHeader(http);
 
     imageSize = http.getSize();
     size_t maxSize = DISPLAY_WIDTH * DISPLAY_HEIGHT / 8 + 1024;
@@ -746,10 +720,8 @@ void reportDeviceStatus() {
     http.begin(url);
     http.setUserAgent("ePepper-device/1.0");
     http.addHeader("Authorization", String("Bearer ") + API_KEY);
-    collectDateHeader(http);
 
     int code = http.POST("");
-    applyDateHeader(http);
 
     if (envOk) {
         Serial.printf("[API] Status: %dmV  %.1fC  %.0f%%  rssi=%d → %d\n",
@@ -759,54 +731,6 @@ void reportDeviceStatus() {
                       batteryMv, WiFi.RSSI(), code);
     }
     http.end();
-}
-
-
-// ---- Time sync via HTTP Date header ----
-// Replaces NTP: every server response carries a Date header per RFC 7231,
-// so we get a roughly-correct clock as a side effect of any wake.
-
-void collectDateHeader(HTTPClient& http) {
-    static const char* keys[] = {"Date"};
-    http.collectHeaders(keys, 1);
-}
-
-
-void applyDateHeader(HTTPClient& http) {
-    String dateStr = http.header("Date");
-    if (dateStr.length() < 25) return;
-
-    // RFC 7231: "Sun, 17 May 2026 12:34:56 GMT" — fixed layout, ASCII month abbr.
-    static const char MONTHS[] = "JanFebMarAprMayJunJulAugSepOctNovDec";
-    int day = 0, year = 0, hour = 0, minute = 0, second = 0;
-    char monStr[4] = {0};
-    if (sscanf(dateStr.c_str(), "%*3s, %d %3s %d %d:%d:%d",
-               &day, monStr, &year, &hour, &minute, &second) != 6) {
-        Serial.printf("[Time] Bad Date header: %s\n", dateStr.c_str());
-        return;
-    }
-    const char* m = strstr(MONTHS, monStr);
-    if (!m) return;
-
-    struct tm t = {};
-    t.tm_mday = day;
-    t.tm_mon = (m - MONTHS) / 3;
-    t.tm_year = year - 1900;
-    t.tm_hour = hour;
-    t.tm_min = minute;
-    t.tm_sec = second;
-    t.tm_isdst = 0;
-
-    // The Date header is GMT. mktime() treats the struct as local time, so
-    // we briefly force TZ=UTC to get the right epoch independent of the
-    // device's notional local zone.
-    setenv("TZ", "UTC", 1); tzset();
-    time_t epoch = mktime(&t);
-    unsetenv("TZ"); tzset();
-    if (epoch <= 0) return;
-
-    struct timeval tv = { .tv_sec = epoch, .tv_usec = 0 };
-    settimeofday(&tv, nullptr);
 }
 
 
@@ -824,18 +748,6 @@ float readBatteryVoltage() {
     float voltage = (raw / 4095.0f) * 3.3f * 2.0f;
     Serial.printf("[Battery] ADC raw=%d → %.2fV\n", raw, voltage);
     return voltage;
-}
-
-
-// ---- Buzzer ----
-
-void buzzerBeep(int count, int duration_ms) {
-    for (int i = 0; i < count; i++) {
-        digitalWrite(BUZZER_PIN, HIGH);
-        delay(duration_ms);
-        digitalWrite(BUZZER_PIN, LOW);
-        if (i < count - 1) delay(duration_ms);
-    }
 }
 
 
@@ -937,38 +849,6 @@ void displayImage(uint8_t* data, size_t len) {
     epaper.update();
 
     Serial.printf("[Display] Pushed %dx%d image to panel\n", w, h);
-}
-
-
-// ---- Warm window ----
-
-void warmWindow() {
-    Serial.printf("[Warm] Watching buttons for %d ms\n", WARM_WINDOW_MS);
-    unsigned long deadline = millis() + WARM_WINDOW_MS;
-    while ((long)(deadline - millis()) > 0) {
-        delay(20);
-        int hit = -1;
-        if (digitalRead(BTN_NEXT) == LOW)         hit = BTN_NEXT;
-        else if (digitalRead(BTN_PREV) == LOW)    hit = BTN_PREV;
-        else if (digitalRead(BTN_REFRESH) == LOW) hit = BTN_REFRESH;
-        if (hit < 0) continue;
-
-        delay(BTN_DEBOUNCE_MS);
-        if (digitalRead(hit) != LOW) continue;  // bounced
-
-        // Only Refresh has a long-press gesture (force redraw); paging is
-        // short-press only.
-        bool isLong = (hit == BTN_REFRESH) && waitForLongPress(hit, LONG_PRESS_MS);
-
-        if (hit == BTN_REFRESH)        handleRefresh(isLong);
-        else if (hit == BTN_NEXT)      handlePageChange("next");
-        else                           handlePageChange("prev");
-
-        while (digitalRead(hit) == LOW) delay(10);
-
-        deadline = millis() + WARM_WINDOW_MS;
-    }
-    Serial.println("[Warm] Window closed");
 }
 
 

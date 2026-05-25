@@ -167,26 +167,6 @@ def _context_globals(request: Request) -> dict:
 router = APIRouter(prefix="/app", tags=["web"])
 
 
-# --- PWA --------------------------------------------------------------------
-
-
-@router.get("/sw.js", include_in_schema=False)
-async def service_worker():
-    """Serve the service worker at /app/sw.js so its default registration
-    scope is /app/ — couldn't be served from /app/static/ without
-    Service-Worker-Allowed header gymnastics. No auth gate: the SW is
-    static asset code and the file itself caches only public shell URLs.
-    """
-    sw_path = _WEB_DIR / "static" / "sw.js"
-    return Response(
-        content=sw_path.read_bytes(),
-        media_type="application/javascript",
-        # Disable HTTP caching so SW updates roll out promptly; the
-        # browser still re-checks the script on every navigation anyway.
-        headers={"Cache-Control": "no-cache"},
-    )
-
-
 # --- Auth -------------------------------------------------------------------
 
 
@@ -542,28 +522,18 @@ def _user_facing_url(
 def _filename_hint(filename: str | None) -> str | None:
     """Turn an upload filename into a usable LLM context hint, or None.
 
-    Strips the directory prefix and the extension, replaces `_`, `-` and
-    `.` separators with spaces. Generic camera / screenshot patterns
-    ("IMG_1234", "Screenshot 2025-…", "photo (3)") collapse to noise —
-    we keep the cleaned form anyway and let the LLM ignore it, rather
-    than maintain a brittle blocklist. Returns None for empty / fully
-    numeric / single-token names so we don't waste a hint slot on
-    them.
+    Strips the extension, turns `_`/`-` separators into spaces and trims.
+    Returns the cleaned name if non-empty, else None. Generic camera /
+    screenshot patterns ("IMG_1234", "Screenshot 2025-…") survive as noise —
+    we let the LLM ignore them rather than maintain heuristic gating.
     """
     if not filename:
         return None
     name = filename.rsplit("/", 1)[-1].rsplit("\\", 1)[-1]
     if "." in name:
         name = name.rsplit(".", 1)[0]
-    cleaned = " ".join(part for part in name.replace("_", " ").replace("-", " ").split())
-    if not cleaned:
-        return None
-    # Skip if it's just digits (camera-style) or one short opaque word.
-    if cleaned.replace(" ", "").isdigit():
-        return None
-    if " " not in cleaned and len(cleaned) < 6:
-        return None
-    return cleaned
+    cleaned = " ".join(name.replace("_", " ").replace("-", " ").split())
+    return cleaned or None
 
 
 def _hx_redirect(url: str) -> Response:

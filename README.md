@@ -285,11 +285,10 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   toggle in the header overrides and persists in `localStorage`.
   Mobile browser chrome (URL bar, status bar) flips with the page
   via `theme-color` metas.
-- **PWA.** A `manifest.webmanifest` + service worker at `/app/sw.js`
-  let you install to the home screen as a standalone app. The SW
-  pre-caches the static shell (`app.css`, `htmx.min.js`, the pepper
-  icon, the manifest); HTML and API responses are always
-  network-first so the repertoire never goes stale.
+- **PWA.** A `manifest.webmanifest` lets you install the app to the
+  home screen as a standalone app. There's no service worker — every
+  request hits the network, so the repertoire is never stale (and the
+  app needs connectivity to load).
 
 The login cookie also unlocks `/version`, `/image`, etc. for the
 browser, so you can debug the device by opening those URLs after
@@ -465,10 +464,6 @@ it leaked the key into container logs.
 | `GET` | `/firmware/version` | Returns the integer in `firmware/version.txt` (or `0` if no firmware published). ESP32 polls this on every daily wake and OTAs itself when the value exceeds the build's baked-in `FIRMWARE_VERSION`. |
 | `GET` | `/firmware/download` | Streams `firmware/firmware.bin` as `application/octet-stream`. 404 if no firmware is published. |
 
-Every server response carries a standard `Date:` header which the
-firmware parses to keep its system clock approximately correct — no
-NTP traffic.
-
 ## Telegram bot
 
 The bot is the secondary control surface, optimised for "send a URL
@@ -571,27 +566,19 @@ pio device monitor -b 115200
 - Posts a `/device/status` report on every refresh/timer wake — battery
   mV, RSSI, SHT40 temp + humidity (if present). Offline page turns skip
   the report; the next refresh/timer wake catches telemetry up.
-- Keeps approximate wall-clock time from the HTTP `Date:` header on
-  every response, no NTP traffic.
 - On failure (a Wi-Fi join failure *or* a non-2xx `/version` / `/image`
   response — bad API key, 5xx, …), the panel keeps its last content
-  unchanged and the device chirps the error beep (three short tones).
-  Nothing is drawn over the existing frame, so what you see may be
-  stale. A normal 200 with an unchanged `content_hash` also draws
-  nothing — the panel just stays as-is.
+  unchanged and the failure is logged over serial. Nothing is drawn over
+  the existing frame, so what you see may be stale. A normal 200 with an
+  unchanged `content_hash` also draws nothing — the panel just stays as-is.
 
 ### Panel driver
 
 Panel driver selection is controlled by `-DBOARD_SCREEN_COMBO=520` in
 `esp32/platformio.ini` — the Seeed_GFX preset for the E1001's UC8179
-panel. `EPaperFixed` (`esp32/include/EPaperFixed.h` +
-`esp32/src/EPaperFixed.cpp`) overrides Seeed_GFX's partial-update
-routine to push OLD image data after the refresh so the controller's
-differential LUT starts from the correct baseline on the next partial
-refresh. The header is kept dormant on purpose — every pixel is rendered
-server-side now, so partial-update is unused — but the override is left
-in the tree in case future on-device content (e.g. an on-device clock)
-needs a working partial path again. See the file comment.
+panel. The firmware uses Seeed_GFX's stock `EPaper` driver with
+full-screen refreshes only; every pixel is rendered server-side, so the
+device never does partial updates.
 
 ### On-device page cache
 

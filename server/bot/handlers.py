@@ -243,46 +243,19 @@ def _is_allowed(user_id: int) -> bool:
 
 
 def _web_app_line() -> str:
-    """One-line pointer to the web app, formatted for HTML mode.
-
-    Linkified when WEB_URL is set in the environment; otherwise just
-    describes the path so the user can navigate manually.
-    """
-    if WEB_URL:
-        return (
-            f"🌐 <b>Web app:</b> "
-            f"<a href=\"{html.escape(WEB_URL)}/app/\">{html.escape(WEB_URL)}/app/</a> "
-            "(same API_KEY logs you in) — sort, filter, and browse the full repertoire."
-        )
+    """One-line linkified pointer to the web app (HTML), or "" when WEB_URL is unset."""
+    if not WEB_URL:
+        return ""
     return (
-        "🌐 <b>Web app:</b> open <code>/app/</code> on your server "
+        f"🌐 <b>Web app:</b> "
+        f"<a href=\"{html.escape(WEB_URL)}/app/\">{html.escape(WEB_URL)}/app/</a> "
         "(same API_KEY logs you in) — sort, filter, and browse the full repertoire."
     )
 
 
-_START_TEXT = (
-    "🫑 <b>ePepper — your kitchen recipe display</b>\n\n"
-    "<b>Send me:</b>\n"
-    "• A recipe link — I'll push it to the panel "
-    "(falls back to an LLM if the site isn't a known one)\n"
-    "• A photo of a cookbook / magazine page — OCR'd and pushed automatically\n\n"
-    "<i>Use the web app to save a recipe without displaying it.</i>\n\n"
-    "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your repertoire. "
-    "Use the device's <b>physical buttons</b> to cycle between recipe "
-    "pages.\n\n"
-    "{web_line}\n\n"
-    "Type /help for the full command list."
-)
-
-
 async def cmd_start(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
-        return
-    await update.message.reply_text(
-        _START_TEXT.format(web_line=_web_app_line()),
-        parse_mode="HTML",
-        disable_web_page_preview=True,
-    )
+    # /start shows the same reference as /help — one canonical text.
+    await cmd_help(update, context)
 
 
 # Sectioned help — cleaner skim than one long wall of slash commands.
@@ -310,8 +283,10 @@ _HELP_TEXT = (
 async def cmd_help(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
+    web = _web_app_line()
+    text = _HELP_TEXT + (f"\n{web}\n" if web else "")
     await update.message.reply_text(
-        _HELP_TEXT,
+        text,
         parse_mode="HTML",
         disable_web_page_preview=True,
     )
@@ -336,17 +311,9 @@ def _build_status_text() -> str:
     display_lines = ["<b>📺 Display</b>"]
     if state["title"]:
         line = f"<b>{html.escape(state['title'])}</b>"
-        src = source_name(state.get("url"))
-        if src:
-            url = state.get("url") or ""
-            if url.startswith("http://") or url.startswith("https://"):
-                src_html = (
-                    f"<a href=\"{html.escape(url)}\">{html.escape(src)}</a>"
-                )
-            else:
-                # Named cookbook URL: no link, just the human label.
-                src_html = html.escape(src)
-            line += f" <i>from {src_html}</i>"
+        src_html = _format_source_html(state.get("url"))
+        if src_html:
+            line += f" {src_html}"
         if state["total_pages"] > 1:
             line += f" — page {state['page']}/{state['total_pages']}"
         display_lines.append(line)
