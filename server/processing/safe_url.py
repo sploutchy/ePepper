@@ -7,12 +7,12 @@ server probe the LAN, loopback, or cloud-metadata endpoints (e.g.
 Limitations:
 - TOCTOU window: a malicious DNS server could return a public IP at check
   time and a private IP at connect time (DNS rebinding). For the threat
-  model here (single-user personal app) the simple check is acceptable.
-- Callers MUST disable aiohttp's automatic redirect following
-  (`allow_redirects=False`) and re-invoke `assert_url_safe` on each
-  `Location` they follow. The helper `REDIRECT_STATUSES` is exported
-  for that loop. Otherwise a 302 from a public host to `169.254.169.254`
-  or a LAN address would be fetched unchecked.
+  model here (single-household personal app) the simple check is acceptable.
+- Only the initial URL is checked; the HTTP client follows redirects on its
+  own, so a public host that 302s to a LAN address would be fetched
+  unchecked. Accepted residual risk — the URLs come from two trusted users
+  and there's no cloud-metadata endpoint to protect on a home host. Per-hop
+  re-validation was removed as disproportionate for this app.
 """
 
 import asyncio
@@ -25,17 +25,6 @@ log = logging.getLogger(__name__)
 
 class UnsafeUrl(ValueError):
     """The URL is missing a host or resolves to a non-public address."""
-
-
-# HTTP statuses that aiohttp would auto-follow. Exported so callers running
-# their own bounded redirect loop (instead of `allow_redirects=True`) stay
-# in sync with aiohttp's behaviour.
-REDIRECT_STATUSES = frozenset({301, 302, 303, 307, 308})
-
-# Cap on hops in a manual redirect loop. Lower than aiohttp's default of
-# 10 — we're a recipe fetcher, not a generic crawler, and the bound exists
-# to limit SSRF re-validation cost more than to follow legitimate chains.
-MAX_REDIRECTS = 3
 
 
 async def assert_url_safe(url: str) -> None:

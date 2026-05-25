@@ -22,12 +22,7 @@ from urllib.parse import urljoin, urlparse
 import aiohttp
 from bs4 import BeautifulSoup
 
-from processing.safe_url import (
-    MAX_REDIRECTS,
-    REDIRECT_STATUSES,
-    UnsafeUrl,
-    assert_url_safe,
-)
+from processing.safe_url import assert_url_safe
 
 log = logging.getLogger(__name__)
 
@@ -89,49 +84,27 @@ async def _fetch_html(url: str) -> str:
     }
     timeout = aiohttp.ClientTimeout(total=15)
     async with aiohttp.ClientSession() as session:
-        current_url = url
-        for _ in range(MAX_REDIRECTS + 1):
-            async with session.get(
-                current_url,
-                headers=headers,
-                timeout=timeout,
-                allow_redirects=False,
-            ) as resp:
-                if resp.status in REDIRECT_STATUSES:
-                    # Fooby's URL is hard-coded, but it could internally
-                    # 302 to a CDN or marketing host — re-validate each
-                    # hop so a compromise of the redirect target can't
-                    # steer us into the LAN.
-                    location = resp.headers.get("Location")
-                    if not location:
-                        raise UnsafeUrl(
-                            f"{current_url} returned {resp.status} without Location"
-                        )
-                    next_url = urljoin(current_url, location)
-                    await assert_url_safe(next_url)
-                    current_url = next_url
-                    continue
-                resp.raise_for_status()
-                declared = resp.content_length
-                if declared is not None and declared > _MAX_HTML_BYTES:
+        # Only the initial (hard-coded Fooby) URL is SSRF-checked; the client
+        # follows any redirects on its own.
+        async with session.get(url, headers=headers, timeout=timeout) as resp:
+            resp.raise_for_status()
+            declared = resp.content_length
+            if declared is not None and declared > _MAX_HTML_BYTES:
+                raise ValueError(
+                    f"{url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
+                )
+            buf = bytearray()
+            async for chunk in resp.content.iter_chunked(64 * 1024):
+                buf.extend(chunk)
+                if len(buf) > _MAX_HTML_BYTES:
                     raise ValueError(
-                        f"{current_url} declared {declared} bytes (cap {_MAX_HTML_BYTES})"
+                        f"{url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
                     )
-                buf = bytearray()
-                async for chunk in resp.content.iter_chunked(64 * 1024):
-                    buf.extend(chunk)
-                    if len(buf) > _MAX_HTML_BYTES:
-                        raise ValueError(
-                            f"{current_url} exceeded cap {_MAX_HTML_BYTES} mid-stream"
-                        )
-                charset = resp.charset or "utf-8"
-                try:
-                    return buf.decode(charset, errors="replace")
-                except LookupError:
-                    return buf.decode("utf-8", errors="replace")
-        raise UnsafeUrl(
-            f"{url} exceeded redirect cap of {MAX_REDIRECTS} hops"
-        )
+            charset = resp.charset or "utf-8"
+            try:
+                return buf.decode(charset, errors="replace")
+            except LookupError:
+                return buf.decode("utf-8", errors="replace")
 
 
 def _extract_from_section(soup: BeautifulSoup, base_url: str) -> list[str]:

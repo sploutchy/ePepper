@@ -89,7 +89,7 @@ async def notify_low_battery(battery_mv: int) -> None:
     """Push a one-shot low-battery warning to every allowed user.
 
     Called by the FastAPI /device/status handler the first time a wake-cycle
-    report comes in below the threshold (device_telemetry owns the hysteresis).
+    report comes in below the threshold (device_telemetry owns the once-per-episode flag).
     Falls back to BACKUP_CHAT_ID when ALLOWED_USERS is empty so the alert
     still reaches the operator before the bot is fully configured.
     """
@@ -112,35 +112,6 @@ async def notify_low_battery(battery_mv: int) -> None:
             log.info("Low-battery alert sent to chat %s (%dmV)", uid, battery_mv)
         except Exception:
             log.exception("Failed to send low-battery alert to chat %s", uid)
-
-
-async def notify_stale_heartbeat(hours_since: int) -> None:
-    """Push a one-shot warning when the device hasn't checked in for ≥25 h.
-
-    Called by the scheduler's heartbeat_loop the first time the staleness
-    threshold is crossed (device_telemetry owns the alerted flag). Re-armed
-    automatically on the next successful /device/status POST. Falls back
-    to BACKUP_CHAT_ID when ALLOWED_USERS is empty.
-    """
-    if _bot_app is None:
-        log.warning("notify_stale_heartbeat: bot not yet initialised")
-        return
-    recipients = _alert_recipients()
-    if not recipients:
-        log.warning(
-            "notify_stale_heartbeat: neither ALLOWED_USERS nor BACKUP_CHAT_ID configured, skipping alert"
-        )
-        return
-    text = (
-        f"⚠️ ePepper hasn't checked in for {hours_since}h — "
-        f"battery may be flat or Wi-Fi down."
-    )
-    for uid in recipients:
-        try:
-            await _bot_app.bot.send_message(chat_id=uid, text=text)
-            log.info("Stale-heartbeat alert sent to chat %s (%dh)", uid, hours_since)
-        except Exception:
-            log.exception("Failed to send stale-heartbeat alert to chat %s", uid)
 
 
 def _stash_pending(url: str, recipe: dict) -> str:
@@ -839,6 +810,7 @@ async def on_save_button(update: Update, context) -> None:
     recipe_id = library.upsert_recipe(
         url, recipe,
         translated_keywords=translated,
+        source=source_name(url),
     )
     library.save_recipe(recipe_id)
     log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))

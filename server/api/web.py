@@ -1,10 +1,15 @@
 """Web UI for browsing, searching, and managing the recipe library.
 
-Server-rendered HTML + HTMX partials. Cookie-based session auth (the cookie
-stores the same API_KEY the device uses; httpOnly + Secure + SameSite=Lax).
-Routes live under /app/ to keep the existing device-facing endpoints clean.
+Server-rendered HTML + HTMX partials. Cookie-based auth: login checks the
+shared API_KEY and sets a stateless cookie carrying an HMAC of the key (not
+the key itself), httpOnly + Secure + SameSite=Lax. There's no server-side
+session store — the cookie validates by recomputation, so rotating API_KEY
+logs everyone out. Routes live under /app/ to keep the device-facing
+endpoints clean.
 """
 
+import hashlib
+import hmac
 import logging
 import re
 import secrets
@@ -20,7 +25,6 @@ import device_telemetry
 from display import state as display_state
 from processing import fooby_cache
 import library
-from library.db import SESSION_DURATION_S
 from config import API_KEY, PHOTO_MAX_MB, TZ
 
 # Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
@@ -42,39 +46,36 @@ log = logging.getLogger(__name__)
 # rejecting accidental drops. Tunable via PHOTO_MAX_MB in config.
 _PHOTO_MAX_BYTES = PHOTO_MAX_MB * 1024 * 1024
 
-# Stream-read chunk size for the size-capped upload reader.
-_UPLOAD_CHUNK_BYTES = 64 * 1024
-
-
-async def _read_capped(file: UploadFile, cap: int) -> bytes | None:
-    """Read an UploadFile into memory, bailing out if it exceeds `cap` bytes.
-
-    Returns the bytes on success, or None when the upload is over the cap.
-    Streamed so a 10 GB file doesn't OOM the process before the size check.
-    """
-    chunks: list[bytes] = []
-    total = 0
-    while True:
-        chunk = await file.read(_UPLOAD_CHUNK_BYTES)
-        if not chunk:
-            break
-        total += len(chunk)
-        if total > cap:
-            return None
-        chunks.append(chunk)
-    return b"".join(chunks)
-
 COOKIE_NAME = "epepper_auth"
-# Match the server-side session lifetime — the cookie outliving the session
-# row would just produce silent re-login redirects.
-COOKIE_MAX_AGE = SESSION_DURATION_S
+# 30-day cookie lifetime. The value is derived from the API key (see
+# session_cookie_value), so it's stable across restarts; "logging out"
+# beyond clearing the cookie means rotating API_KEY.
+COOKIE_MAX_AGE = 30 * 24 * 3600
 
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 
 
+def session_cookie_value() -> str:
+    """Stateless auth-cookie value derived from the API key.
+
+    An HMAC of a fixed label keyed by API_KEY — never the key itself, so a
+    cookie leak can't be replayed as the device Bearer token (which is the
+    raw API_KEY). No DB row: validate by recomputing and constant-time
+    comparing. Rotating API_KEY invalidates every outstanding cookie.
+    """
+    return hmac.new(
+        API_KEY.encode("utf-8"), b"epepper-web-session", hashlib.sha256
+    ).hexdigest()
+
+
+def cookie_is_valid(cookie: str) -> bool:
+    """Constant-time check that `cookie` matches the derived session value."""
+    return bool(cookie) and hmac.compare_digest(cookie, session_cookie_value())
+
+
 def _is_authed(request: Request) -> bool:
-    return library.validate_session(request.cookies.get(COOKIE_NAME, ""))
+    return cookie_is_valid(request.cookies.get(COOKIE_NAME, ""))
 
 
 def _require_auth(request: Request) -> None:
@@ -183,13 +184,12 @@ async def login_page(request: Request, error: str | None = None):
 async def login_submit(request: Request, api_key: str = Form(...)):
     if not secrets.compare_digest(api_key, API_KEY):
         return RedirectResponse("/app/login?error=1", status_code=303)
-    # Cookie stores a random session token (not the API key), so a cookie
-    # leak doesn't hand over the device credential.
-    token = library.create_session()
+    # Cookie carries an HMAC of the API key (not the key itself), so a cookie
+    # leak doesn't hand over the device Bearer credential.
     resp = RedirectResponse("/app/", status_code=303)
     resp.set_cookie(
         COOKIE_NAME,
-        token,
+        session_cookie_value(),
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         secure=True,
@@ -200,7 +200,6 @@ async def login_submit(request: Request, api_key: str = Form(...)):
 
 @router.post("/logout")
 async def logout(request: Request):
-    library.delete_session(request.cookies.get(COOKIE_NAME, ""))
     resp = RedirectResponse("/app/login", status_code=303)
     resp.delete_cookie(COOKIE_NAME)
     return resp
@@ -624,8 +623,8 @@ async def add_file(request: Request, file: UploadFile = File(...)):
 
 
 async def _add_photo_bytes(request: Request, file: UploadFile) -> HTMLResponse:
-    raw = await _read_capped(file, _PHOTO_MAX_BYTES)
-    if raw is None:
+    raw = await file.read()
+    if len(raw) > _PHOTO_MAX_BYTES:
         return _add_error(
             request,
             f"Image too large (limit {PHOTO_MAX_MB} MB). Try a lower-resolution "

@@ -253,7 +253,7 @@ and the daily timer touch the network. See [On-device page cache](#on-device-pag
 | `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty **denies all** (safer default — an unconfigured bot is closed, not open). Set to at least your own user id to use the bot. |
 | `API_PORT` | Server port (default: `8080`). |
 | `PHOTO_MAX_MB` | *Optional, default `8`.* Maximum size in MB for web photo uploads on `/app/add`. Larger uploads are rejected with a clear error before they hit the LLM. |
-| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the repertoire hasn't changed since the previous one. Unset = backups disabled. Also doubles as the **fallback alert recipient** for low-battery and stale-heartbeat warnings when `ALLOWED_USERS` is empty — so a closed bot still surfaces device problems somewhere. |
+| `BACKUP_CHAT_ID` | *Optional.* Telegram chat/channel id (e.g. `-1003608522302`) to receive a daily gzipped DB snapshot. The midnight scheduler tick skips the upload when the repertoire hasn't changed since the previous one. Unset = backups disabled. Also doubles as the **fallback alert recipient** for low-battery warnings when `ALLOWED_USERS` is empty — so a closed bot still surfaces a dying battery somewhere. |
 | `WEB_URL` | *Optional.* Public URL of the web app (e.g. `https://epepper.example.com`). When set, the bot's `/start` and `/help` include a clickable link to `<WEB_URL>/app/`. |
 | `TZ` | Set in `docker-compose.yml`, default `Europe/Zurich`. Drives the midnight anniversary tick and the `last_displayed_at` MM-DD comparison. |
 | `DEVICE_WAKE_HOUR_LOCAL` | *Optional, default `6`.* Wall-clock hour (0–23) the e-ink panel aligns its daily timer wake to — so the panel is fresh when you walk into the kitchen at breakfast instead of drifting via a flat 24 h offset from the last button press. The server returns the seconds-until-next-hit as `next_wake_in_s` on every `/version` query. |
@@ -270,12 +270,12 @@ and the daily timer touch the network. See [On-device page cache](#on-device-pag
 The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
 + HTMX partials, no build step, ~50 KB JS bundled locally.
 
-- **Sign in** with the same `API_KEY` the device uses. The login form
-  mints a random session token (stored sha256-hashed in the DB, so a
-  read of `recipes.db` can't impersonate a session) and sets it in an
-  `epepper_auth` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`).
-  Sessions slide on every request: active use keeps you signed in, 30
-  days idle and you re-authenticate. `Secure` means you must serve
+- **Sign in** with the same `API_KEY` the device uses. The login sets an
+  `epepper_auth` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) whose value
+  is an HMAC of the API key — not the key itself, so a leaked cookie can't
+  be replayed as the device Bearer token. There's no server-side session
+  store: the cookie validates by recomputation, so rotating `API_KEY` logs
+  everyone out. The cookie lasts 30 days. `Secure` means you must serve
   `/app/` over HTTPS or the login won't stick.
 - **Pages:**
   - `/app/` — repertoire list (search, sort, source + tag filters,
@@ -310,7 +310,6 @@ Schema:
 
 - `recipes(id, url, title, parsed_json, lang, saved_at, created_at, deleted_at, source, last_displayed_at, displayed_count, translated_keywords)` — `translated_keywords` is the LLM-produced FR/DE search blob (NULL = pending, `""` = tried & gave up).
 - `comments(id, recipe_id, body, created_at)`
-- `sessions(token_hash, created_at, expires_at)` — web-app session tokens. Only the sha256 hash is stored.
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, notes, translated). The `translated` column carries the LLM FR/DE keywords so a recipe stored in one language is searchable from the other.
 - `display_panel(id, recipe_id, page)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it.
 - `schema_version(version, applied_at)` — which migrations have been applied (see Migrations below).
@@ -491,22 +490,19 @@ and *(b)* receiving the device-health alerts.
 
 ### Device health alerts
 
-The ESP32 reports battery, RSSI, and SHT40 readings on every wake.
-Two one-shot alerts go to every `ALLOWED_USERS` recipient (or to
-`BACKUP_CHAT_ID` if `ALLOWED_USERS` is empty, so the alerts still
-land somewhere on a closed bot):
+The ESP32 reports battery, RSSI, and SHT40 readings on every wake. A
+one-shot **low-battery** alert goes to every `ALLOWED_USERS` recipient
+(or to `BACKUP_CHAT_ID` if `ALLOWED_USERS` is empty, so it still lands
+somewhere on a closed bot): it fires the first POST below 3 500 mV and
+re-arms once the reading climbs back above, so a flat battery doesn't
+ping on every wake. Driven reactively by the `/device/status` POST.
 
-- **Low battery** — fires the first POST below 3 500 mV; hysteresis
-  re-arms only above 3 600 mV so noisy readings don't spam. Driven
-  reactively by the `/device/status` POST.
-- **Stale heartbeat** — fires when the device hasn't checked in for
-  ≥ 25 h. Driven proactively by an hourly scheduler, because the
-  absence of POSTs is exactly what we're detecting. Re-armed by the
-  next successful POST.
-
-Both conditions also appear inline on the web status page and in the
-bot's `/status` — battery icon flips from 🔋 to 🪫, last-seen line
-appends ⚠️ overdue.
+A **stale heartbeat** (no check-in for ≥ 25 h) isn't pushed as an alert
+— a dead kitchen panel is something you notice by looking at it, so a
+proactive watchdog isn't worth a background task here. It surfaces
+inline instead: the web status page and the bot's `/status` append a
+⚠️ overdue marker to the last-seen line. The battery icon likewise
+flips from 🔋 to 🪫 inline when low.
 
 ## Firmware
 
@@ -700,8 +696,8 @@ own — none unblock anything else.
   tokens at the head of each ingredient line; degrades gracefully when
   a quantity is absent.
 
-See [`ROADMAP.md`](ROADMAP.md) for the longer list of follow-ups from
-the recent review pass (security hardening, deferred refactors).
+See [`ROADMAP.md`](ROADMAP.md) for parked follow-ups and the design
+decisions deliberately ruled out.
 
 ## License
 

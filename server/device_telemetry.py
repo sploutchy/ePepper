@@ -1,10 +1,9 @@
-"""Device telemetry — battery, RSSI, heartbeat, and alert hysteresis.
+"""Device telemetry — battery, RSSI, and last-seen heartbeat.
 
 The ESP32 POSTs a wake-cycle report on every button press and on its
 daily timer wake; this module holds the latest snapshot in memory
-(no persistence — the next wake repopulates it) and owns the
-low-battery / stale-heartbeat alert hysteresis so the bot only fires
-each alert once per episode.
+(no persistence — the next wake repopulates it) and decides when to fire
+a one-shot low-battery alert.
 
 Alert *delivery* (Telegram messages) lives in `bot/handlers.py` —
 that's UI territory. This module just decides WHETHER to alert.
@@ -26,22 +25,20 @@ _device: dict[str, Any] = {
 }
 
 
-# Low-battery alert thresholds. Cross BELOW LOW_BATTERY_MV → fire an alert
-# once; only re-arm after the reading climbs back above LOW_BATTERY_MV +
-# HYSTERESIS to avoid repeated alerts on a noisy reading near the boundary.
+# Fire a low-battery alert the first time a reading drops below this, then
+# re-arm only once it climbs back above — so a flat battery doesn't alert on
+# every wake. The flag is in-memory (reset on restart); at ~1-2 reports/day a
+# stray repeat alert is harmless, so a plain edge trigger beats a hysteresis
+# band here.
 LOW_BATTERY_MV = 3500
-LOW_BATTERY_HYSTERESIS_MV = 100
 
 _low_battery_alerted = False
 
-# Heartbeat staleness. Firmware reports on button press + a daily timer wake;
-# 25 h gives the daily timer a buffer for clock drift / a slow Wi-Fi reconnect.
-# Alert once when crossed; re-arm only when the next POST arrives (handled in
-# update_device_status). The check itself runs proactively from scheduler.py
-# because the absence of POSTs is exactly what we're detecting.
+# Heartbeat staleness threshold — the status views flag the device "overdue"
+# when it hasn't reported in this long. Firmware reports on button press + a
+# daily timer wake; 25 h gives the daily timer a buffer for clock drift / a
+# slow Wi-Fi reconnect.
 STALE_HEARTBEAT_S = 25 * 3600
-
-_stale_heartbeat_alerted = False
 
 
 def update_device_status(
@@ -57,12 +54,11 @@ def update_device_status(
     older firmware builds that don't yet report them keep working.
 
     Returns `{"low_battery_alert_mv": int | None}`. When non-None, the
-    battery just crossed below the threshold and the caller is expected
-    to deliver this alert (e.g. via Telegram). Hysteresis prevents the
-    alert from firing again until the battery climbs above
-    LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV.
+    battery just crossed below LOW_BATTERY_MV and the caller is expected
+    to deliver this alert (e.g. via Telegram). Fires once until the
+    reading recovers above the threshold.
     """
-    global _low_battery_alerted, _stale_heartbeat_alerted
+    global _low_battery_alerted
 
     update = {
         "battery_mv": battery_mv,
@@ -78,36 +74,16 @@ def update_device_status(
         update["firmware_version"] = firmware_version
     _device.update(update)
 
-    # Fresh POST means the device is back — re-arm the staleness alert.
-    _stale_heartbeat_alerted = False
-
     alert_mv: int | None = None
     if battery_mv > 0:
-        if battery_mv < LOW_BATTERY_MV and not _low_battery_alerted:
-            _low_battery_alerted = True
-            alert_mv = battery_mv
-        elif battery_mv > LOW_BATTERY_MV + LOW_BATTERY_HYSTERESIS_MV:
+        if battery_mv < LOW_BATTERY_MV:
+            if not _low_battery_alerted:
+                _low_battery_alerted = True
+                alert_mv = battery_mv
+        else:
             _low_battery_alerted = False
 
     return {"low_battery_alert_mv": alert_mv}
-
-
-def check_heartbeat_stale() -> int | None:
-    """Return hours-since-last-seen if the heartbeat just went stale, else None.
-
-    Returns None when the device has never reported (last_seen == 0), the
-    threshold hasn't been crossed, or we already alerted for this episode.
-    The flag is cleared the next time update_device_status() runs.
-    """
-    global _stale_heartbeat_alerted
-    last_seen = _device.get("last_seen", 0)
-    if last_seen <= 0:
-        return None
-    delta_s = int(time.time()) - last_seen
-    if delta_s > STALE_HEARTBEAT_S and not _stale_heartbeat_alerted:
-        _stale_heartbeat_alerted = True
-        return delta_s // 3600
-    return None
 
 
 def get_device_status() -> dict:

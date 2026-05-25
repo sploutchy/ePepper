@@ -18,7 +18,6 @@ from bot.handlers import create_bot
 from library import init_db
 from scheduler import (
     backfill_translations,
-    heartbeat_loop,
     initial_fooby_prefetch,
     midnight_loop,
 )
@@ -106,7 +105,7 @@ def _warn_if_alerts_have_no_destination() -> None:
     """Loud one-time startup warning for the two operator-hostile
     configurations created by the `_is_allowed` lockdown change:
     - ALLOWED_USERS empty AND BACKUP_CHAT_ID unset → bot rejects everyone
-      AND low-battery / stale-heartbeat alerts vanish.
+      AND low-battery alerts vanish.
     - ALLOWED_USERS empty but BACKUP_CHAT_ID set → bot still locked but
       alerts at least reach the backup chat.
     """
@@ -115,9 +114,8 @@ def _warn_if_alerts_have_no_destination() -> None:
     if not ALLOWED_USERS and BACKUP_CHAT_ID is None:
         log.warning(
             "ALLOWED_USERS is empty AND BACKUP_CHAT_ID is unset — "
-            "the Telegram bot will reject every user, and low-battery / "
-            "stale-heartbeat alerts have no destination. Set at least "
-            "one of these env vars."
+            "the Telegram bot will reject every user, and low-battery "
+            "alerts have no destination. Set at least one of these env vars."
         )
     elif not ALLOWED_USERS:
         log.warning(
@@ -156,9 +154,8 @@ async def main() -> None:
     await bot.updater.start_polling(drop_pending_updates=True)
     log.info("Telegram bot started")
 
-    # Background schedulers: midnight daily-chores tick + hourly heartbeat check
+    # Background scheduler: the midnight daily-chores tick.
     midnight_task = asyncio.create_task(midnight_loop(), name="midnight_loop")
-    heartbeat_task = asyncio.create_task(heartbeat_loop(), name="heartbeat_loop")
     # Populate the Fooby "Tomorrow" preview if the cache isn't current —
     # otherwise a fresh deploy waits up to 24 h before the status page
     # shows a concrete recipe. Fire-and-forget; failures are logged inside.
@@ -187,7 +184,7 @@ async def main() -> None:
         await server.serve()
     finally:
         log.info("Shutting down...")
-        for task in (midnight_task, heartbeat_task, prefetch_task, translate_task):
+        for task in (midnight_task, prefetch_task, translate_task):
             task.cancel()
             try:
                 await task
