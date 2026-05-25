@@ -8,7 +8,9 @@ it runs the day's chores in order:
      "Inspiration de la semaine" recipes (French), rotated by ISO
      weekday so the seven slots cycle deterministically through the
      week.
-  2. Trigger a daily DB backup, which uploads a gzipped snapshot to
+  2. Pre-fetch tomorrow's Fooby pick so the web "Tomorrow" card has a
+     concrete recipe and the next tick has a deterministic URL to push.
+  3. Trigger a daily DB backup, which uploads a gzipped snapshot to
      the configured Telegram chat only if the library was written to
      since the previous upload.
 
@@ -24,7 +26,6 @@ from datetime import date, datetime, time, timedelta, timezone
 
 import backup
 import device_telemetry
-from display import state as display_state
 from processing import fooby_cache
 import library
 from config import TZ
@@ -291,9 +292,10 @@ async def initial_fooby_prefetch() -> None:
 
 async def midnight_loop() -> None:
     """Run forever: sleep until next local midnight, run each day's chores
-    in order (anniversary push, then DB backup), survive failures in any
-    one so the others still execute. Each chore handles its own no-op
-    case (e.g. backup skips the upload when nothing changed)."""
+    in order (anniversary push, tomorrow's Fooby prefetch, then DB backup),
+    survive failures in any one so the others still execute. Each chore
+    handles its own no-op case (e.g. backup skips the upload when nothing
+    changed)."""
     while True:
         now = datetime.now(TZ)
         sleep_s = _seconds_until_next_local_midnight(now)

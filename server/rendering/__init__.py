@@ -1,3 +1,3 @@
-from .layout import render_recipe
-
-__all__ = ["render_recipe"]
+"""Panel rendering. Import entry points directly, e.g.
+``from rendering.layout import render_recipe, render_idle``.
+"""

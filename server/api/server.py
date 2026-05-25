@@ -94,8 +94,8 @@ async def version(request: Request):
         # device keys its on-flash page cache on this so page turns can be
         # served offline and a new recipe still invalidates the cache.
         "content_hash": state["content_hash"],
-        # No `page` field (DES-D): the device computes its own page locally
-        # and never read this. It was driven only by web-preview clicks.
+        # No `page` field (DES-D): the device computes its own page locally.
+        # The field existed only to drive web-preview clicks and was removed.
         "total_pages": state["total_pages"],
         "updated_at": state["updated_at"],
         "type": state["type"],
@@ -148,16 +148,17 @@ _DEVICE_UA_PREFIX = "ePepper-device/"
 def _is_device_fetch(request: Request) -> bool:
     """Distinguish ESP32 /image fetches from browser status-page previews.
 
-    The firmware sets `User-Agent: ePepper-device/<version>`; browser
-    status-page previews of /image don't carry it, so they don't count
-    as a cook.
+    The firmware sets a `User-Agent` starting with `ePepper-device/`;
+    browser status-page previews of /image don't carry it, so they don't
+    count as a cook.
     """
     return request.headers.get("user-agent", "").startswith(_DEVICE_UA_PREFIX)
 
 
 @app.post("/display/clear")
 async def display_clear(request: Request):
-    """Clear the panel. Fires on the device's PREV + REFRESH chord."""
+    """Clear the panel. Triggered by the web status page's Clear button
+    and the bot's /clear command."""
     if not _check_api_key(request):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 

@@ -5,7 +5,7 @@ separately-wired listener (see `display_persistence.persist_current`
 registered from `main.py` via `register_change_listener`) so this
 module stays below `library` in the import layering.
 
-BMP serialization lives in `display_image.py`; device telemetry
+BMP serialization lives in `display/image.py`; device telemetry
 (battery / heartbeat / alert hysteresis) in `device_telemetry.py`.
 """
 
@@ -21,7 +21,7 @@ from status_helpers import source_name
 
 log = logging.getLogger(__name__)
 
-# Fires after every mutation (set_recipe / set_page / clear). Injected
+# Fires after every mutation (set_recipe / clear). Injected
 # at startup so this module doesn't import `library` (or anything
 # above it in the layering); typically wired to
 # `display_persistence.persist_current`.
@@ -154,16 +154,6 @@ def _render_pages(inputs: dict) -> dict[int, Image.Image]:
         )
         pages[p] = page_img
     return pages
-
-
-def set_page(page: int) -> bool:
-    """Change the current page. Returns True if valid."""
-    if page < 1 or page > _state["total_pages"]:
-        return False
-    _state["page"] = page
-    _state["hash"] = _compute_hash(page)
-    _notify_changed()
-    return True
 
 
 def clear() -> None:

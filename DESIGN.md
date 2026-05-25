@@ -6,9 +6,10 @@ person editing a template knows when they're nudging things in the right
 direction and when they're fighting the design.
 
 It started as a chosen direction from a five-direction parallel exploration
-(see `claude/epepper-design-exploration-yVw1f` for the full set, including
-the four alternatives that lost). The text below has been updated to
-reflect the decisions made during round 1–5 review.
+(captured historically on the `claude/epepper-design-exploration-yVw1f`
+branch — not part of this repo's tree — including the four alternatives
+that lost). The text below has been updated to reflect the decisions made
+during round 1–5 review.
 
 ---
 
@@ -135,7 +136,9 @@ database table dump.
   via a 1.6 s scale + opacity loop so the "on air" reading is
   unmissable from across the room.
 - Sorting / filter dropdowns sit above the first tier with no extra
-  divider — the first tier's own top hairline carries the gap.
+  divider — the first tier's own top hairline carries the gap. They
+  cover the recency / most- / least-cooked / alphabetical-by-source
+  sorts and the source + `#tag` filters.
 
 The bucketing uses string matching against `fmt_saved()`'s
 deterministic phrases (`"days ago"`, `"last week"`, `"weeks ago"`,

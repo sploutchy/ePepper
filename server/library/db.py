@@ -534,23 +534,6 @@ def delete_recipe(recipe_id: int) -> bool:
     return affected
 
 
-def hard_delete_recipe(recipe_id: int) -> bool:
-    """Wipe a recipe row outright (no soft-delete). Returns True on hit.
-
-    Hidden affordance accessed via shift-click on the web delete button.
-    Foreign-key cascade removes any comments; FTS5 isn't a relational
-    table so its row is removed explicitly. Use when a recipe ended up
-    in the library by mistake (e.g. a duplicate OCR pass that produced
-    junk) and you don't want it lingering in the daily Telegram backup.
-    """
-    with _connect() as conn:
-        cur = conn.execute("DELETE FROM recipes WHERE id = ?", (recipe_id,))
-        affected = cur.rowcount > 0
-        if affected:
-            conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
-    return affected
-
-
 def remove_comment(comment_id: int) -> int | None:
     """Delete a comment. Returns the parent recipe_id if a row was deleted, else None."""
     with _connect() as conn:
@@ -792,30 +775,6 @@ def list_recipes(
                 (*extra_params, limit, offset),
             ).fetchall()
     return [_row_to_dict(r) for r in rows]
-
-
-def random_recipe(exclude_id: int | None = None) -> dict | None:
-    """Return one randomly-picked saved, non-deleted recipe, or None if
-    the library is empty. Used by the bot's /surprise command.
-
-    `exclude_id`, when set, skips that row — used by the "Another" button
-    so a re-roll doesn't get blocked at the same pick. Falls through to
-    None when the library has only that one recipe.
-    """
-    sql = (
-        "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, "
-        "displayed_count, created_at "
-        "FROM recipes "
-        "WHERE saved_at IS NOT NULL AND deleted_at IS NULL "
-    )
-    params: tuple = ()
-    if exclude_id is not None:
-        sql += "AND id != ? "
-        params = (exclude_id,)
-    sql += "ORDER BY RANDOM() LIMIT 1"
-    with _connect() as conn:
-        row = conn.execute(sql, params).fetchone()
-    return _row_to_dict(row) if row else None
 
 
 def list_sources() -> list[str]:

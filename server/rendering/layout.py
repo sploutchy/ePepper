@@ -37,7 +37,6 @@ from processing.recipes import normalize_recipe_for_render
 from config import (
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
-    RECIPE_HEIGHT,
     MARGIN,
     COLUMN_GAP,
     INGREDIENTS_WIDTH_RATIO,
@@ -49,9 +48,9 @@ from config import (
 )
 
 # 10x10 glyphs marking which physical button does what. Drawn at the very
-# top of the panel (Y=2) over the title's top margin. X centers mirror the
-# firmware constants in esp32/include/config.h (BTN_GLYPH_*_X) so they sit
-# directly above the physical reTerminal keys.
+# top of the panel (Y=2) over the title's top margin. These X centers are
+# server-side only — the firmware draws no on-screen UI — and are tuned to
+# sit directly above the physical reTerminal keys.
 _BTN_GLYPH_Y = 2
 _BTN_PREV_X = 450
 _BTN_NEXT_X = 490
@@ -250,7 +249,7 @@ def render_recipe(
     # columns ~30 px more vertical room.
     section_h = font_section.size + 12
     footer_reserve = 0
-    available_h = RECIPE_HEIGHT - col_top - MARGIN - section_h - footer_reserve
+    available_h = DISPLAY_HEIGHT - col_top - MARGIN - section_h - footer_reserve
 
     # --- Pre-wrap ingredients into line groups (measured width) ---
     ingredients = recipe.get("ingredients", [])
@@ -370,7 +369,7 @@ def render_recipe(
     if comments:
         full_w = DISPLAY_WIDTH - 2 * MARGIN
         notes_header_h = MARGIN + font_title.size + 4 + 4 + 10
-        notes_available_h = RECIPE_HEIGHT - notes_header_h - MARGIN - footer_reserve
+        notes_available_h = DISPLAY_HEIGHT - notes_header_h - MARGIN - footer_reserve
 
         paragraphs = [
             _wrap_to_width(c.strip(), font_notes, full_w) or [""] for c in comments
@@ -393,7 +392,7 @@ def render_recipe(
     total_pages = base_pages + len(notes_pages)
     page = max(1, min(page, total_pages))
 
-    img = Image.new("1", (DISPLAY_WIDTH, RECIPE_HEIGHT), 1)
+    img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
     draw = ImageDraw.Draw(img)
 
     is_notes_page = page > base_pages
@@ -419,7 +418,7 @@ def render_recipe(
             if i > 0:
                 y += line_h  # blank line between comments
             for wline in para_lines:
-                if y + line_h > RECIPE_HEIGHT - MARGIN:
+                if y + line_h > DISPLAY_HEIGHT - MARGIN:
                     break
                 draw.text((MARGIN, y), wline, font=font_notes, fill=0)
                 y += line_h
@@ -482,7 +481,7 @@ def render_recipe(
 
         # --- Vertical hairline divider ---
         div_x = MARGIN + col_left_w + COLUMN_GAP // 2
-        draw.line([(div_x, col_top), (div_x, RECIPE_HEIGHT - MARGIN)], fill=0, width=1)
+        draw.line([(div_x, col_top), (div_x, DISPLAY_HEIGHT - MARGIN)], fill=0, width=1)
 
         col_body_top = col_top + section_h
 
@@ -492,7 +491,7 @@ def render_recipe(
             ingr_src = 0 if repeat_ingr else page - 1
             for grp_idx in ingr_pages[ingr_src]:
                 for wline in ingr_groups[grp_idx]:
-                    if y_left + line_h > RECIPE_HEIGHT - MARGIN:
+                    if y_left + line_h > DISPLAY_HEIGHT - MARGIN:
                         break
                     draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
                     y_left += line_h
@@ -512,7 +511,7 @@ def render_recipe(
                         y_right = rule_y + 6
                     continue
                 for wline in block["lines"]:
-                    if y_right + block["line_h"] > RECIPE_HEIGHT - MARGIN:
+                    if y_right + block["line_h"] > DISPLAY_HEIGHT - MARGIN:
                         break
                     draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
                     y_right += block["line_h"]
