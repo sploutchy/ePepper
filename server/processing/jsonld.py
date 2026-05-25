@@ -1,10 +1,11 @@
 """Convert schema.org Recipe JSON-LD into ePepper's internal recipe dict.
 
-LLM-generated JSON-LD is the supported ingest path when a website isn't
-covered by recipe-scrapers or when the source is a photo (OCR via an LLM).
-The Telegram bot accepts a .json file; this module locates the first
-Recipe object inside it and maps it onto the same shape that
-`process_recipe_url` produces.
+JSON-LD is consumed from two places: a page's embedded
+`<script type="application/ld+json">` block (parsed in
+`processing.html_extract`) and LLM output when a site isn't covered by
+recipe-scrapers or the source is a photo (OCR via an LLM, in
+`processing.recipes`). This module locates the first Recipe object and
+maps it onto the same shape that `process_recipe_url` produces.
 """
 
 import hashlib

@@ -17,7 +17,6 @@ ALLOWED_USERS: list[int] = [
 # Display (reTerminal E1001: 7.5" mono, 800x480)
 DISPLAY_WIDTH: int = 800
 DISPLAY_HEIGHT: int = 480
-RECIPE_HEIGHT: int = DISPLAY_HEIGHT  # full panel — renderer owns every row
 
 # API
 API_HOST: str = os.environ.get("API_HOST", "0.0.0.0")

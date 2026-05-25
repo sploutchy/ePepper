@@ -322,7 +322,7 @@ def _build_status_text() -> str:
     sections.append("\n".join(display_lines))
 
     # Repertoire section
-    library_lines = [f"<b>📚 Repertoire</b>", f"{library.count_saved()} saved recipes"]
+    library_lines = ["<b>📚 Repertoire</b>", f"{library.count_saved()} saved recipes"]
     if backup.is_enabled():
         last_ts = backup.get_last_backup_at()
         backup_text = humanize_ago(last_ts) if last_ts else "never"

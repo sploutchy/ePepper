@@ -37,7 +37,7 @@ def persist_current() -> None:
     """Mirror the current in-memory display state to the SQLite singleton row.
 
     Called from display_state after every state mutation
-    (set_recipe / set_page / clear). Wrapped in a try/except so a DB
+    (set_recipe / clear). Wrapped in a try/except so a DB
     hiccup never takes down the in-memory display flow that just
     succeeded.
     """

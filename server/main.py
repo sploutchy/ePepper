@@ -13,7 +13,6 @@ import uvicorn
 
 from display import persistence as display_persistence
 from display import state as display_state
-import library
 from api.server import app as fastapi_app
 from bot.handlers import create_bot
 from library import init_db
@@ -173,14 +172,16 @@ async def main() -> None:
     )
 
     # Start FastAPI server
+    from config import API_HOST, API_PORT
+
     config = uvicorn.Config(
         fastapi_app,
-        host="0.0.0.0",
-        port=int(os.environ.get("API_PORT", "8080")),
+        host=API_HOST,
+        port=API_PORT,
         log_level="info",
     )
     server = uvicorn.Server(config)
-    log.info("API server starting on :%s", config.port)
+    log.info("API server starting on %s:%s", config.host, config.port)
 
     try:
         await server.serve()

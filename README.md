@@ -168,10 +168,13 @@ the resulting message to keep it in the repertoire.
 The web app's home page (`/app/`) is the main browse surface:
 
 - **Search** by title, ingredients, or notes (FTS5, accent-insensitive).
-- **Sort** by **Recently cooked** (default), **Most cooked**, or
-  **Least recently cooked** — the repertoire tracks every push so what
-  surfaces is what you actually cook, not what you once meant to.
-- **Filter** to a specific source (Fooby, BBC, a named cookbook, …).
+- **Sort** by **Recently cooked** (default), **Most cooked**,
+  **Least recently cooked**, or alphabetically by source (**A→Z** /
+  **Z→A**) — the repertoire tracks every push so what surfaces is what
+  you actually cook, not what you once meant to.
+- **Filter** to a specific source (Fooby, BBC, a named cookbook, …), or
+  to a **tag** drawn from the `#hashtags` you write in recipe comments
+  (selectable from the filter dropdown, or via `?tag=<name>`).
 - **Currently-on-display badge.** The recipe live on the panel is
   flagged with a monitor icon next to its row.
 - **Source attribution.** Each card carries a `from <Source>` chip
@@ -275,8 +278,8 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   days idle and you re-authenticate. `Secure` means you must serve
   `/app/` over HTTPS or the login won't stick.
 - **Pages:**
-  - `/app/` — repertoire list (search, sort, source filter, infinite
-    scroll, on-display badge).
+  - `/app/` — repertoire list (search, sort, source + tag filters,
+    infinite scroll, on-display badge).
   - `/app/add` — URL paste or recipe-photo upload.
   - `/app/recipes/<id>` — recipe detail (notes, push, delete).
   - `/app/status` — live panel preview, panel state, repertoire
@@ -305,10 +308,13 @@ to push). An image push is never persisted.
 
 Schema:
 
-- `recipes(id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at, deleted_at, source)`
+- `recipes(id, url, title, parsed_json, lang, saved_at, created_at, deleted_at, source, last_displayed_at, displayed_count, translated_keywords)` — `translated_keywords` is the LLM-produced FR/DE search blob (NULL = pending, `""` = tried & gave up).
 - `comments(id, recipe_id, body, created_at)`
 - `sessions(token_hash, created_at, expires_at)` — web-app session tokens. Only the sha256 hash is stored.
-- `recipes_fts` — FTS5 virtual table over (title, ingredients, notes).
+- `recipes_fts` — FTS5 virtual table over (title, ingredients, notes, translated). The `translated` column carries the LLM FR/DE keywords so a recipe stored in one language is searchable from the other.
+- `display_panel(id, recipe_id, page)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it.
+- `schema_version(version, applied_at)` — which migrations have been applied (see Migrations below).
+- `meta(key, value)` — free-form bootstrap flags (e.g. `fts_rebuilt`).
 
 `saved_at` is the canonical "first saved" timestamp — never moves once
 set. `last_displayed_at` is bumped every time the row is pushed to the
@@ -422,9 +428,9 @@ The web status page and the bot's `/status` both surface the
 timestamp of the most recent successful upload.
 
 **Restore from a snapshot:** use the `backup.py` CLI — it validates the
-gzip + SQLite header before overwriting, removes any leftover `-wal` /
-`-shm` sidecars, and prints the exact stop/start commands for your
-container:
+gzip + SQLite header before overwriting, removes the `recipes.db-wal` /
+`recipes.db-shm` sidecars, and prints the exact stop/start commands for
+your container:
 
 ```bash
 python backup.py restore recipes_<timestamp>.db.gz
@@ -649,10 +655,11 @@ CI-produced `epepper-merged.bin` + `manifest.json`.
 - **Bind mount.** `docker-compose.yml` mounts `./firmware:/app/firmware:ro`
   — pre-create the directory (see the install snippet above) so docker
   doesn't auto-create it as root.
-- **Publishing.** `.github/workflows/firmware.yml` rsyncs `firmware.bin`
-  and a freshly-written `version.txt` to the VPS on every merge to main,
-  using `--delay-updates` so a partial transfer never briefly advertises
-  the new version before the binary is fully in place.
+- **Publishing.** `.github/workflows/firmware.yml` rsyncs all four files
+  (`firmware.bin`, a freshly-written `version.txt`, `epepper-merged.bin`,
+  and `manifest.json`) to the VPS on every merge to main, using
+  `--delay-updates` so a partial transfer never briefly advertises the
+  new version before the binary is fully in place.
 
 ### Pin mapping (reTerminal E1001)
 
@@ -673,7 +680,6 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 | EPD BUSY | 13 | |
 | **Peripherals** | | |
 | Status LED | 6 | Active-low (green) |
-| Buzzer | 45 | Active-high, MLT-8530 piezo |
 | Battery ADC | 1 | Enable via GPIO21 |
 | Battery enable | 21 | High to read ADC |
 | **I²C (bus 0)** | | SHT40 |

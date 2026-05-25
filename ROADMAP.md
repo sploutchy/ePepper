@@ -6,7 +6,7 @@ Items deferred from the code review — captured so they don't get lost.
 
 ### SEC-1: Sign firmware + pin TLS cert in the OTA flow
 
-The OTA update path (`esp32/src/main.cpp:323-441`, `server/api/server.py:258-287`)
+The OTA update path (`esp32/src/main.cpp:344-452`, `server/api/server.py:245-262`)
 flashes whatever bytes the server returns over a `HTTPClient::begin(url)` call
 that constructs an insecure HTTPS client — no `setCACert`, no signature
 verification. An on-path attacker (open Wi-Fi neighbour, hostile ISP) can swap
@@ -28,7 +28,7 @@ the firmware itself.
 
 ### SEC-2: OTA rollback confirmation (gate boot-validity on a live server round-trip)
 
-`checkForOTAUpdate()` (`esp32/src/main.cpp:456-563`) relies on the dual-partition
+`checkForOTAUpdate()` (`esp32/src/main.cpp:344-452`) relies on the dual-partition
 layout for safety: `Update.end(true)` only sets the boot partition after a
 complete write, so a *partial/corrupted* download is never booted. But that's
 the only failure it catches. A firmware that flashes cleanly yet can't actually
