@@ -7,6 +7,19 @@
 
 <article class="recipe">
   <h1>{{ r.title }}</h1>
+  {# Cooking facts (time / servings) as a small-caps eyebrow directly under
+     the title — the two things a cook scans first. Kept separate from the
+     provenance meta below so "what it costs to cook" doesn't blur into
+     "where it came from". Both fields are frequently null, so each segment
+     is conditional and the whole line is dropped when neither exists. #}
+  {% set total_time = r.recipe.total_time %}
+  {% set servings = fmt_servings(r.recipe.servings) %}
+  {% if total_time or servings %}
+    <p class="recipe-facts">
+      {% if total_time %}<span class="nb">{{ total_time }} min</span>{% endif %}
+      {% if servings %}<span class="nb">{{ servings }}</span>{% endif %}
+    </p>
+  {% endif %}
   {# Each segment is wrapped in <span class="nb"> so the line can break
      between "from X · saved Y · cooked Z" but not inside any of those
      phrases. Bullet separators are drawn via the ::before pseudo on

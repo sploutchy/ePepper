@@ -3,6 +3,7 @@
 import asyncio
 import html
 import logging
+import re
 import time
 import uuid
 from collections import OrderedDict
@@ -67,6 +68,17 @@ _COMMENT_MAX_CHARS = 3500
 _SEARCH_QUERIES_MAX = 32
 _search_queries: "OrderedDict[str, str]" = OrderedDict()
 _SEARCH_PAGE_SIZE = 5
+
+# Short tokens → pasted URLs awaiting a push confirmation (on_text). Same
+# 64-byte-callback_data dodge as _pending / _search_queries: the confirm
+# button carries an 8-hex token, not the URL itself.
+_PENDING_TEXT_URL_MAX = 32
+_pending_text_url: "OrderedDict[str, str]" = OrderedDict()
+
+# Matches the first http(s) URL anywhere in a message, so a link pasted
+# mid-sentence ("try this https://… yum") is still recognised. Trailing
+# sentence punctuation is trimmed off the captured URL in on_text.
+_URL_RE = re.compile(r"https?://\S+")
 
 
 # Set by create_bot() so out-of-band code paths (e.g. low-battery alerts
@@ -183,6 +195,14 @@ def _stash_search(query: str) -> str:
     return token
 
 
+def _stash_text_url(url: str) -> str:
+    token = uuid.uuid4().hex[:8]
+    _pending_text_url[token] = url
+    while len(_pending_text_url) > _PENDING_TEXT_URL_MAX:
+        _pending_text_url.popitem(last=False)
+    return token
+
+
 # Commands surfaced in Telegram's native blue `/` menu. Order is the order
 # the menu shows them, so daily-use commands come first. /start is omitted
 # — it's a bootstrapping command.
@@ -242,6 +262,8 @@ def create_bot() -> Application:
     app.add_handler(CallbackQueryHandler(on_search_preview, pattern=r"^search_preview:"))
     app.add_handler(CallbackQueryHandler(on_search_back, pattern=r"^search_back:"))
     app.add_handler(CallbackQueryHandler(on_search_nav, pattern=r"^search:"))
+    app.add_handler(CallbackQueryHandler(on_text_url_confirm, pattern=r"^addurl:"))
+    app.add_handler(CallbackQueryHandler(on_text_search_cancel, pattern=r"^txtsearch:cancel$"))
     app.add_handler(CallbackQueryHandler(on_surprise_again, pattern=r"^surprise_again:"))
     app.add_handler(CallbackQueryHandler(on_surprise_push, pattern=r"^surprise_push:"))
     app.add_handler(CallbackQueryHandler(on_clear_button, pattern=r"^clear:"))
@@ -299,11 +321,11 @@ def _web_app_line() -> str:
 _START_TEXT = (
     "🫑 <b>ePepper — your kitchen recipe display</b>\n\n"
     "<b>Send me:</b>\n"
-    "• A photo of a recipe — OCR'd into your repertoire automatically\n"
-    "• A recipe URL (just paste the link) — falls back to an LLM if the "
-    "site isn't a known one\n\n"
-    "<i>Note: pasted URLs are pushed to the panel immediately. Use the "
-    "web app to save without displaying.</i>\n\n"
+    "• A recipe link — I'll ask to confirm, then push it to the panel "
+    "(falls back to an LLM if the site isn't a known one)\n"
+    "• A photo of a cookbook / magazine page — OCR'd and pushed automatically\n"
+    "• Any other text — I'll offer to search your saved recipes\n\n"
+    "<i>Use the web app to save a recipe without displaying it.</i>\n\n"
     "Tap 💾 <b>Save</b> under a pushed recipe to keep it in your repertoire. "
     "Use the device's <b>physical buttons</b> to cycle between recipe "
     "pages.\n\n"
@@ -329,12 +351,13 @@ async def cmd_start(update: Update, context) -> None:
 _HELP_TEXT = (
     "🫑 <b>ePepper — help</b>\n\n"
     "<b>➕ Add a recipe</b>\n"
-    "Just paste a URL or send a photo of a cookbook / magazine page.\n"
-    "<i>Pasted URLs are pushed to the panel immediately — use the web app "
-    "to save without displaying.</i>\n"
-    "  /recipe &lt;url&gt; — force-parse a URL\n\n"
+    "Paste a link (I'll confirm before pushing) or send a photo of a "
+    "cookbook / magazine page.\n"
+    "<i>Use the web app to save without displaying.</i>\n"
+    "  /recipe &lt;url&gt; — force-parse a URL and push it now\n\n"
     "<b>📚 Repertoire</b>\n"
-    "Tap 💾 Save under a push to keep a recipe.\n"
+    "Tap 💾 Save under a push to keep a recipe. Type any text (not a link) "
+    "and I'll offer to search.\n"
     "  /search &lt;query&gt; — find a saved recipe (paginated)\n"
     "  /surprise — pick a random saved recipe\n"
     "  /comment &lt;text&gt; — add a note to what's on screen\n\n"
@@ -1102,22 +1125,108 @@ async def on_photo(update: Update, context) -> None:
 
 
 async def on_text(update: Update, context) -> None:
-    """Handle text messages — check if it's a URL."""
+    """Route a free-text message.
+
+    A message containing an http(s) link → confirm, then push it to the
+    panel. Anything else → offer to search the repertoire for it. Both
+    paths confirm first: a misfired clipboard paste never silently
+    overwrites the panel, and a stray line of chat becomes a useful search
+    prompt instead of a dead-end "use /help".
+    """
     if not _is_allowed(update.effective_user.id):
         return
 
     text = update.message.text.strip()
+    if not text:
+        return
 
-    # Check if it looks like a URL
-    if not (text.startswith("http://") or text.startswith("https://")):
+    match = _URL_RE.search(text)
+    if match:
+        url = match.group(0).rstrip(").,;:!?'\"")
+        log.info("URL detected from user %s: %s", update.effective_user.id, url)
+        token = _stash_text_url(url)
         await update.message.reply_text(
-            "Send me a photo, a recipe URL, or use /help"
+            f"🔗 Push this recipe to the display?\n{url}",
+            disable_web_page_preview=True,
+            reply_markup=InlineKeyboardMarkup([[
+                InlineKeyboardButton("✅ Push", callback_data=f"addurl:{token}"),
+                InlineKeyboardButton("✖ Cancel", callback_data=f"addurl:x:{token}"),
+            ]]),
         )
         return
 
-    log.info("Received URL from user %s: %s", update.effective_user.id, text)
-    msg = await update.message.reply_text("🔍 Fetching recipe...")
-    await _fetch_and_display_recipe(text, msg)
+    # No URL — offer the text as a repertoire search. Reuses the /search
+    # token + `search:<tok>:<offset>` callback so the Search button lands
+    # straight in on_search_nav's paginated renderer.
+    token = _stash_search(text)
+    await update.message.reply_text(
+        f"🔍 Search your repertoire for \"{html.escape(text)}\"?",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup([[
+            InlineKeyboardButton("🔍 Search", callback_data=f"search:{token}:0"),
+            InlineKeyboardButton("✖ Cancel", callback_data="txtsearch:cancel"),
+        ]]),
+    )
+
+
+async def on_text_url_confirm(update: Update, context) -> None:
+    """Resolve the [Push] / [Cancel] keyboard on a pasted-URL confirmation.
+
+    callback_data is `addurl:<tok>` (push) or `addurl:x:<tok>` (cancel).
+    On push we edit the prompt into the "Fetching…" placeholder and hand
+    off to _fetch_and_display_recipe, so the URL lands in exactly the same
+    Save-button flow as before — just gated behind one tap.
+    """
+    query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
+
+    parts = query.data.split(":")
+    # Cancel: addurl:x:<tok>
+    if len(parts) == 3 and parts[1] == "x":
+        _pending_text_url.pop(parts[2], None)
+        await query.answer()
+        try:
+            await query.edit_message_text("Cancelled.")
+        except Exception:
+            log.exception("on_text_url_confirm: failed to edit message")
+        return
+    if len(parts) != 2:
+        await query.answer("Bad callback.", show_alert=True)
+        return
+
+    url = _pending_text_url.pop(parts[1], None)
+    if url is None:
+        await query.answer("Link expired — resend it.", show_alert=True)
+        try:
+            await query.edit_message_reply_markup(reply_markup=None)
+        except Exception:
+            pass
+        return
+    if query.message is None:
+        await query.answer("Message too old — resend the link.", show_alert=True)
+        return
+
+    await query.answer()
+    try:
+        await query.edit_message_text("🔍 Fetching recipe…")
+    except Exception:
+        log.debug("on_text_url_confirm: fetching-edit failed", exc_info=True)
+    await _fetch_and_display_recipe(url, query.message)
+
+
+async def on_text_search_cancel(update: Update, context) -> None:
+    """Cancel a search-confirmation prompt raised by a free-text message."""
+    query = update.callback_query
+    if not _is_allowed(update.effective_user.id):
+        await query.answer("Not authorized.", show_alert=True)
+        return
+    await query.answer()
+    try:
+        await query.edit_message_text("Cancelled.")
+    except Exception:
+        log.exception("on_text_search_cancel: failed to edit message")
 
 
 async def _fetch_and_display_recipe(url: str, msg) -> None:

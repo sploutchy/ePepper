@@ -393,6 +393,10 @@ html[data-theme="dark"] .list-select {
   color: var(--muted);
   font-weight: 600;
 }
+/* "clear" reset appended to the meta line when a filter is active — quiet
+   paprika link, no filled chrome, matching the app's link vocabulary. */
+.clear-filter { color: var(--accent); }
+.clear-filter:hover { color: var(--accent-hover); text-decoration: underline; }
 
 .recipes {
   list-style: none;
@@ -915,6 +919,27 @@ html[data-theme="dark"] .list-select {
 .actions {
   margin: 0 0 28px;
   text-align: center;
+}
+
+/* Cooking facts (time / servings) — small-caps eyebrow under the title,
+   above the provenance meta. Reuses .nb's no-break + bullet-between
+   treatment so it can't break mid-phrase. --text-dim (not --muted) so the
+   facts read a touch stronger than the provenance line below them. */
+.recipe-facts {
+  font-family: var(--font-body);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin: 0 0 12px;
+}
+.recipe-facts .nb { display: inline-block; }
+.recipe-facts .nb:not(:last-child)::after {
+  content: "·";
+  display: inline-block;
+  margin: 0 0 0 8px;
+  opacity: 0.6;
 }
 
 /* Recipe meta line below the title — each segment is an inline-block
