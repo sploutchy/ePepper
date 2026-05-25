@@ -3,7 +3,6 @@
 Tables (full column list in `_SCHEMA` below):
     recipes      — one row per known URL
     comments     — free-text notes attached to a recipe
-    sessions     — web-app session tokens (sha256 hashes, never raw)
     recipes_fts  — FTS5 index for /search
 
 `saved_at` is NULL until the user explicitly saves the recipe; until then
@@ -18,12 +17,10 @@ All timestamps are Unix seconds (integer).
 """
 
 import datetime
-import hashlib
 import json
 import logging
 import os
 import re
-import secrets
 import sqlite3
 import time
 from typing import Any
@@ -66,16 +63,6 @@ CREATE TABLE IF NOT EXISTS comments (
 );
 
 CREATE INDEX IF NOT EXISTS idx_comments_recipe_id ON comments(recipe_id);
-
--- Web-app session tokens. The token itself is never stored; only its
--- sha256 hash, so a DB read alone can't impersonate a session.
-CREATE TABLE IF NOT EXISTS sessions (
-    token_hash TEXT PRIMARY KEY,
-    created_at INTEGER NOT NULL,
-    expires_at INTEGER NOT NULL
-);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at);
 
 -- FTS5 index for /search. rowid mirrors recipes.id so we can JOIN cheaply.
 -- We manage inserts/updates/deletes manually rather than via triggers
@@ -167,6 +154,11 @@ def _connect() -> sqlite3.Connection:
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA synchronous=NORMAL")
     conn.execute("PRAGMA foreign_keys=ON")
+    # Wait up to 5 s for a competing writer to finish instead of raising
+    # SQLITE_BUSY immediately. The bot, web, scheduler, and the worker-thread
+    # backup snapshot can all touch the DB; under that rare contention a bare
+    # SQLITE_BUSY would surface as a swallowed error and a silently-lost write.
+    conn.execute("PRAGMA busy_timeout=5000")
     return conn
 
 
@@ -875,65 +867,3 @@ def clear_panel_state() -> None:
     """Drop the persisted panel state. Called when the display is cleared."""
     with _connect() as conn:
         conn.execute("DELETE FROM display_panel WHERE id = 1")
-
-
-# --- Web-app sessions ------------------------------------------------------
-
-# Sliding window: a session that's actively used gets renewed for another
-# 30 days on each request; one untouched for 30 days expires.
-SESSION_DURATION_S = 30 * 24 * 3600
-# Only rewrite the expiry when it's drifted by more than a day, to avoid
-# a write on every single request.
-_SESSION_SLIDE_THRESHOLD_S = 24 * 3600
-
-
-def _hash_session_token(token: str) -> str:
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()
-
-
-def create_session() -> str:
-    """Mint a new session token (returned in plaintext) and store its hash."""
-    token = secrets.token_urlsafe(32)
-    now = int(time.time())
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO sessions (token_hash, created_at, expires_at) VALUES (?, ?, ?)",
-            (_hash_session_token(token), now, now + SESSION_DURATION_S),
-        )
-    return token
-
-
-def validate_session(token: str) -> bool:
-    """Return True iff the token matches a non-expired session row. Slides
-    the expiry forward on a valid hit and opportunistically GCs expired rows."""
-    if not token:
-        return False
-    h = _hash_session_token(token)
-    now = int(time.time())
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT expires_at FROM sessions WHERE token_hash = ?",
-            (h,),
-        ).fetchone()
-        if row is None or row["expires_at"] < now:
-            return False
-        new_expires = now + SESSION_DURATION_S
-        if new_expires - row["expires_at"] > _SESSION_SLIDE_THRESHOLD_S:
-            conn.execute(
-                "UPDATE sessions SET expires_at = ? WHERE token_hash = ?",
-                (new_expires, h),
-            )
-        # Drive-by cleanup of stale rows. Cheap thanks to idx_sessions_expires_at.
-        conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
-    return True
-
-
-def delete_session(token: str) -> None:
-    """Invalidate a session (logout). No-op if the token isn't known."""
-    if not token:
-        return
-    with _connect() as conn:
-        conn.execute(
-            "DELETE FROM sessions WHERE token_hash = ?",
-            (_hash_session_token(token),),
-        )

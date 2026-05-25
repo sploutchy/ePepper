@@ -2,54 +2,20 @@
 
 Items deferred from the code review — captured so they don't get lost.
 
-## Security
+## Decided against
 
-### SEC-1: Sign firmware + pin TLS cert in the OTA flow
+### OTA firmware signing / TLS cert-pinning / boot-rollback
 
-The OTA update path (`esp32/src/main.cpp:344-452`, `server/api/server.py:245-262`)
-flashes whatever bytes the server returns over a `HTTPClient::begin(url)` call
-that constructs an insecure HTTPS client — no `setCACert`, no signature
-verification. An on-path attacker (open Wi-Fi neighbour, hostile ISP) can swap
-`/firmware/download` and the device boots the malicious image on the next
-daily wake.
-
-Plan:
-1. Bake the server CA (or a pinned leaf certificate) into the firmware build.
-2. Use `NetworkClientSecure secure; secure.setCACert(ROOT_CA); http.begin(secure, url);`
-   for both `/firmware/version` and `/firmware/download` (and ideally every
-   other request — see the bearer-key leak below).
-3. Sign the firmware blob with an offline key. Publish `firmware.bin` alongside
-   a detached `firmware.sig`. The firmware verifies the signature against a
-   public key baked into the build using `Update.setSignaturePubKey()` /
-   `Update.setVerifyBegin()` before `Update.end(true)`.
-
-This is a one-time hardware-reflash-required change: the trust anchors live in
-the firmware itself.
-
-### SEC-2: OTA rollback confirmation (gate boot-validity on a live server round-trip)
-
-`checkForOTAUpdate()` (`esp32/src/main.cpp:344-452`) relies on the dual-partition
-layout for safety: `Update.end(true)` only sets the boot partition after a
-complete write, so a *partial/corrupted* download is never booted. But that's
-the only failure it catches. A firmware that flashes cleanly yet can't actually
-work — a Wi-Fi-stack regression, a bad `setCACert` after SEC-1 lands, a server
-URL that no longer resolves — boots fine, marks itself valid, and becomes a
-device that wakes daily and does nothing. There's no automatic fallback to the
-last-known-good image because nothing ever declares the new one bad.
-
-Plan:
-1. Enable rollback in the build (`CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`) so a
-   freshly-OTA'd app boots in the `ESP_OTA_IMG_PENDING_VERIFY` state.
-2. After the next wake's first successful server round-trip (a 2xx `/version`),
-   call `esp_ota_mark_app_valid_cancel_rollback()` to confirm the image.
-3. If the first post-OTA boot can't reach/authenticate the server within a
-   bounded number of attempts, call
-   `esp_ota_mark_app_invalid_rollback_and_reboot()` to drop back to the
-   previous image automatically.
-
-Pairs naturally with SEC-1 (a botched cert-pinning change is exactly the kind
-of "flashes fine, can't connect" regression this guards against). Touches only
-the firmware boot path + `platformio.ini` build flags; no server change.
+Evaluated and dropped. These (firmware signature verification with an offline
+key, baking a CA to pin TLS on `/firmware/*`, and `CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE`
+with a live-round-trip validity gate) defend against an on-path attacker
+swapping the OTA blob, and against a clean-but-broken image bricking the panel.
+For a single device on a home Wi-Fi this is fleet-management hardening: the
+attacker already has to be inside the LAN, the download is Bearer-authed, and
+the dual-partition `Update.end(true)` already prevents booting a *corrupt*
+image. Not worth the offline-key infra, CI changes, and mandatory one-time
+reflash for one household recipe screen. Recovery for a bad build is the
+browser-USB reflasher at `/app/flash`.
 
 ## Design
 

@@ -16,8 +16,6 @@ it runs the day's chores in order:
 
 Manual Telegram pushes during the day are preserved — they win until
 the next midnight tick.
-
-`heartbeat_loop` wakes hourly to alert on the device falling silent.
 """
 
 import asyncio
@@ -25,7 +23,6 @@ import logging
 from datetime import date, datetime, time, timedelta, timezone
 
 import backup
-import device_telemetry
 from processing import fooby_cache
 import library
 from config import TZ
@@ -328,29 +325,3 @@ async def midnight_loop() -> None:
             await backup.flush_if_dirty()
         except Exception:
             log.exception("Daily backup failed; will retry tomorrow")
-
-
-_HEARTBEAT_CHECK_INTERVAL_S = 3600  # hourly is fine — alert fires once per stale episode
-
-
-async def heartbeat_loop() -> None:
-    """Wake hourly to check whether the device's heartbeat went stale.
-
-    Proactive (not reactive) because the absence of POSTs is the signal —
-    can't piggyback on update_device_status the way the battery alert does.
-    """
-    while True:
-        try:
-            await asyncio.sleep(_HEARTBEAT_CHECK_INTERVAL_S)
-        except asyncio.CancelledError:
-            log.info("Heartbeat scheduler cancelled")
-            raise
-        try:
-            hours_since = device_telemetry.check_heartbeat_stale()
-            if hours_since is not None:
-                # Lazy import mirrors api/server.py's notify_low_battery wiring
-                # and avoids a circular import at module load time.
-                from bot.handlers import notify_stale_heartbeat
-                await notify_stale_heartbeat(hours_since)
-        except Exception:
-            log.exception("Heartbeat check failed; will retry next hour")

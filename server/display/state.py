@@ -6,7 +6,7 @@ registered from `main.py` via `register_change_listener`) so this
 module stays below `library` in the import layering.
 
 BMP serialization lives in `display/image.py`; device telemetry
-(battery / heartbeat / alert hysteresis) in `device_telemetry.py`.
+(battery / last-seen / low-battery alert) in `device_telemetry.py`.
 """
 
 import hashlib

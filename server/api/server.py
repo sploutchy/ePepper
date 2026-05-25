@@ -24,7 +24,7 @@ from fastapi.staticfiles import StaticFiles
 import device_telemetry
 from display import state as display_state
 import library
-from api.web import router as web_router
+from api.web import cookie_is_valid, router as web_router
 from display.image import get_image_bmp
 from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
 from scheduler import seconds_until_next_local_hour
@@ -59,11 +59,9 @@ def _check_api_key(request: Request, allow_cookie: bool = False) -> bool:
         auth[7:].encode("utf-8"), API_KEY.encode("utf-8"),
     ):
         return True
-    # Browser path: random session token minted by /app/login. Only honored
-    # on cookie-allowed routes (/image).
-    if allow_cookie and library.validate_session(
-        request.cookies.get("epepper_auth", "")
-    ):
+    # Browser path: the /app/ auth cookie (an HMAC of the API key, minted by
+    # /app/login). Only honored on cookie-allowed routes (/image).
+    if allow_cookie and cookie_is_valid(request.cookies.get("epepper_auth", "")):
         return True
     return False
 
