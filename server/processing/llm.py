@@ -44,7 +44,6 @@ def is_enabled() -> bool:
 
 async def complete_json(
     *,
-    kind: str,
     model: str,
     system: str,
     user: str,
@@ -53,8 +52,6 @@ async def complete_json(
     timeout_s: float = 60.0,
 ) -> dict[str, Any]:
     """Call chat-completions and return the JSON object the model produced.
-
-    `kind` is "url" or "ocr" and tags the call in the token-usage log line.
 
     The system + user prompts are responsible for instructing the model to
     output ONLY a JSON object — we strip a leading/trailing ```json fence
@@ -83,7 +80,7 @@ async def complete_json(
         {"role": "user", "content": user_content},
     ]
 
-    raw = await _chat(kind, model, messages, max_tokens, timeout_s)
+    raw = await _chat(model, messages, max_tokens, timeout_s)
     try:
         return _parse_json(raw)
     except ValueError as e:
@@ -97,7 +94,7 @@ async def complete_json(
             "JSON object, no prose, no markdown fences."
         ),
     })
-    raw = await _chat(kind, model, messages, max_tokens, timeout_s)
+    raw = await _chat(model, messages, max_tokens, timeout_s)
     try:
         return _parse_json(raw)
     except ValueError as e:
@@ -105,7 +102,6 @@ async def complete_json(
 
 
 async def _chat(
-    kind: str,
     model: str,
     messages: list[dict[str, Any]],
     max_tokens: int,
@@ -156,8 +152,7 @@ async def _chat(
     prompt_tokens = usage.get("prompt_tokens") or 0
     completion_tokens = usage.get("completion_tokens") or 0
     log.info(
-        "LLM call: kind=%s model=%s prompt_tokens=%s completion_tokens=%s total=%s",
-        kind,
+        "LLM call: model=%s prompt_tokens=%s completion_tokens=%s total=%s",
         model,
         prompt_tokens,
         completion_tokens,

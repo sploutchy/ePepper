@@ -1,7 +1,7 @@
 /* =========================================================================
    ePepper — Lean Editorial
    ========================================================================= */
-@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&display=swap');
 
 /* ----------  Tokens  ---------- */
 :root {
@@ -27,18 +27,16 @@
   /* Typography */
   --font-display: 'Fraunces', 'Times New Roman', Georgia, serif;
   --font-body:    'Inter', system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-  --font-mono:    'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+  --font-mono:    ui-monospace, SFMono-Regular, Menlo, monospace;
 
   /* Layout */
   --page-max:     1140px;
-  --read-max:     680px;
   --gutter:       clamp(20px, 4vw, 56px);
   --vrhythm:      1.65;
 
   /* Radii / motion */
   --r-sm:  6px;
   --r-md:  10px;
-  --r-lg:  18px;
   --ease:  cubic-bezier(.2,.6,.2,1);
 }
 

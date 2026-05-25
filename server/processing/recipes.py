@@ -258,7 +258,6 @@ async def _try_llm(url: str, html: str, on_start=None) -> dict | None:
     log.info("Calling LLM (%s) with %d chars of cleaned text", LLM_TEXT_MODEL, len(blob))
     try:
         raw = await llm.complete_json(
-            kind="url",
             model=LLM_TEXT_MODEL,
             system=URL_SYSTEM,
             user=url_user(url, blob),
@@ -316,7 +315,6 @@ async def process_recipe_image(
 
     try:
         raw = await llm.complete_json(
-            kind="ocr",
             model=LLM_VISION_MODEL,
             system=OCR_SYSTEM,
             user=ocr_user(hint),
@@ -706,7 +704,6 @@ async def translate_for_search(recipe: dict) -> str | None:
 
     try:
         raw = await llm.complete_json(
-            kind="translate",
             model=LLM_TRANSLATE_MODEL,
             system=TRANSLATE_SYSTEM,
             user=translate_user(title, ingredients, native_lang),
