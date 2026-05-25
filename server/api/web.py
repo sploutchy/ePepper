@@ -21,7 +21,7 @@ from display import state as display_state
 from processing import fooby_cache
 import library
 from library.db import SESSION_DURATION_S
-from config import API_KEY, LLM_API_KEY, LLM_API_URL, PHOTO_MAX_MB, TZ
+from config import API_KEY, PHOTO_MAX_MB, TZ
 
 # Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
 # without the user having to convert them first. Best-effort: a local dev
@@ -726,13 +726,6 @@ def _status_ctx(request: Request) -> dict:
     next_anniv = library.pick_anniversary_recipe(
         tomorrow.strftime("%m-%d"), tomorrow.year
     )
-    # LLM token+cost ledger for the current calendar month (local TZ —
-    # matches Infomaniak's billing boundary).
-    month_start = int(
-        now_local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).timestamp()
-    )
-    llm = library.llm_month_stats(month_start)
-    llm["enabled"] = bool(LLM_API_URL and LLM_API_KEY)
     next_anniv_years_ago: int | None = None
     if next_anniv and next_anniv.get("last_displayed_at"):
         cooked_year = datetime.fromtimestamp(
@@ -760,7 +753,6 @@ def _status_ctx(request: Request) -> dict:
         "next_anniversary_years_ago": next_anniv_years_ago,
         "next_anniversary_date": format_long_date(tomorrow),
         "fooby_preview": fooby_preview,
-        "llm": llm,
         "firmware_server_version": firmware_server_version,
         # _context_globals only fires on the full /status page render; the
         # 30 s HTMX partial calls this directly, so re-include the bits the
@@ -795,49 +787,6 @@ async def web_display_clear(request: Request):
     display_state.clear()
     log.info("Web cleared display")
     return _hx_redirect("/app/status?cleared=1")
-
-
-def _change_page(action: str) -> None:
-    """Mutate display_state's current page based on a nav action.
-
-    This is now the *only* server-side page cursor: the device computes its
-    own page locally and serves it from its on-flash cache (DES-7), so this
-    drives the status-page live preview alone — a preview cursor independent
-    of whatever page the panel is actually showing.
-    """
-    state = display_state.get()
-    total = state["total_pages"]
-    current = state["page"]
-    if total <= 1:
-        return
-    if action == "next":
-        new_page = current + 1 if current < total else 1
-    elif action == "prev":
-        new_page = current - 1 if current > 1 else total
-    elif action == "first":
-        new_page = 1
-    elif action == "last":
-        new_page = total
-    else:
-        return
-    display_state.set_page(new_page)
-    log.info("Web page %s: %d → %d (of %d)", action, current, new_page, total)
-
-
-@router.post("/display/page/{action}", response_class=HTMLResponse)
-async def web_page_nav(request: Request, action: str):
-    """Status-page page-navigation controls — mirror the device buttons.
-
-    Returns the freshly-rendered status body so HTMX can swap the preview
-    + the page indicator in one round trip.
-    """
-    _require_auth(request)
-    if action not in ("next", "prev", "first", "last"):
-        raise HTTPException(404)
-    _change_page(action)
-    return templates.TemplateResponse(
-        request, "_status_body.html", _status_ctx(request)
-    )
 
 
 # --- Recipe detail ---------------------------------------------------------
@@ -913,27 +862,16 @@ async def push_recipe(request: Request, recipe_id: int):
 
 
 @router.delete("/recipes/{recipe_id}", response_class=HTMLResponse)
-async def delete_recipe(request: Request, recipe_id: int, hard: int = 0):
-    """Delete a recipe.
-
-    Default: soft-delete (set `deleted_at`; row is recoverable from a
-    backup). `?hard=1` (the shift-click affordance from the recipe
-    detail page): wipe the row outright — comments cascade away, the
-    FTS entry is dropped, and the next Telegram backup snapshot will
-    no longer carry it.
-    """
+async def delete_recipe(request: Request, recipe_id: int):
+    """Soft-delete a recipe (set `deleted_at`; the row stays recoverable
+    from a backup)."""
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    if hard:
-        if not library.hard_delete_recipe(recipe_id):
-            raise HTTPException(404)
-        log.info("Web HARD-deleted recipe id=%d title=%r", recipe_id, row["title"])
-    else:
-        if not library.delete_recipe(recipe_id):
-            raise HTTPException(404)
-        log.info("Web deleted recipe id=%d title=%r", recipe_id, row["title"])
+    if not library.delete_recipe(recipe_id):
+        raise HTTPException(404)
+    log.info("Web deleted recipe id=%d title=%r", recipe_id, row["title"])
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"
     return resp

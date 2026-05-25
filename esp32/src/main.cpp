@@ -3,8 +3,8 @@
  *
  * Buttons (active-low, hw 10K pull-up + 100nF debounce):
  *   KEY0 (GPIO3)  — Refresh: poll server, redraw if changed (long-press: force)
- *   KEY1 (GPIO4)  — Next page (long-press: last page)
- *   KEY2 (GPIO5)  — Previous page (long-press: first page)
+ *   KEY1 (GPIO4)  — Next page
+ *   KEY2 (GPIO5)  — Previous page
  *
  * Wake sources:
  *   - Timer: DAILY_REFRESH_INTERVAL_S — pull whatever ambient content the
@@ -25,8 +25,8 @@
  *
  * On-flash page cache: the server renders the whole recipe up front, so all
  * pages share one stable content_hash (from /version). On a content change
- * we pull every page into LittleFS as /p<N>.bmp; subsequent next/prev/first/
- * last turns just blit the matching file. This trades one larger download
+ * we pull every page into LittleFS as /p<N>.bmp; subsequent next/prev turns
+ * just blit the matching file. This trades one larger download
  * per recipe for Wi-Fi-free, lower-latency page turns. The cost: a page
  * turn's cached frame carries a stale battery glyph until the next refresh,
  * and the server's notion of the current page (used by the web status
@@ -47,7 +47,6 @@
 #include <sys/time.h>
 #include <time.h>
 #include "TFT_eSPI.h"
-#include "EPaperFixed.h"  // Kept dormant: subclass adds partial-refresh override we no longer call.
 #include "config.h"
 
 // Baked in by CI via -DFIRMWARE_VERSION=<github.run_number>. Local builds
@@ -57,24 +56,22 @@
 #define FIRMWARE_VERSION 0
 #endif
 
-EPaperFixed epaper;
+EPaper epaper;
 
 // Upper bound on cached pages we'll prune. A recipe is typically 2–4 pages;
 // this just caps the cleanup loop that unlinks stale /p<N>.bmp files when a
 // new (shorter) recipe replaces a longer one.
 #define MAX_CACHED_PAGES 32
 
-enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV, WAKE_CLEAR };
+enum WakeAction { WAKE_TIMER, WAKE_REFRESH, WAKE_NEXT, WAKE_PREV };
 
 void handleRefresh(bool force = false);
 void handlePageChange(const char* direction);
-void handleClear();
 void handleTimerWake();
 void checkForOTAUpdate();
 void warmWindow();
 bool waitForLongPress(int btnPin, int thresholdMs);
 void connectWiFi();
-void showOfflineMarker();
 bool pollServer();
 bool downloadImage(int page);
 void reportDeviceStatus();
@@ -83,7 +80,6 @@ bool cacheAllPages();
 bool loadCachedPage(int page);
 bool writeCacheFile(int page, uint8_t* data, size_t len);
 void clearCacheAbove(int n);
-void clearCache();
 void displayImage(uint8_t* data, size_t len);
 bool readSHT40(float& tempC, float& rh);
 float readBatteryVoltage();
@@ -163,27 +159,21 @@ void setup() {
 
     WakeAction action = detectWakeAction();
 
-    // For button wakes, sample the GPIO to distinguish a tap from a long
-    // press before dispatching. ext1 only tells us which pin fired, not
-    // how long it's been held; the button is typically still down here.
-    // The chord (WAKE_CLEAR) has no long-press semantics — we just wait
-    // for both pins to release so the warm window doesn't re-fire.
+    // Refresh is the only button with a long-press gesture (force full
+    // redraw); paging is short-press only. Sample the refresh GPIO to tell
+    // a tap from a hold before dispatching — ext1 only says which pin fired.
     bool isLong = false;
-    int btnPin = -1;
-    if (action == WAKE_REFRESH) btnPin = BTN_REFRESH;
-    else if (action == WAKE_NEXT) btnPin = BTN_NEXT;
-    else if (action == WAKE_PREV) btnPin = BTN_PREV;
-    if (btnPin >= 0) {
-        isLong = waitForLongPress(btnPin, LONG_PRESS_MS);
-        if (isLong) {
-            // Drain the rest of the hold so the warm window doesn't
-            // immediately re-fire on the same physical press.
-            while (digitalRead(btnPin) == LOW) delay(10);
-        }
-    } else if (action == WAKE_CLEAR) {
-        while (digitalRead(BTN_PREV) == LOW || digitalRead(BTN_REFRESH) == LOW) {
-            delay(10);
-        }
+    if (action == WAKE_REFRESH) {
+        isLong = waitForLongPress(BTN_REFRESH, LONG_PRESS_MS);
+    }
+    // Drain the held button so the warm window doesn't re-fire the same
+    // physical press once we return to it.
+    int heldPin = -1;
+    if (action == WAKE_REFRESH) heldPin = BTN_REFRESH;
+    else if (action == WAKE_NEXT) heldPin = BTN_NEXT;
+    else if (action == WAKE_PREV) heldPin = BTN_PREV;
+    if (heldPin >= 0) {
+        while (digitalRead(heldPin) == LOW) delay(10);
     }
 
     switch (action) {
@@ -191,13 +181,10 @@ void setup() {
             handleRefresh(isLong);
             break;
         case WAKE_NEXT:
-            handlePageChange(isLong ? "last" : "next");
+            handlePageChange("next");
             break;
         case WAKE_PREV:
-            handlePageChange(isLong ? "first" : "prev");
-            break;
-        case WAKE_CLEAR:
-            handleClear();
+            handlePageChange("prev");
             break;
         case WAKE_TIMER:
             handleTimerWake();
@@ -226,16 +213,6 @@ WakeAction detectWakeAction() {
         return WAKE_TIMER;
     }
 
-    // PREV+REFRESH chord = force-clear. Sample the GPIOs directly after a
-    // brief settle so we catch the chord even when the user releases the
-    // two buttons a few ms apart (ext1 only carries the bits that fired
-    // simultaneously; a slightly-delayed second press wouldn't show up).
-    delay(15);
-    if (digitalRead(BTN_PREV) == LOW && digitalRead(BTN_REFRESH) == LOW) {
-        Serial.println("[Wake] Chord: Prev+Refresh (clear)");
-        return WAKE_CLEAR;
-    }
-
     uint64_t mask = esp_sleep_get_ext1_wakeup_status();
     if (mask & (1ULL << BTN_NEXT)) { Serial.println("[Wake] Button: Next"); return WAKE_NEXT; }
     if (mask & (1ULL << BTN_PREV)) { Serial.println("[Wake] Button: Prev"); return WAKE_PREV; }
@@ -251,14 +228,10 @@ WakeAction detectWakeAction() {
 
 void handleRefresh(bool force) {
     Serial.printf("[Action] Refresh — polling server%s\n", force ? " (forced)" : "");
-    digitalWrite(LED_PIN, LOW);
-    buzzerBeep(1, 50);
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
         buzzerBeep(3, 100);
-        showOfflineMarker();
-        digitalWrite(LED_PIN, HIGH);
         return;
     }
 
@@ -289,8 +262,6 @@ void handleRefresh(bool force) {
     } else {
         Serial.println("[Action] No changes");
     }
-
-    digitalWrite(LED_PIN, HIGH);
 }
 
 
@@ -301,7 +272,6 @@ void handleRefresh(bool force) {
 // state and the files predate it, or a corrupt read).
 void handlePageChange(const char* direction) {
     Serial.printf("[Action] Page %s\n", direction);
-    digitalWrite(LED_PIN, LOW);
 
     // Warm single-page: we genuinely know this recipe has one page (we have a
     // trustworthy cached content_hash), so the page-turn is a no-op. Cold state
@@ -310,8 +280,6 @@ void handlePageChange(const char* direction) {
     // fall through to a network refresh below rather than dead-ending here.
     if (totalPages <= 1 && cachedHash[0] != '\0') {
         Serial.println("[Action] Single page, nothing to do");
-        buzzerBeep(2, 50);
-        digitalWrite(LED_PIN, HIGH);
         return;
     }
 
@@ -324,8 +292,6 @@ void handlePageChange(const char* direction) {
         connectWiFi();
         if (WiFi.status() != WL_CONNECTED) {
             buzzerBeep(3, 100);
-            showOfflineMarker();
-            digitalWrite(LED_PIN, HIGH);
             return;
         }
         reportDeviceStatus();
@@ -333,17 +299,13 @@ void handlePageChange(const char* direction) {
         cacheAllPages();       // promotes the hash on success
         currentPage = 1;
         if (totalPages <= 1) {
-            // Genuinely single-page — the existing beep is now correct.
             Serial.println("[Action] Single page, nothing to do");
-            buzzerBeep(2, 50);
-            digitalWrite(LED_PIN, HIGH);
             return;
         }
     }
 
     int newPage = computeLocalPage(direction);
     if (newPage == currentPage) {
-        digitalWrite(LED_PIN, HIGH);
         return;
     }
 
@@ -353,9 +315,7 @@ void handlePageChange(const char* direction) {
     if (cachedHash[0] != '\0' && loadCachedPage(newPage)) {
         currentPage = newPage;
         displayImage(imageBuffer, imageSize);
-        buzzerBeep(1, 30);
         Serial.printf("[Action] Page %d/%d displayed (cache)\n", currentPage, totalPages);
-        digitalWrite(LED_PIN, HIGH);
         return;
     }
 
@@ -364,8 +324,6 @@ void handlePageChange(const char* direction) {
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
         buzzerBeep(3, 100);
-        showOfflineMarker();
-        digitalWrite(LED_PIN, HIGH);
         return;
     }
 
@@ -375,57 +333,8 @@ void handlePageChange(const char* direction) {
         currentPage = newPage;
         writeCacheFile(newPage, imageBuffer, imageSize);  // opportunistic refill
         displayImage(imageBuffer, imageSize);
-        buzzerBeep(1, 30);
         Serial.printf("[Action] Page %d/%d displayed (network)\n", currentPage, totalPages);
     }
-
-    digitalWrite(LED_PIN, HIGH);
-}
-
-
-// Force-clear the panel — fires on the PREV+REFRESH chord. Tells the
-// server to drop its display state, then fetches and shows the idle
-// hint image so the user knows which button wakes content back up.
-void handleClear() {
-    Serial.println("[Action] Clear (chord)");
-    digitalWrite(LED_PIN, LOW);
-    buzzerBeep(2, 50);
-
-    connectWiFi();
-    if (WiFi.status() != WL_CONNECTED) {
-        buzzerBeep(3, 100);
-        showOfflineMarker();
-        digitalWrite(LED_PIN, HIGH);
-        return;
-    }
-
-    reportDeviceStatus();
-
-    HTTPClient http;
-    String url = String(SERVER_URL) + "/display/clear";
-    http.begin(url);
-    http.setUserAgent("ePepper-device/1.0");
-    http.addHeader("Authorization", String("Bearer ") + API_KEY);
-    collectDateHeader(http);
-    int code = http.POST("");
-    applyDateHeader(http);
-    http.end();
-    if (code != 200) {
-        Serial.printf("[API] /display/clear returned %d\n", code);
-        buzzerBeep(3, 100);
-        digitalWrite(LED_PIN, HIGH);
-        return;
-    }
-
-    currentPage = 1;
-    totalPages = 1;
-    clearCache();  // drop the on-flash pages + content_hash so a re-push refetches
-    if (downloadImage(1)) {
-        displayImage(imageBuffer, imageSize);
-        Serial.println("[Action] Cleared display");
-    }
-
-    digitalWrite(LED_PIN, HIGH);
 }
 
 
@@ -602,12 +511,9 @@ bool pollServer() {
     int code = http.GET();
     if (code != 200) {
         // Server reachable but erroring (bad API key → 401, 5xx, down).
-        // Stamp the OFFLINE corner marker so the failure is visible on the
-        // panel instead of looking identical to a normal "nothing new" exit.
-        // Non-destructive partial update — leaves the cached frame intact.
+        // Panel keeps its last content; the next refresh retries.
         Serial.printf("[API] /version returned %d\n", code);
         http.end();
-        showOfflineMarker();
         return false;
     }
 
@@ -665,11 +571,8 @@ bool downloadImage(int page) {
 
     int code = http.GET();
     if (code != 200) {
-        // Server reachable but erroring — surface it on the panel (see the
-        // matching note in pollServer). Non-destructive corner partial update.
         Serial.printf("[API] /image returned %d\n", code);
         http.end();
-        showOfflineMarker();
         return false;
     }
     applyDateHeader(http);
@@ -713,17 +616,15 @@ bool downloadImage(int page) {
 // Pages live as /p<N>.bmp — exactly the bytes /image?page=N returns, so the
 // display path is identical whether a frame came off the wire or off flash.
 
-// Local cursor maths — mirrors the wrap/clamp the server's /page/* used to
-// do, now that the device owns its page. Returns the unchanged page on a
-// single-page recipe or an unknown direction.
+// Local cursor maths — next/prev wrap around the page count, now that the
+// device owns its page. Returns the unchanged page on a single-page recipe
+// or an unknown direction.
 int computeLocalPage(const char* direction) {
     if (totalPages <= 1) return currentPage;
     if (strcmp(direction, "next") == 0)
         return currentPage < totalPages ? currentPage + 1 : 1;
     if (strcmp(direction, "prev") == 0)
         return currentPage > 1 ? currentPage - 1 : totalPages;
-    if (strcmp(direction, "first") == 0) return 1;
-    if (strcmp(direction, "last") == 0)  return totalPages;
     return currentPage;
 }
 
@@ -781,12 +682,6 @@ void clearCacheAbove(int n) {
         snprintf(path, sizeof(path), "/p%d.bmp", p);
         if (LittleFS.exists(path)) LittleFS.remove(path);
     }
-}
-
-
-void clearCache() {
-    clearCacheAbove(0);
-    cachedHash[0] = '\0';
 }
 
 
@@ -1045,28 +940,6 @@ void displayImage(uint8_t* data, size_t len) {
 }
 
 
-// On Wi-Fi failure the panel keeps the last content with no on-screen sign
-// anything's wrong. Stamp a small "OFFLINE" marker into the bottom-right
-// corner via a *partial* refresh, so the rest of the panel (the last recipe)
-// stays put — a full update would wipe it to whatever's in the framebuffer,
-// which is blank on a cold wake. updataPartial only pushes the corner window
-// to the controller, leaving every other pixel as the e-ink already holds it.
-void showOfflineMarker() {
-    const int w = 64;
-    const int h = 16;
-    const int x = DISPLAY_WIDTH - w;   // 8-px aligned (800 - 64 = 736)
-    const int y = DISPLAY_HEIGHT - h;
-
-    epaper.fillRect(x, y, w, h, TFT_WHITE);
-    epaper.setTextColor(TFT_BLACK, TFT_WHITE);
-    epaper.setTextDatum(TL_DATUM);
-    epaper.setTextSize(1);
-    epaper.drawString("OFFLINE", x + 8, y + 4);
-
-    epaper.updataPartial(x, y, w, h);
-}
-
-
 // ---- Warm window ----
 
 void warmWindow() {
@@ -1083,11 +956,13 @@ void warmWindow() {
         delay(BTN_DEBOUNCE_MS);
         if (digitalRead(hit) != LOW) continue;  // bounced
 
-        bool isLong = waitForLongPress(hit, LONG_PRESS_MS);
+        // Only Refresh has a long-press gesture (force redraw); paging is
+        // short-press only.
+        bool isLong = (hit == BTN_REFRESH) && waitForLongPress(hit, LONG_PRESS_MS);
 
         if (hit == BTN_REFRESH)        handleRefresh(isLong);
-        else if (hit == BTN_NEXT)      handlePageChange(isLong ? "last"  : "next");
-        else                           handlePageChange(isLong ? "first" : "prev");
+        else if (hit == BTN_NEXT)      handlePageChange("next");
+        else                           handlePageChange("prev");
 
         while (digitalRead(hit) == LOW) delay(10);
 
@@ -1098,15 +973,13 @@ void warmWindow() {
 
 
 // Returns true if the button is still held LOW after thresholdMs, false
-// if released earlier. Short beep cue on long-press recognition so the
-// user knows the gesture registered before the screen catches up.
+// if released earlier.
 bool waitForLongPress(int btnPin, int thresholdMs) {
     unsigned long start = millis();
     while ((long)(millis() - start) < thresholdMs) {
         if (digitalRead(btnPin) != LOW) return false;
         delay(20);
     }
-    buzzerBeep(2, 30);
     return true;
 }
 

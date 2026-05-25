@@ -15,7 +15,7 @@ import base64
 import json
 import logging
 import re
-from typing import Any, Callable
+from typing import Any
 
 import aiohttp
 
@@ -38,27 +38,6 @@ def _get_session() -> aiohttp.ClientSession:
     return _session
 
 
-# Pluggable sink for per-call accounting. Set at startup (see main.py) so
-# this module stays below `library` in the import layering. Signature
-# matches `library.record_llm_call`: kwargs `kind`, `model`,
-# `input_tokens`, `output_tokens`. Left None when not configured (e.g.
-# unit tests) — _chat just skips the write and logs once.
-_usage_sink: Callable[..., None] | None = None
-_usage_sink_missing_warned = False
-
-
-def register_usage_sink(fn: Callable[..., None]) -> None:
-    """Install the per-call accounting sink (typically `library.record_llm_call`).
-
-    Called once from server startup; replaces the lazy `from library
-    import record_llm_call` that used to live inside `_chat` purely to
-    dodge the import cycle.
-    """
-    global _usage_sink, _usage_sink_missing_warned
-    _usage_sink = fn
-    _usage_sink_missing_warned = False
-
-
 def is_enabled() -> bool:
     return bool(LLM_API_URL and LLM_API_KEY)
 
@@ -75,8 +54,7 @@ async def complete_json(
 ) -> dict[str, Any]:
     """Call chat-completions and return the JSON object the model produced.
 
-    `kind` is "url" or "ocr" and tags the call in the on-disk ledger
-    that backs the status page.
+    `kind` is "url" or "ocr" and tags the call in the token-usage log line.
 
     The system + user prompts are responsible for instructing the model to
     output ONLY a JSON object — we strip a leading/trailing ```json fence
@@ -135,8 +113,8 @@ async def _chat(
 ) -> str:
     """POST to /chat/completions, return the assistant message content.
 
-    Records the call in the on-disk ledger and logs token usage so
-    per-call CHF cost is traceable in the container logs (grep `LLM call`).
+    Logs token usage so per-call cost is traceable in the container logs
+    (grep `LLM call`).
     """
     url = f"{LLM_API_URL.rstrip('/')}/chat/completions"
     headers = {
@@ -185,28 +163,6 @@ async def _chat(
         completion_tokens,
         usage.get("total_tokens"),
     )
-    # Hand the call off to the registered sink (see register_usage_sink).
-    # Sink is injected at startup rather than imported here so this module
-    # stays below `library` in the layering. Missing sink is a wiring
-    # mistake, not a fatal error — log once and continue.
-    global _usage_sink_missing_warned
-    if _usage_sink is not None:
-        try:
-            _usage_sink(
-                kind=kind,
-                model=model,
-                input_tokens=int(prompt_tokens),
-                output_tokens=int(completion_tokens),
-            )
-        except Exception:
-            log.exception("LLM usage sink raised; continuing")
-    elif not _usage_sink_missing_warned:
-        log.warning(
-            "LLM usage sink not registered — calls won't be accounted in "
-            "the on-disk ledger (call processing.llm.register_usage_sink "
-            "at startup)."
-        )
-        _usage_sink_missing_warned = True
     return content or ""
 
 
