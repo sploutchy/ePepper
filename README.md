@@ -17,7 +17,7 @@ on their anniversary.
    │              │  /search /status /comment    │    (SQLite + FTS)        │
    └──────────────┘ ◄── alerts + backup ──────── │  ▸ anniversary +         │
                                                  │    Fooby fallback        │
-                                                 │  ▸ heartbeat scheduler   │
+                                                 │  ▸ device monitoring     │
                                                  └─────────────┬────────────┘
                                                                │ GET  /version
                                                                │ GET  /image (BMP)
@@ -69,9 +69,8 @@ on their anniversary.
   Fooby's weekly-inspiration block when no anniversary exists.
 - **Device monitoring.** Battery %, Wi-Fi RSSI, ambient temp +
   humidity (SHT40), last-seen freshness — visible on the web status
-  page and in `/status` on the bot. One-shot alerts go out when
-  battery drops below 3.5 V or the device's daily heartbeat is
-  overdue.
+  page and in `/status` on the bot. A one-shot alert goes out when the
+  battery drops below 3.5 V; a stale heartbeat is flagged inline.
 - **Backup to Telegram.** The midnight scheduler tick uploads a
   gzipped SQLite snapshot to a configurable Telegram chat — but only
   when the repertoire has changed since the previous upload. Quiet days
@@ -249,7 +248,7 @@ and the daily timer touch the network. See [On-device page cache](#on-device-pag
 | Variable | Description |
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather). **Required** — server won't start without it. |
-| `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate with `python3 -c "import secrets; print(secrets.token_urlsafe(32))"`. |
+| `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate one as shown in the install steps above. |
 | `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty **denies all** (safer default — an unconfigured bot is closed, not open). Set to at least your own user id to use the bot. |
 | `API_PORT` | Server port (default: `8080`). |
 | `PHOTO_MAX_MB` | *Optional, default `8`.* Maximum size in MB for web photo uploads on `/app/add`. Larger uploads are rejected with a clear error before they hit the LLM. |
@@ -336,12 +335,6 @@ The bot's search results share the same wording via
 `status_helpers.humanize_date`. There's a **Most cooked** sort option in
 the repertoire header. Counts start at 0 for everything on
 upgrade; only future pushes accumulate.
-
-Note: pushing a recipe to the panel is the only thing that bumps these
-columns. Adding a recipe via the web `/app/add` page just lands it in
-the repertoire; the panel doesn't change until you click **Display** on
-its detail page. The bot's URL-paste flow is the exception — that's a
-"send to display" command by design.
 
 The `url` column carries one of three URL shapes, all of which
 participate in the `UNIQUE` index:
@@ -462,7 +455,7 @@ it leaked the key into container logs.
 |---|---|---|
 | `GET` | `/version` | Current image hash, a `content_hash` (stable across page navigation — changes only on a new render), page info, and `next_wake_in_s` (seconds until the device's next aligned wake at `DEVICE_WAKE_HOUR_LOCAL`). ESP32 hits this on every refresh/timer wake; `content_hash` is the cache key for the device's on-flash page store. |
 | `GET` | `/image` | Current page as a 1-bit BMP. Defaults to the active page. |
-| `GET` | `/image?page=N` | Specific page as BMP. The device fetches each page explicitly to fill its on-flash cache; there is no server-side page cursor (DES-7). |
+| `GET` | `/image?page=N` | Specific page as BMP. The device fetches each page explicitly to fill its on-flash cache; there is no server-side page cursor. |
 | `POST` | `/display/clear` | Clear the panel to the idle frame. Used by the web status page's Clear button. |
 | `POST` | `/device/status?battery_mv=…&rssi=…&temperature_c=…&humidity_pct=…&firmware_version=…` | ESP32 wake-cycle report. `temperature_c` / `humidity_pct` / `firmware_version` are optional. May trigger a low-battery alert. |
 | `GET` | `/device/status` | Last-known wake-cycle report (JSON). |
@@ -616,11 +609,10 @@ USB reflash just guarantees the full 1.5 MB region.
 the next refresh (the page indicator is fine — it's baked per page). And
 because page turns no longer hit the server cursor, the web status
 preview's "current page" tracks *its own* navigation, not the device's.
-Both are deliberate: the win is Wi-Fi-free, lower-power page turns. This
-completes `ROADMAP.md` DES-7: the device owns page navigation, and the
-stateful server-side `/page/*` cursor has been removed. The web status
-page keeps its own preview cursor (`/app/display/page/*`), independent of
-the panel.
+Both are deliberate: the win is Wi-Fi-free, lower-power page turns. The
+device owns page navigation; the stateful server-side `/page/*` cursor
+has been removed. The web status page keeps its own preview cursor
+(`/app/display/page/*`), independent of the panel.
 
 ### OTA updates
 
@@ -682,22 +674,6 @@ From the [official schematic](https://files.seeedstudio.com/wiki/reterminal_e10x
 | SDA | 19 | |
 | SCL | 20 | |
 | SHT40 ambient | 0x44 | Temp + humidity, read on every wake |
-
-## Roadmap
-
-Nice-to-have improvements parked for later. Each is worth doing on its
-own — none unblock anything else.
-
-- **Ingredient checkboxes.** Tick items off the recipe page while
-  shopping or cooking. State lives in `localStorage` (no schema change),
-  scoped per recipe id.
-- **Serving scaler.** A small `× N` control on the recipe page that
-  rewrites quantities in-place ("4 → 6 servings"). Works on numeric
-  tokens at the head of each ingredient line; degrades gracefully when
-  a quantity is absent.
-
-See [`ROADMAP.md`](ROADMAP.md) for parked follow-ups and the design
-decisions deliberately ruled out.
 
 ## License
 
