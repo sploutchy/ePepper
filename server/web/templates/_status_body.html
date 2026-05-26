@@ -49,12 +49,41 @@
   {% endif %}
 
   {# Live preview of the e-ink frame — nested inside the Display
-     section so there's no hairline between title and image. Shows
-     page 1 of the current recipe. #}
+     section so there's no hairline between title and image. A
+     multi-page recipe becomes a swipeable carousel (native CSS
+     scroll-snap, see app.css + the init script in status.html); a
+     single page renders as one lone frame, exactly as before. #}
   {% if display.hash %}
-    <div class="display-preview">
-      <img src="/image?v={{ display.hash }}" alt="Current display">
-    </div>
+    {% set total = display.total_pages or 1 %}
+    {% if total > 1 %}
+      {# hx-preserve keyed on content_hash: across the 30 s status
+         refresh the same recipe keeps the same id, so the carousel —
+         and the page you swiped to — survives the swap. A new recipe
+         gets a new content_hash → new id → fresh carousel at page 1. #}
+      <div class="display-preview" id="display-carousel-{{ display.content_hash }}" hx-preserve="true">
+        <div class="carousel" data-carousel>
+          <div class="carousel-track" data-carousel-track>
+            {% for p in range(1, total + 1) %}
+              <img class="carousel-slide" src="/image?page={{ p }}&v={{ display.content_hash }}"
+                   alt="Display page {{ p }} of {{ total }}"{% if p > 1 %} loading="lazy"{% endif %}>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="carousel-nav">
+          <button type="button" class="iconbtn" data-carousel-prev aria-label="Previous page" disabled>
+            {{ icon("chevron-left", 18) }}
+          </button>
+          <span class="carousel-counter" data-carousel-counter aria-live="polite">1 / {{ total }}</span>
+          <button type="button" class="iconbtn" data-carousel-next aria-label="Next page">
+            {{ icon("chevron-right", 18) }}
+          </button>
+        </div>
+      </div>
+    {% else %}
+      <div class="display-preview">
+        <img src="/image?v={{ display.hash }}" alt="Current display">
+      </div>
+    {% endif %}
   {% endif %}
 
   {% if display.type != "idle" %}
