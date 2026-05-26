@@ -24,4 +24,55 @@
      hx-swap="innerHTML">
   {% include "_status_body.html" %}
 </div>
+
+{# Display-preview carousel: arrows + "N / total" counter on top of the
+   native scroll-snap track (swipe works without this). Idempotent and
+   re-run on htmx:load so it (re)binds after the 30 s status refresh swaps
+   #status-body; the data-carouselReady flag stops double-binding the
+   hx-preserve'd node that survives an unchanged refresh. #}
+<script>
+(function () {
+  function initCarousels() {
+    document.querySelectorAll('[data-carousel]').forEach(function (c) {
+      if (c.dataset.carouselReady) return;
+      var track = c.querySelector('[data-carousel-track]');
+      if (!track) return;
+      c.dataset.carouselReady = '1';
+      var slides = track.querySelectorAll('.carousel-slide');
+      var prev = c.querySelector('[data-carousel-prev]');
+      var next = c.querySelector('[data-carousel-next]');
+      var counter = c.querySelector('[data-carousel-counter]');
+      function index() {
+        return track.clientWidth
+          ? Math.round(track.scrollLeft / track.clientWidth) : 0;
+      }
+      function go(i) {
+        i = Math.max(0, Math.min(slides.length - 1, i));
+        track.scrollTo({ left: i * track.clientWidth, behavior: 'smooth' });
+      }
+      function sync() {
+        var i = index();
+        if (counter) counter.textContent = (i + 1) + ' / ' + slides.length;
+        if (prev) prev.disabled = i <= 0;
+        if (next) next.disabled = i >= slides.length - 1;
+      }
+      if (prev) prev.addEventListener('click', function () { go(index() - 1); });
+      if (next) next.addEventListener('click', function () { go(index() + 1); });
+      var ticking = false;
+      track.addEventListener('scroll', function () {
+        if (ticking) return;
+        ticking = true;
+        requestAnimationFrame(function () { ticking = false; sync(); });
+      }, { passive: true });
+      sync();
+    });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', initCarousels);
+  } else {
+    initCarousels();
+  }
+  document.body.addEventListener('htmx:load', initCarousels);
+})();
+</script>
 {% endblock %}

@@ -728,6 +728,58 @@ html[data-theme="dark"] .list-select {
   image-rendering: pixelated;
 }
 
+/* Multi-page preview = a swipeable carousel. The track is a native CSS
+   scroll-snap row (one full-width frame per page), so a phone swipes
+   between pages with no JS. The scrollbar is hidden so it reads as a single
+   framed panel rather than a scrollbox; the arrows + counter below are
+   progressive enhancement (status.html) for desktop discoverability. */
+.carousel {
+  max-width: 800px;
+  margin: 0 auto;
+}
+.carousel-track {
+  display: flex;
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;                 /* Firefox */
+  -webkit-overflow-scrolling: touch;
+}
+.carousel-track::-webkit-scrollbar { display: none; }   /* WebKit */
+.carousel-slide {
+  flex: 0 0 100%;
+  scroll-snap-align: center;
+  width: 100%;
+  height: auto;
+  background: #ffffff;
+  /* Same hairline as the single-page preview so a dark-mode frame doesn't
+     float as a slab of light. */
+  border: 1px solid var(--border);
+  image-rendering: pixelated;
+}
+/* Centered page-nav strip below the frame (DESIGN.md: page nav lives below
+   the preview, centered). Arrows reuse the .iconbtn role. */
+.carousel-nav {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.carousel-counter {
+  font-family: var(--font-body);
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  min-width: 52px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+.iconbtn:disabled {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
 /* Flat list of status sections — same library-list pattern (rule
    dividers, no card chrome). Each card is a row separated by hairlines,
    first card grows a top hairline so the list reads as bounded. */
