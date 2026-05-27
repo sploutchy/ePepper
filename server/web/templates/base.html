@@ -8,9 +8,11 @@
      handlers return 400 with an inline error fragment for the user;
      opt 4xx (and 5xx) back in so those errors land in #add-result. #}
   <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
-  {# Mobile browser chrome (URL bar / status bar) follows the active theme. #}
-  <meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
-  <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
+  {# Mobile browser chrome (URL bar / status bar / installed-PWA system bars)
+     follows the active theme. A single meta updated by applyThemeColor()
+     below — media-query variants would only track the OS, not the in-app
+     manual override, leaving light bars around a manually-darkened app. #}
+  <meta name="theme-color" content="#FBFAF7">
   <link rel="manifest" href="/app/static/manifest.webmanifest">
   <link rel="icon" href="/app/static/pepper.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/app/static/pepper.svg">
@@ -23,12 +25,27 @@
      we leave data-theme unset so the CSS @media (prefers-color-scheme)
      fallback handles OS dark mode automatically. #}
   <script>
+    function applyThemeColor() {
+      var html = document.documentElement;
+      var dark = html.dataset.theme === 'dark' ||
+        (!html.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
+      var meta = document.querySelector('meta[name="theme-color"]');
+      if (meta) meta.setAttribute('content', dark ? '#121110' : '#FBFAF7');
+    }
     (function() {
       try {
         var saved = localStorage.getItem('epepper-theme');
         if (saved === 'dark' || saved === 'light') {
           document.documentElement.dataset.theme = saved;
         }
+      } catch (e) {}
+      applyThemeColor();
+      // When following the OS (no manual override), track live theme changes.
+      try {
+        window.matchMedia('(prefers-color-scheme: dark)')
+          .addEventListener('change', function() {
+            if (!document.documentElement.dataset.theme) applyThemeColor();
+          });
       } catch (e) {}
     })();
   </script>
@@ -83,6 +100,7 @@
       var next = current === 'dark' ? 'light' : 'dark';
       html.dataset.theme = next;
       try { localStorage.setItem('epepper-theme', next); } catch (e) {}
+      applyThemeColor();
     }
   </script>
 </body>
