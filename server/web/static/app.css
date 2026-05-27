@@ -41,6 +41,7 @@
 }
 
 :root[data-theme="dark"], html[data-theme="dark"] {
+  color-scheme: dark;
   --bg:            #121110;
   --surface:       #1B1A18;
   --surface-alt:   #23211E;
@@ -56,6 +57,12 @@
   --warn:          #D9A742;
   --danger:        #F0817E;
   --danger-soft:   #3A1B1B;
+}
+
+/* A manual light override under an OS dark theme must narrow color-scheme too,
+   so the UA canvas / PWA system bars around the page stay light to match. */
+:root[data-theme="light"], html[data-theme="light"] {
+  color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
