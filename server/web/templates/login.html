@@ -6,7 +6,12 @@
   <meta name="color-scheme" content="light dark">
   <meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
+  {# The login page is the first thing a logged-out visitor hits (/app/
+     303s here), so it must carry the manifest too — otherwise Chrome sees
+     no installable app and offers no "Install app" entry on Android. #}
+  <link rel="manifest" href="/app/static/manifest.webmanifest">
   <link rel="icon" href="/app/static/pepper.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/app/static/pepper.svg">
   <title>ePepper · Sign in</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
