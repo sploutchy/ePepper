@@ -177,9 +177,6 @@ button { cursor: pointer; }
 .iconbtn svg { flex: none; }
 .iconbtn-label { white-space: nowrap; }
 
-.logout-form { margin: 0; }
-.logout-form button { background: transparent; }
-
 /* ----------  Main canvas  ---------- */
 main {
   max-width: var(--page-max);
@@ -1252,10 +1249,6 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   gap: 0;
   align-items: baseline;
 }
-/* `display: contents` so the logout button becomes a direct flex child of
-   .masthead-nav — `align-items: baseline` on the inline-flex form was
-   shifting LOGOUT a couple of pixels above ADD/STATUS in the masthead. */
-.masthead-nav .logout-form { display: contents; }
 .masthead-nav .masthead-link {
   background: transparent;
   border: 0;
@@ -1272,8 +1265,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   line-height: 1;
 }
 .masthead-nav .masthead-link:hover { color: var(--accent); text-decoration: none; }
-.masthead-nav .masthead-link + .masthead-link::before,
-.masthead-nav .masthead-link + .logout-form::before {
+.masthead-nav .masthead-link + .masthead-link::before {
   content: "·";
   display: inline-block;
   margin: 0 14px;
@@ -1438,8 +1430,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   .topnav { gap: 0; }
   .iconbtn { padding: 8px; }
   .masthead-nav .masthead-link { letter-spacing: 0.1em; font-size: 11px; }
-  .masthead-nav .masthead-link + .masthead-link::before,
-  .masthead-nav .masthead-link + .logout-form::before { margin: 0 6px; }
+  .masthead-nav .masthead-link + .masthead-link::before { margin: 0 6px; }
   .recipe > h1 { font-size: 40px; }
   .steps li { grid-template-columns: 36px 1fr; gap: 12px; }
   .steps li::before { font-size: 26px; }

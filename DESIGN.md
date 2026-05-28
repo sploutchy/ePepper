@@ -96,7 +96,7 @@ that's the wrong instinct — the typography is the mark.
 
 The top bar is a **masthead**, not a labelled-icon dashboard toolbar.
 Brand wordmark flush left; on the right a single row of small-caps
-Inter text links (`ADD · STATUS · LOGOUT`) separated by middle dots.
+Inter text links (`ADD · STATUS`) separated by middle dots.
 No icons next to the link labels. The theme follows the OS — there
 is no in-app toggle, by design.
 
@@ -278,7 +278,7 @@ is the wrong instinct — the editorial language doesn't have modals.
 2. `button.link.danger` — destructive actions, danger red, link-style.
    Used on `Delete this recipe` (recipe) and `Clear` (status display).
 3. `.iconbtn` — small square icon-only buttons in the topbar
-   (Add / Status / Theme / Logout) and the page-nav strip.
+   (Add / Status / Theme) and the page-nav strip.
 4. `.input-action-btn` — the merged paste/submit affordance next to
    single-string text inputs (login access code, add URL). Lives
    inline with the input as a square button. See the "Merged
