@@ -198,13 +198,6 @@ async def login_submit(request: Request, api_key: str = Form(...)):
     return resp
 
 
-@router.post("/logout")
-async def logout(request: Request):
-    resp = RedirectResponse("/app/login", status_code=303)
-    resp.delete_cookie(COOKIE_NAME)
-    return resp
-
-
 # --- Browse / search --------------------------------------------------------
 
 
