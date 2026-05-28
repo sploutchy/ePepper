@@ -8,11 +8,11 @@
      handlers return 400 with an inline error fragment for the user;
      opt 4xx (and 5xx) back in so those errors land in #add-result. #}
   <meta name="htmx-config" content='{"responseHandling":[{"code":"204","swap":false},{"code":"[23]..","swap":true},{"code":"[45]..","swap":true,"error":true}]}'>
-  {# Mobile browser chrome (URL bar / status bar / installed-PWA system bars)
-     follows the active theme. A single meta updated by applyThemeColor()
-     below — media-query variants would only track the OS, not the in-app
-     manual override, leaving light bars around a manually-darkened app. #}
-  <meta name="theme-color" content="#FBFAF7">
+  {# Browser-tab toolbar colour follows the OS theme. Installed PWAs use the
+     manifest's static theme_color (Android bakes WebAPK system bars at
+     install time — runtime meta updates can't repaint them). #}
+  <meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
   <link rel="manifest" href="/app/static/manifest.webmanifest">
   <link rel="icon" href="/app/static/pepper.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="/app/static/pepper.svg">
@@ -21,34 +21,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/app/static/app.css">
-  {# Apply a saved manual override before paint. When no choice is saved,
-     we leave data-theme unset so the CSS @media (prefers-color-scheme)
-     fallback handles OS dark mode automatically. #}
-  <script>
-    function applyThemeColor() {
-      var html = document.documentElement;
-      var dark = html.dataset.theme === 'dark' ||
-        (!html.dataset.theme && window.matchMedia('(prefers-color-scheme: dark)').matches);
-      var meta = document.querySelector('meta[name="theme-color"]');
-      if (meta) meta.setAttribute('content', dark ? '#121110' : '#FBFAF7');
-    }
-    (function() {
-      try {
-        var saved = localStorage.getItem('epepper-theme');
-        if (saved === 'dark' || saved === 'light') {
-          document.documentElement.dataset.theme = saved;
-        }
-      } catch (e) {}
-      applyThemeColor();
-      // When following the OS (no manual override), track live theme changes.
-      try {
-        window.matchMedia('(prefers-color-scheme: dark)')
-          .addEventListener('change', function() {
-            if (!document.documentElement.dataset.theme) applyThemeColor();
-          });
-      } catch (e) {}
-    })();
-  </script>
   <script src="/app/static/htmx.min.js" defer></script>
 </head>
 <body>
@@ -58,29 +30,12 @@
         <a href="/app/" class="brand">
           <span class="brand-e">e</span>Pepper
         </a>
-        {# Inline SVGs (24×24, 2 px stroke, currentColor). Explicit
-           width/height attributes belt-and-suspenders the CSS rule —
-           Firefox occasionally rendered SVGs without them at 0×0 when
-           nested inside an inline-flex parent. #}
         <nav class="topnav masthead-nav">
           <a href="/app/add" class="masthead-link">Add</a>
           <a href="/app/status" class="masthead-link">Status</a>
           <form action="/app/logout" method="post" class="logout-form">
             <button type="submit" class="masthead-link">Logout</button>
           </form>
-          {# SVGs (not Unicode) — ☀ and ☾ render at different visual heights in
-             Inter / system fonts (matching ink-bboxes; the eye still reads
-             the crescent as higher than the sun's center). 16×16 viewBox-
-             matched icons keep the swap pixel-stable. #}
-          <button type="button" class="masthead-theme" onclick="toggleTheme()" title="Toggle dark mode" aria-label="Toggle dark mode">
-            <svg class="theme-glyph theme-icon-light" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="12" cy="12" r="4"/>
-              <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
-            </svg>
-            <svg class="theme-glyph theme-icon-dark" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-            </svg>
-          </button>
         </nav>
       </div>
     </header>
@@ -91,17 +46,5 @@
     {% block content %}{% endblock %}
   </main>
 
-  <script>
-    function toggleTheme() {
-      var html = document.documentElement;
-      // Read the effective theme: manual override wins, else OS preference.
-      var current = html.dataset.theme ||
-        (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
-      var next = current === 'dark' ? 'light' : 'dark';
-      html.dataset.theme = next;
-      try { localStorage.setItem('epepper-theme', next); } catch (e) {}
-      applyThemeColor();
-    }
-  </script>
 </body>
 </html>
