@@ -96,16 +96,9 @@ that's the wrong instinct — the typography is the mark.
 
 The top bar is a **masthead**, not a labelled-icon dashboard toolbar.
 Brand wordmark flush left; on the right a single row of small-caps
-Inter text links (`ADD · STATUS · LOGOUT`) separated by middle dots,
-then a wider gap, then the theme glyph as a lone icon — no separator
-before it. No icons next to the link labels.
-
-The theme glyph is a **Feather-style SVG** (sun in light mode,
-moon in dark) — not the Unicode ☀/☾ characters, which sit at
-visibly different vertical positions in Inter / system fonts
-(matching ink-bboxes; the eye still reads the crescent as higher
-than the sun's center). The 24×24 viewBox is shared so the swap is
-pixel-stable and the glyph baseline-aligns with the text links.
+Inter text links (`ADD · STATUS · LOGOUT`) separated by middle dots.
+No icons next to the link labels. The theme follows the OS — there
+is no in-app toggle, by design.
 
 This is the rule the redesign quietly violated for a while —
 labelled-icon-buttons read as "Notion clone", which is the SaaS-
