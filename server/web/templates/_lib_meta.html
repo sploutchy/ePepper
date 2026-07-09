@@ -7,7 +7,7 @@
 {%- if q %} — search “{{ q }}”
 {%- elif source %} — from {{ source|capitalize }}
 {%- elif tag %} — #{{ tag }}
-{%- elif sort == 'oldest' %} — least recently cooked
+{%- elif sort == 'oldest' %} — recent last
 {%- else %} — recently cooked
 {%- endif %}
 {#- Reset sits next to the filter it reverses. A plain link to /app/ (not an

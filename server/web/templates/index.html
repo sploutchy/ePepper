@@ -29,10 +29,10 @@
          autofocus>
   <div class="sort-toggle">
     <label class="sort-opt {% if not sort or sort == 'recent' %}sort-opt--active{% endif %}">
-      <input type="radio" name="sort" value="" {% if not sort or sort == 'recent' %}checked{% endif %}>Recently
+      <input type="radio" name="sort" value="" {% if not sort or sort == 'recent' %}checked{% endif %}>Recent first
     </label>
     <label class="sort-opt {% if sort == 'oldest' %}sort-opt--active{% endif %}">
-      <input type="radio" name="sort" value="oldest" {% if sort == 'oldest' %}checked{% endif %}>Oldest
+      <input type="radio" name="sort" value="oldest" {% if sort == 'oldest' %}checked{% endif %}>Recent last
     </label>
   </div>
   {% if sources %}
