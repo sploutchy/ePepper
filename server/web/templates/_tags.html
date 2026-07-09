@@ -2,7 +2,7 @@
 <details class="tag-popover" id="tag-popover-{{ r.id }}">
   <summary class="tag-summary">
     <span class="tag-summary-pills">
-      {% for t in r.tags %}<span class="tag-pill tag-pill--sm">{{ t }}</span>{% endfor %}
+      {% for t in r.tags %}<a href="/app/?tag={{ t }}" class="tag-pill tag-pill--sm" onclick="event.stopPropagation()">{{ t }}</a>{% endfor %}
     </span>
     <span class="tag-edit-hint">
       {{ icon("tag", 12) }}
