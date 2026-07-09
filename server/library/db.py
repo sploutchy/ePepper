@@ -586,21 +586,6 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     return _row_to_dict(row) if row else None
 
 
-# Whitelisted ORDER BY snippets keyed by the `sort` param. Values are
-# spliced into SQL, so the dict is the trust boundary — never accept
-# free-form sort strings. "recent" / "oldest" key off `last_displayed_at`
-# so the library surfaces "what have I cooked lately?" instead of "when
-# did I first save this?". NULL `last_displayed_at` = "never cooked":
-#   - "recent" puts never-cooked at the bottom (nothing recent to surface)
-#   - "oldest" puts never-cooked at the top (nothing's more stale than that)
-# `saved_at` is the secondary tie-break so deploy-day libraries (all-NULL
-# `last_displayed_at`) match the prior newest-saved / oldest-saved ordering.
-_SORT_ORDERS: dict[str, str] = {
-    "oldest": "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
-    "recent": "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-}
-
-
 def _recipe_ids_with_tag(conn: sqlite3.Connection, tag: str) -> list[int]:
     """Recipe ids whose `tags` column contains `tag` as an exact comma-separated entry."""
     lowered = tag.lower()
@@ -643,15 +628,13 @@ def list_recipes(
     offset: int = 0,
     limit: int = 20,
     query: str | None = None,
-    sort: str | None = None,
     source: str | None = None,
     tag: str | None = None,
 ) -> list[dict]:
     """Paginated list of saved, non-deleted recipes.
 
-    sort: one of the keys in _SORT_ORDERS, or None. When None and a
-    query is given, results come from FTS5 ordered by relevance; with no
-    query and no sort, most-recently-cooked first.
+    With a query, results come from FTS5 ordered by relevance; with no
+    query, most-recently-cooked first (fixed — no manual sort toggle).
 
     source: lowercase source key (matching `source_name(url).lower()`).
     Filters to recipes whose stored `source` column equals this value.
@@ -660,7 +643,6 @@ def list_recipes(
     Pre-filtered to a set of ids via a separate query so the main
     pagination can stay in SQL.
     """
-    order_by = _SORT_ORDERS.get(sort) if sort else None
     where_extra = ""
     extra_params: list = []
     if source:
@@ -683,7 +665,6 @@ def list_recipes(
         # "kartoffel" finds "kartoffeln", "kartoffelpüree", etc. The
         # quoting still escapes any FTS5 operators the user typed.
         fts_query = " ".join(f'"{t}"*' for t in tokens)
-        order_sql = order_by or "rank"
         with _connect() as conn:
             rows = conn.execute(
                 f"""
@@ -695,13 +676,18 @@ def list_recipes(
                   AND r.saved_at IS NOT NULL
                   AND r.deleted_at IS NULL
                   {where_extra}
-                ORDER BY {order_sql}
+                ORDER BY rank
                 LIMIT ? OFFSET ?
                 """,
                 (fts_query, *extra_params, limit, offset),
             ).fetchall()
     else:
-        order_sql = order_by or "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC"
+        # "recent" (most-recently-cooked first) keyed off `last_displayed_at`
+        # so the library surfaces "what have I cooked lately?" instead of
+        # "when did I first save this?". NULL `last_displayed_at` = "never
+        # cooked", sunk to the bottom via NULLS LAST. `saved_at` is the
+        # secondary tie-break so deploy-day libraries (all-NULL
+        # `last_displayed_at`) match the prior newest-saved ordering.
         with _connect() as conn:
             rows = conn.execute(
                 f"""
@@ -710,7 +696,7 @@ def list_recipes(
                 FROM recipes r
                 WHERE r.saved_at IS NOT NULL AND r.deleted_at IS NULL
                   {where_extra}
-                ORDER BY {order_sql}
+                ORDER BY r.last_displayed_at DESC NULLS LAST, r.saved_at DESC
                 LIMIT ? OFFSET ?
                 """,
                 (*extra_params, limit, offset),

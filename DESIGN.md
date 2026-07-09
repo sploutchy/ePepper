@@ -45,7 +45,7 @@ reads recipes the way other people read essays.
 | **JetBrains Mono** (Google Fonts, OFL) | Mono | Only the `API_KEY` chip on the login hint copy — nowhere else |
 
 **Rules**
-- Section labels (`INGREDIENTS`, `INSTRUCTIONS`, `NOTES`, `DISPLAY`,
+- Section labels (`INGREDIENTS`, `INSTRUCTIONS`, `DISPLAY`,
   `TOMORROW`, etc.) are uppercase tracked **Inter**, never serif. The
   deliberate sans/serif contrast against the Fraunces title is the
   design.
@@ -128,10 +128,11 @@ database table dump.
   the cooked-text drops to a row below. The paprika dot pulses
   via a 1.6 s scale + opacity loop so the "on air" reading is
   unmissable from across the room.
-- Sorting / filter dropdowns sit above the first tier with no extra
-  divider — the first tier's own top hairline carries the gap. They
-  cover the recency / most- / least-cooked / alphabetical-by-source
-  sorts and the source + `#tag` filters.
+- The filter controls sit above the first tier with no extra
+  divider — the first tier's own top hairline carries the gap. Order
+  is fixed (most-recently-cooked first, or FTS5 relevance when
+  searching) — there's no manual sort toggle. The controls cover the
+  source + `#tag` filters only.
 
 The bucketing uses string matching against `fmt_saved()`'s
 deterministic phrases (`"days ago"`, `"last week"`, `"weeks ago"`,
@@ -171,17 +172,6 @@ already doing real work on the step numerals; doubling it up on every
 ingredient line dilutes the numerals and breaks the concept's
 "means something when it appears" rule.
 
-**Notes are marginalia**, not alert boxes. Each note is a single
-paprika hairline on the left + italic body, no fill. A small
-muted `×` sits at the right of every note for delete; it stays at
-opacity 0 until the row is hovered (or focused via keyboard), and
-keeps a light low-opacity tap target on touch devices that don't
-have hover. They still read as the cook's pencil notes in the
-margin — the delete affordance only inks-up when you reach for
-it. The "Save note" affordance under the textarea is a small
-paprika text link, right-aligned, matching the rest of the
-link-style button family — never a filled chrome pill.
-
 The `Push to display` action is a **quiet link-style button**
 (`button.link.accent`), centered under the recipe meta and above the
 two-column body. It matches `Delete this recipe` in the footer, just
@@ -213,7 +203,7 @@ explanatory help text instead of restating the action verb.
 
 ### Status — flat list with the e-ink frame nested
 
-Status sections (`DISPLAY`, `TOMORROW`, `REPERTOIRE`, `DEVICE`, `LLM`) are
+Status sections (`DISPLAY`, `TOMORROW`, `REPERTOIRE`, `DEVICE`) are
 the same hairline-separated rows. Each section's h2 has an optional
 meta slot on the right (right-aligned, muted) — used by **Display**
 for `Updated 26 min ago`, by **Device** for `Last seen X` plus the
@@ -228,13 +218,6 @@ nav and Clear button live below the preview, centered.
 
 Recipe-on-display title uses the same `.display-title` Fraunces
 treatment as the Tomorrow card so they read with identical weight.
-The LLM card's monthly cost reads as a **system metric** in Inter
-body type — same vocabulary as Repertoire's `87 saved recipes` and
-Device's battery / signal lines — *not* in Fraunces. Fraunces is
-reserved for editorial content (recipe titles, page titles, the
-on-display headline); a routine cost stat is operational metadata
-and shouldn't borrow that weight. Format stays
-`~0.04 CHF this month` with the call breakdown muted below.
 
 ### Login — single column, generous
 
@@ -261,10 +244,10 @@ appears when `error` is truthy.
 ### Toast / confirmation
 
 Inline editorial banner, **not a floating modal pill**. Same accent-
-left-bar + soft-paprika fill as the `comments` callouts on the recipe
-page, so every confirmation in the app speaks the same visual
-language. The toast container (`#toast`) lives at the top of `<main>`;
-the templated `.toast` wraps itself in the accent-left-bar markup.
+left-bar + soft-paprika fill vocabulary as the rest of the system, so
+every confirmation in the app speaks the same visual language. The
+toast container (`#toast`) lives at the top of `<main>`; the templated
+`.toast` wraps itself in the accent-left-bar markup.
 
 The previous floating dark rounded pill is gone. Reaching for it again
 is the wrong instinct — the editorial language doesn't have modals.
@@ -284,9 +267,7 @@ is the wrong instinct — the editorial language doesn't have modals.
    inline with the input as a square button. See the "Merged
    paste / submit button" pattern below for the state machine.
 
-There is no filled-paprika CTA. The "Add comment" filled-dark button
-is the one exception — it's a sub-form action that wants a stronger
-affordance than the link-style.
+There is no filled-paprika CTA.
 
 ### Merged paste / submit button (`.input-action`)
 

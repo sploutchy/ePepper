@@ -8,4 +8,4 @@
 {%- elif source %} — from {{ source|capitalize }}
 {%- elif tag %} — #{{ tag }}
 {%- endif %}
-{%- if q or source %} <a href="/app/" class="clear-filter">clear</a>{% endif %}
+{%- if q or source or tag %} <a href="/app/" class="clear-filter">clear</a>{% endif %}
