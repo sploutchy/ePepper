@@ -1,27 +1,70 @@
 {% from "_icons.html" import icon %}
-{% if editing %}
-<form class="tag-editor"
-      hx-post="/app/recipes/{{ r.id }}/tags"
-      hx-target="#recipe-tags"
-      hx-swap="innerHTML">
-  <input class="tag-input" type="text" name="tags"
-         value="{{ r.tags | join(', ') }}"
-         placeholder="weeknight, quick, végétarien…"
-         autofocus>
-  <button type="submit" class="link accent">Save</button>
-  <a href="/app/recipes/{{ r.id }}" class="link muted">Cancel</a>
-</form>
-{% else %}
-<div class="recipe-tag-list">
-  {% for t in r.tags %}
-    <a href="/app/?tag={{ t }}" class="tag-pill">{{ t }}</a>
-  {% endfor %}
-  <button class="tag-edit-btn link"
-          hx-get="/app/recipes/{{ r.id }}/tags/edit"
+<details class="tag-popover" id="tag-popover-{{ r.id }}">
+  <summary class="tag-summary">
+    <span class="tag-summary-pills">
+      {% for t in r.tags %}<span class="tag-pill tag-pill--sm">{{ t }}</span>{% endfor %}
+    </span>
+    <span class="tag-edit-hint">
+      {{ icon("tag", 12) }}
+      {% if r.tags %}edit{% else %}add tags{% endif %}
+    </span>
+  </summary>
+  <div class="tag-popup">
+    <form id="tag-form-{{ r.id }}"
+          hx-post="/app/recipes/{{ r.id }}/tags"
           hx-target="#recipe-tags"
           hx-swap="innerHTML">
-    {{ icon("tag", 13) }}
-    {% if r.tags %}edit tags{% else %}add tags{% endif %}
-  </button>
-</div>
-{% endif %}
+      <input type="hidden" name="tags" class="tag-hidden-input">
+      {% if all_tags %}
+        <div class="tag-chip-grid">
+          {% for t, n in all_tags %}
+            <label class="tag-chip {% if t in r.tags %}tag-chip--on{% endif %}">
+              <input type="checkbox" value="{{ t }}" {% if t in r.tags %}checked{% endif %}>{{ t }}
+            </label>
+          {% endfor %}
+        </div>
+      {% endif %}
+      <input type="text" class="tag-new-input" placeholder="new tag, another…">
+    </form>
+  </div>
+</details>
+<script>
+(function () {
+  var details = document.getElementById('tag-popover-{{ r.id }}');
+  if (!details) return;
+  var form = document.getElementById('tag-form-{{ r.id }}');
+
+  form.querySelectorAll('.tag-chip input[type=checkbox]').forEach(function (cb) {
+    cb.addEventListener('change', function () {
+      cb.closest('.tag-chip').classList.toggle('tag-chip--on', cb.checked);
+    });
+  });
+
+  function collectAndSave() {
+    var checked = Array.from(form.querySelectorAll('input[type=checkbox]:checked')).map(function (cb) { return cb.value; });
+    var newRaw = form.querySelector('.tag-new-input').value;
+    var newTags = newRaw.split(',').map(function (t) { return t.trim().toLowerCase(); }).filter(Boolean);
+    var all = Array.from(new Set(checked.concat(newTags)));
+    form.querySelector('.tag-hidden-input').value = all.join(',');
+    htmx.trigger(form, 'submit');
+  }
+
+  details.addEventListener('toggle', function () {
+    if (!this.open) {
+      collectAndSave();
+    } else {
+      setTimeout(function () { form.querySelector('.tag-new-input').focus(); }, 0);
+    }
+  });
+
+  // Close on outside click; autosave fires via the toggle event above.
+  document.addEventListener('click', function (e) {
+    if (!details.isConnected) return;
+    if (details.open && !details.contains(e.target)) details.open = false;
+  });
+
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && details.open && details.isConnected) details.open = false;
+  });
+})();
+</script>

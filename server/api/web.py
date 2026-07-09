@@ -693,19 +693,8 @@ async def recipe_detail(request: Request, recipe_id: int):
     if row is None:
         raise HTTPException(404)
     ctx = _context_globals(request)
-    ctx.update({"r": row, "editing": False})
+    ctx.update({"r": row, "all_tags": library.list_tags()})
     return templates.TemplateResponse(request, "recipe.html", ctx)
-
-
-@router.get("/recipes/{recipe_id}/tags/edit", response_class=HTMLResponse)
-async def tags_edit(request: Request, recipe_id: int):
-    _require_auth(request)
-    row = library.get_recipe(recipe_id)
-    if row is None:
-        raise HTTPException(404)
-    return templates.TemplateResponse(
-        request, "_tags.html", {"r": row, "editing": True},
-    )
 
 
 @router.post("/recipes/{recipe_id}/tags", response_class=HTMLResponse)
@@ -718,7 +707,7 @@ async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="
     library.set_tags(recipe_id, parsed)
     row = library.get_recipe(recipe_id)
     return templates.TemplateResponse(
-        request, "_tags.html", {"r": row, "editing": False},
+        request, "_tags.html", {"r": row, "all_tags": library.list_tags()},
     )
 
 

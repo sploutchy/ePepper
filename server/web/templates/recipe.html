@@ -45,6 +45,8 @@
     {%- endif %}
   </p>
 
+  <div id="recipe-tags">{% include "_tags.html" %}</div>
+
   <div class="actions">
     {# Same link-style treatment as "Delete this recipe" in the footer —
        quiet, no filled chrome. Push isn't destructive so we colour with
@@ -56,8 +58,6 @@
       {{ icon("monitor", 14) }} Push to display
     </button>
   </div>
-
-  <div id="recipe-tags">{% include "_tags.html" %}</div>
 
   {# Magazine-style two-column body on desktop: ingredients pin into a
      sticky left aside, instructions flow in the main column.

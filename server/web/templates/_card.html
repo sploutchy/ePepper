@@ -12,13 +12,13 @@
       {% if src %}
         <span class="card-source">from {{ src }}</span>
       {% endif %}
+    </div>
+    <div class="card-meta">
       {% if r.tags %}
         <div class="card-tags">
           {% for t in r.tags %}<span class="tag-pill tag-pill--sm">{{ t }}</span>{% endfor %}
         </div>
       {% endif %}
-    </div>
-    <div class="card-meta">
       <span class="muted">
         {%- if r.last_displayed_at -%}
           cooked {{ fmt_saved(r.last_displayed_at) }}
