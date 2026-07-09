@@ -213,7 +213,7 @@ def _sanitize_source(source: str | None) -> str | None:
     return s or None
 
 
-_TAG_TOKEN_RE = __import__("re").compile(r"^\w+$", __import__("re").UNICODE)
+_TAG_TOKEN_RE = __import__("re").compile(r"^[\w-]+$", __import__("re").UNICODE)
 
 
 def _sanitize_tag(tag: str | None) -> str | None:

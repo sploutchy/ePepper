@@ -741,6 +741,12 @@ async def on_save_button(update: Update, context) -> None:
         source=source_name(url),
     )
     library.save_recipe(recipe_id)
+    # The pending-save flow only exists for recipes that were already
+    # pushed to the panel transiently (recipe_id=None at push time, see
+    # ingest_recipe) — touch_displayed never fired for them, so the row
+    # would otherwise be born with last_displayed_at still NULL despite
+    # having just been shown.
+    library.touch_displayed(recipe_id)
     log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
 
     await query.answer("💾 Saved")
