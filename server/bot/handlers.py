@@ -189,7 +189,7 @@ def create_bot() -> Application:
 
 
 async def on_unknown_command(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     await update.message.reply_text("Unknown command — try /help.")
 
@@ -585,7 +585,7 @@ async def on_photo(update: Update, context) -> None:
     Falls through to `_present_result` so the result lands in exactly the
     same Save-button flow as a pasted URL.
     """
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
 
     log.info("Photo received from user %s", update.effective_user.id)
@@ -627,7 +627,7 @@ async def on_text(update: Update, context) -> None:
     A message containing an http(s) link → fetch + push it to the panel
     immediately. Anything else → a short hint pointing at the real inputs.
     """
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
 
     text = update.message.text.strip()
