@@ -658,9 +658,9 @@ async def _present_result(result: dict, msg) -> None:
 
     if recipe_id is not None:
         # Already in the library — ingest_recipe pushed via the saved
-        # row, with its real comments + touch_displayed bump. Title comes
-        # from display_state so the message echoes what landed on the
-        # panel (the saved row, possibly stale vs. the re-parsed dict).
+        # row, with its touch_displayed bump. Title comes from
+        # display_state so the message echoes what landed on the panel
+        # (the saved row, possibly stale vs. the re-parsed dict).
         await msg.edit_text(
             _format_push_reply(state.get("title", ""), url, total_pages),
             parse_mode="HTML",

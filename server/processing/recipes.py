@@ -340,7 +340,6 @@ async def ingest_recipe(
     push: bool,
     persist: bool,
     hint: str | None = None,
-    comments: list[str] | None = None,
     on_llm_start: Callable[[], Awaitable[None]] | None = None,
 ) -> dict:
     """Canonical "parse → translate → upsert → save → push" pipeline.
@@ -356,12 +355,6 @@ async def ingest_recipe(
     (translate + upsert + save). The four (push, persist) combinations
     are all real surfaces — see the behavior matrix at the top of this
     module.
-
-    `comments` are extra notes to render alongside the recipe page. Only
-    consulted when `push=True and persist=False` (the bot/Fooby "render
-    transient" path); the persisted branch routes through
-    `push_recipe_to_display` which pulls the recipe's saved comments
-    from the library, so an override here would be ignored.
 
     `on_llm_start` is forwarded to `process_recipe_url` for URL sources
     (the Telegram bot uses it to swap its placeholder reply into a
@@ -410,9 +403,9 @@ async def ingest_recipe(
 
     # Dedupe lookup runs even when persist=False — the bot's URL-paste
     # path wants to know "is this already in the library so I should push
-    # the saved row (with its comments + Save-state) instead of stashing
-    # another pending token?". When persist=True, the lookup also avoids
-    # a wasted re-translate / re-upsert on an existing URL.
+    # the saved row (with its Save-state) instead of stashing another
+    # pending token?". When persist=True, the lookup also avoids a wasted
+    # re-translate / re-upsert on an existing URL.
     existing = library.find_by_url(url)
 
     if persist:
@@ -437,8 +430,8 @@ async def ingest_recipe(
     elif existing is not None:
         # Already in the library but the caller didn't ask for a persist
         # step — still surface the existing id so they can route the push
-        # through push_recipe_to_display (pulls real comments, bumps
-        # touch_displayed) and skip the pending-stash UX.
+        # through push_recipe_to_display (bumps touch_displayed) and skip
+        # the pending-stash UX.
         recipe_id = existing["id"]
 
     pushed = False
@@ -500,7 +493,6 @@ async def ingest_recipe(
                 try:
                     display_state.set_recipe(
                         recipe,
-                        comments=list(comments or []),
                         recipe_id=None,
                         url=url,
                     )

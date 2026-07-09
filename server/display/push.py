@@ -39,7 +39,6 @@ def push_recipe_to_display(row: dict) -> bool:
     try:
         display_state.set_recipe(
             row["recipe"],
-            comments=[],
             recipe_id=row["id"],
             url=row["url"],
         )

@@ -93,7 +93,6 @@ def restore_on_startup() -> None:
         # last web-preview page.
         display_state.set_recipe(
             row["recipe"],
-            comments=[],
             recipe_id=row["id"],
             url=row["url"],
             count_display=False,

@@ -68,8 +68,8 @@ _state: dict[str, Any] = {
 _pages: dict[int, Image.Image] = {}
 
 # Cached render inputs so push_recipe_to_display callers don't have to
-# resupply comments on small mutations.
-_recipe_inputs: dict[str, Any] = {"recipe": None, "comments": [], "url": None}
+# resupply them on small mutations.
+_recipe_inputs: dict[str, Any] = {"recipe": None, "url": None}
 
 # Set to a library row id when set_recipe installs a saved recipe; the
 # /image handler consumes it on the first device fetch to bump
@@ -80,7 +80,6 @@ _pending_displayed_bump: int | None = None
 
 def set_recipe(
     recipe: dict,
-    comments: list[str],
     recipe_id: int | None = None,
     url: str | None = None,
     *,
@@ -98,7 +97,6 @@ def set_recipe(
     a recipe nobody re-cooked, corrupting the anniversary scheduler."""
     inputs = {
         "recipe": recipe,
-        "comments": list(comments),
         "url": url,
     }
     # Render first (may raise — exception propagates to the caller). The
@@ -137,20 +135,15 @@ def _render_pages(inputs: dict) -> dict[int, Image.Image]:
     recipe = inputs["recipe"]
     if recipe is None:
         return {}
-    comments = inputs["comments"]
     # Pull the source name off the URL the same way the web + bot do, so
     # the panel header matches what those surfaces show.
     source = source_name(inputs.get("url"))
 
     pages: dict[int, Image.Image] = {}
-    first_img, total = render_recipe(
-        recipe, page=1, comments=comments, source=source,
-    )
+    first_img, total = render_recipe(recipe, page=1, source=source)
     pages[1] = first_img
     for p in range(2, total + 1):
-        page_img, _ = render_recipe(
-            recipe, page=p, comments=comments, source=source,
-        )
+        page_img, _ = render_recipe(recipe, page=p, source=source)
         pages[p] = page_img
     return pages
 
@@ -159,7 +152,7 @@ def clear() -> None:
     """Clear the display (idle state)."""
     global _pending_displayed_bump
     _pages.clear()
-    _recipe_inputs.update({"recipe": None, "comments": [], "url": None})
+    _recipe_inputs.update({"recipe": None, "url": None})
     _pending_displayed_bump = None
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],

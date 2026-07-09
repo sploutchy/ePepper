@@ -19,13 +19,11 @@ page, translated for 1-bit rendering:
     title carries the editorial flourish, the body stays utilitarian
     for legibility at 1-bit.
   - Body in DejaVu Sans 14 px.
-  - Notes in DejaVu Serif Italic 14 px — voice signal on the notes
-    page, matching the web app's italic marginalia.
 
-The API surface (`render_recipe(recipe, page, comments, source) -> (img,
+The API surface (`render_recipe(recipe, page, source) -> (img,
 total_pages)` and `render_idle()`) is unchanged. The pagination + short-
-column repeat heuristic + notes-page logic + the L10n table are also
-preserved — only the visual treatment moves.
+column repeat heuristic + the L10n table are also preserved — only the
+visual treatment moves.
 """
 
 import re
@@ -44,7 +42,6 @@ from config import (
     FONT_BOLD,
     FONT_SERIF_BOLD,
     FONT_SERIF_BOLD_ITALIC,
-    FONT_SERIF_ITALIC,
 )
 
 # 10x10 glyphs marking which physical button does what. Drawn at the very
@@ -130,10 +127,10 @@ def render_idle() -> Image.Image:
 # uppercase + tracked (the editorial small-caps treatment), so the strings
 # below stay in their natural case and the renderer uppercases on draw.
 _L10N = {
-    "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen", "notes": "Notizen", "from": "aus"},
-    "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page", "servings": "portions", "notes": "Notes", "from": "de"},
-    "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina", "servings": "porzioni", "notes": "Note", "from": "da"},
-    "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page", "servings": "servings", "notes": "Notes", "from": "from"},
+    "de": {"ingredients": "Zutaten", "instructions": "Zubereitung", "page": "Seite", "servings": "Portionen", "from": "aus"},
+    "fr": {"ingredients": "Ingrédients", "instructions": "Préparation", "page": "page", "servings": "portions", "from": "de"},
+    "it": {"ingredients": "Ingredienti", "instructions": "Preparazione", "page": "pagina", "servings": "porzioni", "from": "da"},
+    "en": {"ingredients": "Ingredients", "instructions": "Instructions", "page": "page", "servings": "servings", "from": "from"},
 }
 
 
@@ -166,7 +163,6 @@ def _tracked_width(text: str, font, tracking: int = _TRACK_PX) -> int:
 def render_recipe(
     recipe: dict,
     page: int = 1,
-    comments: list[str] | None = None,
     source: str | None = None,
 ) -> tuple[Image.Image, int]:
     """Render a recipe dict to a 1-bit image for e-ink display.
@@ -174,15 +170,13 @@ def render_recipe(
     Args:
         recipe: dict with title, total_time, servings, ingredients, instructions
         page: 1-based page number
-        comments: optional list of comment strings. When non-empty, an extra
-            "Notes" page is appended after the recipe pages.
         source: optional humanized source name ("Fooby", "BBC", …) drawn
             in the meta font just below the title.
 
     Returns:
         (image, total_pages)
     """
-    # Load fonts. The DejaVu Serif Italic variants only ship with the
+    # Load fonts. The DejaVu Serif Bold Italic variant only ships with the
     # `fonts-dejavu` apt package (not -core); the Dockerfile installs the
     # full package. The OSError fallback keeps the renderer alive if it
     # ever runs in an environment that's missing fonts entirely.
@@ -194,10 +188,9 @@ def render_recipe(
         font_section = ImageFont.truetype(FONT_BOLD, 11)
         font_heading = ImageFont.truetype(FONT_SERIF_BOLD_ITALIC, 16)
         font_body = ImageFont.truetype(FONT_REGULAR, 14)
-        font_notes = ImageFont.truetype(FONT_SERIF_ITALIC, 14)
     except OSError:
         font_title = ImageFont.load_default()
-        font_source = font_meta = font_section = font_heading = font_body = font_notes = font_folio = font_title
+        font_source = font_meta = font_section = font_heading = font_body = font_folio = font_title
 
     # Defense in depth: legacy `parsed_json` rows persisted before the
     # upsert path started normalizing on write still need the dedupe
@@ -363,159 +356,109 @@ def render_recipe(
         instr_pages.append(current_page)
 
     base_pages = max(len(ingr_pages), len(instr_pages), 1)
-
-    # --- Paginate notes (full-width, single column) ---
-    notes_pages: list[list[list[str]]] = []
-    if comments:
-        full_w = DISPLAY_WIDTH - 2 * MARGIN
-        notes_header_h = MARGIN + font_title.size + 4 + 4 + 10
-        notes_available_h = DISPLAY_HEIGHT - notes_header_h - MARGIN - footer_reserve
-
-        paragraphs = [
-            _wrap_to_width(c.strip(), font_notes, full_w) or [""] for c in comments
-        ]
-        gap_h = line_h
-        current_para_lines: list[list[str]] = []
-        used = 0
-        for para in paragraphs:
-            need = len(para) * line_h + (gap_h if current_para_lines else 0)
-            if used + need > notes_available_h and current_para_lines:
-                notes_pages.append(current_para_lines)
-                current_para_lines = [para]
-                used = len(para) * line_h
-            else:
-                current_para_lines.append(para)
-                used += need
-        if current_para_lines:
-            notes_pages.append(current_para_lines)
-
-    total_pages = base_pages + len(notes_pages)
+    total_pages = base_pages
     page = max(1, min(page, total_pages))
 
     img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
     draw = ImageDraw.Draw(img)
 
-    is_notes_page = page > base_pages
-
     # Hung folio — page indicator drawn in italic-serif at the top-right,
     # baseline-aligned with the title. Only shown for multi-page recipes.
     folio_text = f"{page} / {total_pages}" if total_pages > 1 else ""
 
-    if is_notes_page:
-        # --- Notes page ---
-        notes_idx = page - base_pages - 1
-        y = MARGIN
-        draw.text((MARGIN, y), strings["notes"], font=font_title, fill=0)
-        if folio_text:
+    # --- Recipe page: serif title + inline source + hung folio + meta + rule + 2 cols ---
+    y = MARGIN
+    for i, line in enumerate(title_lines):
+        draw.text((MARGIN, y), line, font=font_title, fill=0)
+        is_last = i == len(title_lines) - 1
+        if is_last and source and source_inline:
+            last_w = font_title.getlength(line)
+            src_y = y + (font_title.size - font_source.size) - 2
+            draw.text(
+                (MARGIN + last_w + 8, src_y),
+                f"{strings['from']} {source}",
+                font=font_source, fill=0,
+            )
+        # Hung folio rides the top-right corner on the first title line.
+        if i == 0 and folio_text:
             fw = int(font_folio.getlength(folio_text))
             folio_y = y + (font_title.size - font_folio.size) - 2
-            draw.text((DISPLAY_WIDTH - MARGIN - fw, folio_y), folio_text, font=font_folio, fill=0)
-        y += font_title.size + 4 + 4
-        draw.line([(MARGIN, y), (DISPLAY_WIDTH - MARGIN, y)], fill=0, width=1)
-        y += 10
+            draw.text(
+                (DISPLAY_WIDTH - MARGIN - fw, folio_y),
+                folio_text,
+                font=font_folio, fill=0,
+            )
+        y += title_line_h
+    if source and not source_inline:
+        draw.text((MARGIN, y), f"{strings['from']} {source}", font=font_source, fill=0)
+        y += font_source.size + 4
+    y += 4
 
-        for i, para_lines in enumerate(notes_pages[notes_idx]):
-            if i > 0:
-                y += line_h  # blank line between comments
-            for wline in para_lines:
-                if y + line_h > DISPLAY_HEIGHT - MARGIN:
+    # Meta — tracked uppercase. Carries time + servings; if neither, line
+    # collapses to empty but the vertical space is preserved for rhythm.
+    meta_parts: list[str] = []
+    if recipe.get("total_time"):
+        meta_parts.append(f"{recipe['total_time']} MIN")
+    if recipe.get("servings"):
+        servings_raw = str(recipe["servings"])
+        servings_num = re.sub(r"[^\d]", "", servings_raw)
+        label = strings["servings"].upper()
+        if servings_num:
+            meta_parts.append(f"{servings_num} {label}")
+        else:
+            meta_parts.append(servings_raw.upper())
+    if meta_parts:
+        _tracked(draw, (MARGIN, y), "  ·  ".join(meta_parts), font_meta)
+    y += font_meta.size + 6
+
+    y += 4
+    draw.line([(MARGIN, y), (DISPLAY_WIDTH - MARGIN, y)], fill=0, width=1)
+    y += 10
+
+    repeat_ingr = len(ingr_pages) == 1 and base_pages > 1
+    repeat_instr = len(instr_pages) == 1 and base_pages > 1
+
+    # --- Section labels (tracked small-caps) ---
+    _tracked(draw, (MARGIN, col_top), strings["ingredients"].upper(), font_section)
+    _tracked(draw, (col_right_x, col_top), strings["instructions"].upper(), font_section)
+
+    # --- Vertical hairline divider ---
+    div_x = MARGIN + col_left_w + COLUMN_GAP // 2
+    draw.line([(div_x, col_top), (div_x, DISPLAY_HEIGHT - MARGIN)], fill=0, width=1)
+
+    col_body_top = col_top + section_h
+
+    # --- Left column: ingredients for this page ---
+    y_left = col_body_top
+    if ingr_pages and (repeat_ingr or page <= len(ingr_pages)):
+        ingr_src = 0 if repeat_ingr else page - 1
+        for grp_idx in ingr_pages[ingr_src]:
+            for wline in ingr_groups[grp_idx]:
+                if y_left + line_h > DISPLAY_HEIGHT - MARGIN:
                     break
-                draw.text((MARGIN, y), wline, font=font_notes, fill=0)
-                y += line_h
-    else:
-        # --- Recipe page: serif title + inline source + hung folio + meta + rule + 2 cols ---
-        y = MARGIN
-        for i, line in enumerate(title_lines):
-            draw.text((MARGIN, y), line, font=font_title, fill=0)
-            is_last = i == len(title_lines) - 1
-            if is_last and source and source_inline:
-                last_w = font_title.getlength(line)
-                src_y = y + (font_title.size - font_source.size) - 2
-                draw.text(
-                    (MARGIN + last_w + 8, src_y),
-                    f"{strings['from']} {source}",
-                    font=font_source, fill=0,
-                )
-            # Hung folio rides the top-right corner on the first title line.
-            if i == 0 and folio_text:
-                fw = int(font_folio.getlength(folio_text))
-                folio_y = y + (font_title.size - font_folio.size) - 2
-                draw.text(
-                    (DISPLAY_WIDTH - MARGIN - fw, folio_y),
-                    folio_text,
-                    font=font_folio, fill=0,
-                )
-            y += title_line_h
-        if source and not source_inline:
-            draw.text((MARGIN, y), f"{strings['from']} {source}", font=font_source, fill=0)
-            y += font_source.size + 4
-        y += 4
+                draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
+                y_left += line_h
 
-        # Meta — tracked uppercase. Carries time + servings; if neither, line
-        # collapses to empty but the vertical space is preserved for rhythm.
-        meta_parts: list[str] = []
-        if recipe.get("total_time"):
-            meta_parts.append(f"{recipe['total_time']} MIN")
-        if recipe.get("servings"):
-            servings_raw = str(recipe["servings"])
-            servings_num = re.sub(r"[^\d]", "", servings_raw)
-            label = strings["servings"].upper()
-            if servings_num:
-                meta_parts.append(f"{servings_num} {label}")
-            else:
-                meta_parts.append(servings_raw.upper())
-        if meta_parts:
-            _tracked(draw, (MARGIN, y), "  ·  ".join(meta_parts), font_meta)
-        y += font_meta.size + 6
-
-        y += 4
-        draw.line([(MARGIN, y), (DISPLAY_WIDTH - MARGIN, y)], fill=0, width=1)
-        y += 10
-
-        repeat_ingr = len(ingr_pages) == 1 and base_pages > 1
-        repeat_instr = len(instr_pages) == 1 and base_pages > 1
-
-        # --- Section labels (tracked small-caps) ---
-        _tracked(draw, (MARGIN, col_top), strings["ingredients"].upper(), font_section)
-        _tracked(draw, (col_right_x, col_top), strings["instructions"].upper(), font_section)
-
-        # --- Vertical hairline divider ---
-        div_x = MARGIN + col_left_w + COLUMN_GAP // 2
-        draw.line([(div_x, col_top), (div_x, DISPLAY_HEIGHT - MARGIN)], fill=0, width=1)
-
-        col_body_top = col_top + section_h
-
-        # --- Left column: ingredients for this page ---
-        y_left = col_body_top
-        if ingr_pages and (repeat_ingr or page <= len(ingr_pages)):
-            ingr_src = 0 if repeat_ingr else page - 1
-            for grp_idx in ingr_pages[ingr_src]:
-                for wline in ingr_groups[grp_idx]:
-                    if y_left + line_h > DISPLAY_HEIGHT - MARGIN:
-                        break
-                    draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
-                    y_left += line_h
-
-        # --- Right column: instructions for this page ---
-        y_right = col_body_top
-        if instr_pages and (repeat_instr or page <= len(instr_pages)):
-            instr_src = 0 if repeat_instr else page - 1
-            for block_idx in instr_pages[instr_src]:
-                block = all_blocks[block_idx]
-                if block["type"] == "heading":
-                    y_right += 4
-                    if block["lines"]:
-                        draw.text((col_right_x, y_right), block["lines"][0], font=font_heading, fill=0)
-                        rule_y = y_right + font_heading.size + 2
-                        draw.line([(col_right_x, rule_y), (DISPLAY_WIDTH - MARGIN, rule_y)], fill=0, width=1)
-                        y_right = rule_y + 6
-                    continue
-                for wline in block["lines"]:
-                    if y_right + block["line_h"] > DISPLAY_HEIGHT - MARGIN:
-                        break
-                    draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
-                    y_right += block["line_h"]
-                y_right += 6
+    # --- Right column: instructions for this page ---
+    y_right = col_body_top
+    if instr_pages and (repeat_instr or page <= len(instr_pages)):
+        instr_src = 0 if repeat_instr else page - 1
+        for block_idx in instr_pages[instr_src]:
+            block = all_blocks[block_idx]
+            if block["type"] == "heading":
+                y_right += 4
+                if block["lines"]:
+                    draw.text((col_right_x, y_right), block["lines"][0], font=font_heading, fill=0)
+                    rule_y = y_right + font_heading.size + 2
+                    draw.line([(col_right_x, rule_y), (DISPLAY_WIDTH - MARGIN, rule_y)], fill=0, width=1)
+                    y_right = rule_y + 6
+                continue
+            for wline in block["lines"]:
+                if y_right + block["line_h"] > DISPLAY_HEIGHT - MARGIN:
+                    break
+                draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
+                y_right += block["line_h"]
+            y_right += 6
 
     # --- Top: button glyphs above the physical reTerminal keys ---
     _draw_button_glyphs(draw, page, total_pages)
