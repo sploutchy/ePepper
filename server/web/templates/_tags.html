@@ -57,8 +57,13 @@
     }
   });
 
-  // Close on outside click; autosave fires via the toggle event above.
-  document.addEventListener('click', function (e) {
+  // Enter closes the popup so autosave fires via toggle; prevents native form submit.
+  form.querySelector('.tag-new-input').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') { e.preventDefault(); details.open = false; }
+  });
+
+  // Close on outside mousedown (fires before <details> re-toggle; autosave via toggle).
+  document.addEventListener('mousedown', function (e) {
     if (!details.isConnected) return;
     if (details.open && !details.contains(e.target)) details.open = false;
   });
