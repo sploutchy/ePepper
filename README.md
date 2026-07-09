@@ -14,7 +14,7 @@ on their anniversary.
    ├──────────────┤                              │                          │
    │  Telegram    │  URL / photo                 │  ▸ display state         │
    │  bot         │ ───────────────────────────► │  ▸ recipe repertoire     │
-   │              │  /search /status /comment    │    (SQLite + FTS)        │
+   │              │  /search /status /clear      │    (SQLite + FTS)        │
    └──────────────┘ ◄── alerts + backup ──────── │  ▸ anniversary +         │
                                                  │    Fooby fallback        │
                                                  │  ▸ device monitoring     │
@@ -38,7 +38,7 @@ on their anniversary.
 - **`server/`** — Python backend. Parses recipe URLs via
   [recipe-scrapers](https://github.com/hhursev/recipe-scrapers), OCRs
   recipe photos via the configured LLM, renders the panel image
-  server-side, persists saved recipes + notes to SQLite, runs the anniversary
+  server-side, persists saved recipes to SQLite, runs the anniversary
   scheduler, and exposes the BMP frames + page navigation to the
   firmware.
 - **`esp32/`** — PlatformIO firmware for the XIAO ESP32-S3 module on
@@ -50,13 +50,12 @@ on their anniversary.
 
 - **Two control surfaces.** A PWA-installable web app at `/app/` and a
   Telegram bot — pick whichever fits the moment. Both can add recipes
-  (URL or image), search the repertoire, add notes, and push to the display.
+  (URL or image), search the repertoire, and push to the display.
 - **Repertoire.** Saved recipes persist in SQLite with FTS5 full-text
-  search over title + ingredients + notes. Sort by "recently cooked"
-  (default), "most cooked", or "least recently cooked", filter by
-  source (a website, a named cookbook), paginate via infinite scroll.
-  A live "on display" badge marks the recipe currently rendered on
-  the panel.
+  search over title + ingredients + tags, sorted most-recently-cooked
+  first. Filter by source (a website, a named cookbook) or tag,
+  paginate via infinite scroll. A live "on display" badge marks the
+  recipe currently rendered on the panel.
 - **Source provenance.** Each recipe carries a source — a website
   host or a named cookbook (`cookbook://<name>/<slug>` URLs, produced
   by the screenshot prompt with the LLM inferring `<name>` from
@@ -166,14 +165,14 @@ the resulting message to keep it in the repertoire.
 
 The web app's home page (`/app/`) is the main browse surface:
 
-- **Search** by title, ingredients, or notes (FTS5, accent-insensitive).
-- **Sort** by **Recently cooked** (default), **Most cooked**,
-  **Least recently cooked**, or alphabetically by source (**A→Z** /
-  **Z→A**) — the repertoire tracks every push so what surfaces is what
-  you actually cook, not what you once meant to.
+- **Search** by title, ingredients, or tags (FTS5, accent-insensitive).
+- **Sorted most-recently-cooked first**, fixed (no manual sort
+  toggle) — the repertoire tracks every push so what surfaces is what
+  you actually cook, not what you once meant to. A search query
+  switches to FTS5 relevance order instead.
 - **Filter** to a specific source (Fooby, BBC, a named cookbook, …), or
-  to a **tag** drawn from the `#hashtags` you write in recipe comments
-  (selectable from the filter dropdown, or via `?tag=<name>`).
+  to a **tag** (edited per recipe from its detail page; selectable
+  from the filter dropdown, or via `?tag=<name>`).
 - **Currently-on-display badge.** The recipe live on the panel is
   flagged with a monitor icon next to its row.
 - **Source attribution.** Each card carries a `from <Source>` chip
@@ -191,8 +190,7 @@ tap the result number in a `/search` reply, or paste a URL (which pushes
 to the panel right away, even one the repertoire already knows).
 
 The panel renders title + ingredients + numbered steps across as
-many pages as fit (a tall recipe might be 2–3 pages). Notes get
-their own trailing page. The header carries `Title from Source —
+many pages as fit (a tall recipe might be 2–3 pages). The header carries `Title from Source —
 page X/Y` (with the `from` word localised — `from`/`aus`/`de`/`da`
 for en/de/fr/it), followed by total time and servings on the meta
 line. The source is omitted entirely for OCR'd photos that yielded
@@ -200,16 +198,8 @@ no `source_name`.
 
 ### Editing recipes
 
-From the web app's recipe page: add or remove notes, push to the
-display, or delete.
-
-From the bot, after the recipe is on the display:
-
-- `/comment <text>` adds a note. The note doesn't re-push to the panel
-  — it'll show up the next time you display the recipe. So adding a
-  note doesn't count as cooking it.
-- *Push* a saved recipe via `/search` to make it active so `/comment`
-  targets it.
+From the web app's recipe page: edit tags, push to the display, or
+delete.
 
 Deletes are soft (the row is hidden via `deleted_at` with no UI
 restore). If you genuinely need a deleted recipe back, pull it from
@@ -236,10 +226,9 @@ and the daily timer touch the network. See [On-device page cache](#on-device-pag
 - Cook from the panel — buttons cycle pages.
 - The recipe goes into the repertoire automatically (web Add) or as soon
   as you tap 💾 Save on the bot's push message. Every push to the
-  panel bumps its cook count.
+  panel bumps `last_displayed_at`, so it surfaces near the top of the
+  repertoire list.
 - A year later, the anniversary scheduler resurfaces it at midnight.
-  Or it surfaces sooner via the **Most cooked** sort once you've made
-  it a few times.
 
 ## Server
 
@@ -277,10 +266,10 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   everyone out. The cookie lasts 30 days. `Secure` means you must serve
   `/app/` over HTTPS or the login won't stick.
 - **Pages:**
-  - `/app/` — repertoire list (search, sort, source + tag filters,
+  - `/app/` — repertoire list (search, source + tag filters,
     infinite scroll, on-display badge).
   - `/app/add` — URL paste or recipe-photo upload.
-  - `/app/recipes/<id>` — recipe detail (notes, push, delete).
+  - `/app/recipes/<id>` — recipe detail (tags, push, delete).
   - `/app/status` — live panel preview, panel state, repertoire
     stats + last backup, device readings.
 - **Dark mode.** Follows OS preference automatically; a `☀/☾`
@@ -307,9 +296,8 @@ to push). An image push is never persisted.
 
 Schema:
 
-- `recipes(id, url, title, parsed_json, lang, saved_at, created_at, deleted_at, source, last_displayed_at, displayed_count, translated_keywords)` — `translated_keywords` is the LLM-produced FR/DE search blob (NULL = pending, `""` = tried & gave up).
-- `comments(id, recipe_id, body, created_at)`
-- `recipes_fts` — FTS5 virtual table over (title, ingredients, notes, translated). The `translated` column carries the LLM FR/DE keywords so a recipe stored in one language is searchable from the other.
+- `recipes(id, url, title, parsed_json, lang, saved_at, created_at, deleted_at, source, last_displayed_at, translated_keywords, tags)` — `translated_keywords` is the LLM-produced FR/DE search blob (NULL = pending, `""` = tried & gave up); `tags` is a comma-separated lowercase list (NULL = none).
+- `recipes_fts` — FTS5 virtual table over (title, ingredients, tags, translated). The `translated` column carries the LLM FR/DE keywords so a recipe stored in one language is searchable from the other.
 - `display_panel(id, recipe_id, page)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it.
 - `schema_version(version, applied_at)` — which migrations have been applied (see Migrations below).
 - `meta(key, value)` — free-form bootstrap flags (e.g. `fts_rebuilt`).
@@ -317,24 +305,19 @@ Schema:
 `saved_at` is the canonical "first saved" timestamp — never moves once
 set. `last_displayed_at` is bumped every time the row is pushed to the
 panel (web *Display* button, bot `/search` push, anniversary
-scheduler, …) and drives the repertoire's "recently cooked" sort + the
-anniversary picker. NULL is a first-class state ("never cooked") — rows
-in a repertoire upgraded from before this column existed start NULL and only
-get populated when something pushes them, so existing recipes show up as
-**never cooked** in the repertoire list and on the detail page until you
-display one. In the "recently cooked" sort they sink to the bottom; in
-the "least recently cooked" sort they float to the top (nothing is more
-stale than a recipe you've never cooked).
+scheduler, …) and drives the repertoire's fixed most-recently-cooked-first
+ordering + the anniversary picker. NULL is a first-class state ("never
+cooked") — rows in a repertoire upgraded from before this column existed
+start NULL and only get populated when something pushes them, so existing
+recipes show up as **never cooked** in the repertoire list and on the
+detail page until you display one; never-cooked rows sink to the bottom
+of the list (nothing is more stale than a recipe you've never cooked).
 
-`displayed_count` is incremented alongside `last_displayed_at`, so the
-repertoire knows how many times you've cooked each recipe. The repertoire card
-and detail page render `cooked N×, last <when>` (or just `cooked <when>`
-after a single cook), where `<when>` is a humanised relative phrase —
-`yesterday`, `3 days ago`, `last week`, `last month`, `2 years ago`, etc.
-The bot's search results share the same wording via
-`status_helpers.humanize_date`. There's a **Most cooked** sort option in
-the repertoire header. Counts start at 0 for everything on
-upgrade; only future pushes accumulate.
+The repertoire card and detail page render `cooked <when>` (or `never
+cooked`), where `<when>` is a humanised relative phrase — `yesterday`,
+`3 days ago`, `last week`, `last month`, `2 years ago`, etc. The bot's
+search results share the same wording via `status_helpers.humanize_date`.
+There's no cook-count tracking — only the most recent display time.
 
 The `url` column carries one of three URL shapes, all of which
 participate in the `UNIQUE` index:
@@ -474,8 +457,7 @@ and *(b)* receiving the device-health alerts.
 
 | Command | What it does |
 |---|---|
-| `/comment <text>` | Add a note to the currently-displayed saved recipe. Doesn't re-push to the panel — the note shows on the next display. |
-| `/search <query>` | Full-text search over title + ingredients + notes. Tap a number to push. |
+| `/search <query>` | Full-text search over title + ingredients + tags. Tap a number to push. |
 | `/clear` | Clear the panel (renders a blank white frame). |
 | `/status` | Sectioned device + repertoire snapshot — battery %, signal, env sensors, last-seen (with ⚠️ overdue if heartbeat is stale), saved-recipe count, last backup time. |
 | `/start` | Brief welcome + how to send recipes. |
