@@ -202,8 +202,8 @@
     {% if device.rssi %}
       <p class="status-line">
         <span class="status-icon">{{ icon("wifi", 18) }}</span>
-        Signal: <strong>{{ device.rssi }} dBm</strong>
-        <span class="muted">({{ rssi_quality(device.rssi) }})</span>
+        Signal: <strong>{{ rssi_quality(device.rssi) }}</strong>
+        <span class="muted">{{ device.rssi }} dBm</span>
       </p>
     {% endif %}
     {% if device.temperature_c is not none %}
