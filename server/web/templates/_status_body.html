@@ -192,10 +192,11 @@
   </h2>
   {% if device.last_seen %}
     {% if device.battery_mv %}
+      {% set batt_label = 'critical' if battery_pct < 10 else 'low' if battery_pct < 30 else 'fair' if battery_pct < 60 else 'good' if battery_pct < 85 else 'full' %}
       <p class="status-line">
         <span class="status-icon">{{ icon("battery-low" if is_low_battery else "battery", 18) }}</span>
-        Battery: <strong>{{ battery_pct }}%</strong>
-        <span class="muted">({{ '%.2f' % (device.battery_mv / 1000) }} V)</span>
+        Battery: <strong>{{ batt_label }}</strong>
+        <span class="muted">{{ '%.1f' % (device.battery_mv / 1000) }} V</span>
       </p>
     {% endif %}
     {% if device.rssi %}
@@ -220,11 +221,14 @@
     {% if device.firmware_version %}
       <p class="status-line">
         <span class="status-icon">{{ icon("cpu", 18) }}</span>
-        Firmware: <strong>v{{ device.firmware_version }}</strong>
+        Firmware:
         {% if firmware_server_version and firmware_server_version > device.firmware_version %}
-          <span class="warn-inline">{{ icon("alert-triangle", 14) }} update pending (v{{ firmware_server_version }})</span>
+          <strong>update pending</strong>
+          <span class="muted">v{{ device.firmware_version }}</span>
+          <span class="warn-inline">{{ icon("alert-triangle", 14) }} v{{ firmware_server_version }}</span>
         {% else %}
-          <span class="muted">up to date</span>
+          <strong>up to date</strong>
+          <span class="muted">v{{ device.firmware_version }}</span>
         {% endif %}
       </p>
     {% endif %}
