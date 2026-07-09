@@ -16,11 +16,7 @@
     <div class="card-meta">
       <span class="muted">
         {%- if r.last_displayed_at -%}
-          {%- if r.displayed_count and r.displayed_count > 1 -%}
-            cooked {{ r.displayed_count }}×, last {{ fmt_saved(r.last_displayed_at) }}
-          {%- else -%}
-            cooked {{ fmt_saved(r.last_displayed_at) }}
-          {%- endif -%}
+          cooked {{ fmt_saved(r.last_displayed_at) }}
         {%- else -%}
           never cooked
         {%- endif -%}

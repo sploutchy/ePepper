@@ -343,8 +343,7 @@ async def cmd_comment(update: Update, context) -> None:
     Three branches:
       - Nothing showing → tell the user to push something first.
       - Pushed-but-unsaved recipe → tell the user to tap 💾 Save first.
-      - Already-saved recipe → append the note immediately (doesn't bump
-        displayed_count so adding a note isn't a "cook").
+      - Already-saved recipe → append the note immediately.
     """
     if not _is_allowed(update.effective_user.id):
         return
@@ -389,24 +388,16 @@ async def cmd_comment(update: Update, context) -> None:
         )
         return
     log.info("Comment added to recipe %d (%d chars)", recipe_id, len(text))
-    # Deliberately do NOT re-push: adding a note shouldn't count as a cook
-    # event, so last_displayed_at / displayed_count stay put. The note
-    # will land on the panel on the next real push.
+    # Deliberately do NOT re-push: the note will land on the panel on the
+    # next real push.
     await update.message.reply_text(
         "📝 Note added. It'll show on the panel next time you display this recipe."
     )
 
 
 def _cooked_label(row: dict) -> str:
-    """Match the 'cooked N×, last <when>' / 'never cooked' phrasing used
-    across the web repertoire cards so the bot's search results and status
-    all describe the same recipe the same way. `<when>` is the same
-    humanised phrase (`2 days ago`, `last week`, …) the web cards render
-    via `humanize_date`."""
     if row.get("last_displayed_at"):
-        last = humanize_date(row["last_displayed_at"])
-        count = row.get("displayed_count") or 0
-        return f"cooked {count}×, last {last}" if count > 1 else f"cooked {last}"
+        return f"cooked {humanize_date(row['last_displayed_at'])}"
     return "never cooked"
 
 

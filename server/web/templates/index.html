@@ -34,10 +34,6 @@
       <option value=""             {% if not sort %}selected{% endif %}>Recently</option>
       <option value="oldest"       {% if sort == 'oldest' %}selected{% endif %}>Least recently</option>
     </optgroup>
-    <optgroup label="Cooked">
-      <option value="most_cooked"  {% if sort == 'most_cooked' %}selected{% endif %}>Most</option>
-      <option value="least_cooked" {% if sort == 'least_cooked' %}selected{% endif %}>Least</option>
-    </optgroup>
     <optgroup label="Source">
       <option value="source_az"    {% if sort == 'source_az' %}selected{% endif %}>A → Z</option>
       <option value="source_za"    {% if sort == 'source_za' %}selected{% endif %}>Z → A</option>

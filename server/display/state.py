@@ -92,10 +92,9 @@ def set_recipe(
     display content intact rather than half-replacing it.
 
     `count_display` (default True) arms a pending displayed-bump so the
-    next device /image fetch credits the cook. Set False for a silent
-    rebuild that must NOT look like a fresh cook — e.g. restoring the
-    panel after a container restart (BUG-2), where re-arming the bump
-    would mis-increment displayed_count and reset last_displayed_at for
+    next device /image fetch updates last_displayed_at. Set False for a
+    silent rebuild — e.g. restoring the panel after a container restart
+    (BUG-2), where re-arming the bump would reset last_displayed_at for
     a recipe nobody re-cooked, corrupting the anniversary scheduler."""
     inputs = {
         "recipe": recipe,

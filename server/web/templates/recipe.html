@@ -39,11 +39,7 @@
     {% endif %}
     <span class="nb">saved {{ fmt_saved(r.saved_at) }}</span>
     {% if r.last_displayed_at -%}
-      {%- if r.displayed_count and r.displayed_count > 1 %}
-        <span class="nb">cooked {{ r.displayed_count }}×, last {{ fmt_saved(r.last_displayed_at) }}</span>
-      {%- else %}
-        <span class="nb">cooked {{ fmt_saved(r.last_displayed_at) }}</span>
-      {%- endif %}
+      <span class="nb">cooked {{ fmt_saved(r.last_displayed_at) }}</span>
     {%- else %}
       <span class="nb">never cooked</span>
     {%- endif %}

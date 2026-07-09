@@ -24,7 +24,6 @@
   {# Tier slug/label/rows triplets come from api/web._bucket_recipes(),
      which dispatches on the active sort:
        (least) recently cooked → time tiers (This week / This month / …)
-       most/least cooked       → cooked-count tiers (Never / Once / 3–5× / …)
        by source A↔Z           → one tier per source name
      The template just iterates; the bucketing rules live next to the
      SQL ORDER BY that produced the sort. #}

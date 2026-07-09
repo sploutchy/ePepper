@@ -18,10 +18,10 @@ def push_recipe_to_display(row: dict) -> bool:
     previous display content is preserved in the failure case (atomic commit
     inside `display_state.set_recipe`).
 
-    Arms a pending bump of `last_displayed_at` + `displayed_count` that
-    fires on the first device fetch of the new image (see the /image
-    handler), so "recently cooked" reflects when the panel actually
-    pulled the recipe rather than when the server installed it.
+    Arms a pending bump of `last_displayed_at` that fires on the first
+    device fetch of the new image (see the /image handler), so "recently
+    cooked" reflects when the panel actually pulled the recipe rather than
+    when the server installed it.
 
     Skip-if-active optimization: if `row` is already the live display
     content (same recipe_id), short-circuit with a True return — the

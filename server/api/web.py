@@ -206,7 +206,6 @@ _PAGE_SIZE = 20
 
 _VALID_SORTS = {
     "oldest", "recent",
-    "most_cooked", "least_cooked",
     "source_az", "source_za",
 }
 
@@ -304,41 +303,6 @@ def _bucket_by_recency(
     return [t for t in tiers if t[2]]
 
 
-# Cooked-count buckets — fixed boundaries so the tier labels stay
-# predictable regardless of how big the repertoire grows. The "20+"
-# top bucket is the implicit cap for an unbounded count.
-_COUNT_BUCKETS: list[tuple[str, str, int, int]] = [
-    ("never",  "Never cooked", 0, 0),
-    ("once",   "Cooked once",  1, 1),
-    ("twice",  "Cooked twice", 2, 2),
-    ("few",    "Cooked 3–5×",  3, 5),
-    ("many",   "Cooked 6–20×", 6, 20),
-    ("lots",   "Cooked 20+×",  21, 10**9),
-]
-
-
-def _bucket_by_count(
-    recipes: list[dict], ascending: bool
-) -> list[tuple[str, str, list[dict]]]:
-    """Cooked-count tiers (never / once / twice / 3–5× / 6–20× / 20+×).
-    `ascending` flips the tier order for least-cooked vs most-cooked."""
-    buckets = {slug: [] for slug, _, _, _ in _COUNT_BUCKETS}
-    for r in recipes:
-        n = r.get("displayed_count") or 0
-        for slug, _label, lo, hi in _COUNT_BUCKETS:
-            if lo <= n <= hi:
-                buckets[slug].append(r)
-                break
-    out = [
-        (slug, label, buckets[slug])
-        for slug, label, _, _ in _COUNT_BUCKETS
-        if buckets[slug]
-    ]
-    if not ascending:
-        out.reverse()
-    return out
-
-
 def _bucket_by_source(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]:
     """Group consecutive recipes sharing the same source under one
     heading. Relies on the SQL ORDER BY having already sorted by
@@ -362,8 +326,6 @@ def _bucket_recipes(
     Returns a list of (slug, label, rows) tuples in display order;
     empty tiers are dropped. The template just iterates — no logic.
     """
-    if sort in ("most_cooked", "least_cooked"):
-        return _bucket_by_count(recipes, ascending=sort == "least_cooked")
     if sort in ("source_az", "source_za"):
         return _bucket_by_source(recipes)
     return _bucket_by_recency(recipes, ascending=sort == "oldest")

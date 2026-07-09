@@ -7,8 +7,6 @@
 {%- if q %} — search “{{ q }}”
 {%- elif source %} — from {{ source|capitalize }}
 {%- elif tag %} — #{{ tag }}
-{%- elif sort == 'most_cooked' %} — most cooked
-{%- elif sort == 'least_cooked' %} — least cooked
 {%- elif sort == 'oldest' %} — least recently cooked
 {%- elif sort == 'source_az' %} — by source, A → Z
 {%- elif sort == 'source_za' %} — by source, Z → A

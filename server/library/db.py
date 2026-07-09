@@ -9,9 +9,7 @@ Tables (full column list in `_SCHEMA` below):
 the row is just a cached copy of the parsed recipe so we can re-render it
 on demand. `last_displayed_at` is bumped every time a saved row gets
 pushed to the panel (see `touch_displayed`), and drives the "recently
-cooked" sort + the anniversary scheduler. `displayed_count` is
-incremented alongside it so the library can show "cooked N×" and offer
-a "most cooked" sort. `created_at` is set on first upsert.
+cooked" sort + the anniversary scheduler. `created_at` is set on first upsert.
 
 All timestamps are Unix seconds (integer).
 """
@@ -46,7 +44,6 @@ CREATE TABLE IF NOT EXISTS recipes (
     deleted_at          INTEGER,
     source              TEXT,                       -- lowercase source name (from URL); NULL if unsourced
     last_displayed_at   INTEGER,                    -- updated on every successful push_recipe_to_display
-    displayed_count     INTEGER NOT NULL DEFAULT 0, -- incremented alongside last_displayed_at
     translated_keywords TEXT                        -- LLM-produced FR/DE search blob; NULL = pending, "" = tried & gave up
 );
 
@@ -309,8 +306,8 @@ def upsert_recipe(
     """Insert or update a recipe by URL. Returns the recipe id.
 
     Always overwrites title / parsed_json / lang so a re-fetched recipe
-    picks up corrected parsing. Leaves saved_at / last_displayed_at /
-    displayed_count untouched. Clears
+    picks up corrected parsing. Leaves saved_at / last_displayed_at
+    untouched. Clears
     `deleted_at` on conflict — re-pushing a URL is an explicit user signal
     that they want the recipe back (caller would also crash on the get_recipe
     that follows, since that filter excludes soft-deleted rows).
@@ -444,7 +441,6 @@ def _row_to_dict(row) -> dict:
         "lang": row["lang"],
         "saved_at": row["saved_at"],
         "last_displayed_at": row["last_displayed_at"],
-        "displayed_count": row["displayed_count"],
         "created_at": row["created_at"],
     }
 
@@ -453,7 +449,7 @@ def get_recipe(recipe_id: int) -> dict | None:
     """Fetch a non-deleted recipe row + parsed dict. None if not found."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at "
             "FROM recipes WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
@@ -465,7 +461,7 @@ def find_by_url(url: str) -> dict | None:
     canonical = normalize_url(url)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at "
             "FROM recipes WHERE url = ? AND deleted_at IS NULL",
             (canonical,),
         ).fetchone()
@@ -493,18 +489,15 @@ def save_recipe(recipe_id: int) -> bool:
 def touch_displayed(recipe_id: int) -> None:
     """Mark a library row as displayed *right now*.
 
-    Called after every successful `push_recipe_to_display`. Bumps both
+    Called after every successful `push_recipe_to_display`. Bumps
     `last_displayed_at` (used by the "recently shown" sort and the
-    anniversary scheduler) and `displayed_count` (drives the "cooked N×"
-    badge and the "most cooked" sort). No-op if the row doesn't exist or
-    is soft-deleted — pushing a deleted row shouldn't revive it, and
-    pushing a row that vanished isn't worth complaining about.
+    anniversary scheduler). No-op if the row doesn't exist or is
+    soft-deleted.
     """
     now = int(time.time())
     with _connect() as conn:
         conn.execute(
-            "UPDATE recipes "
-            "SET last_displayed_at = ?, displayed_count = displayed_count + 1 "
+            "UPDATE recipes SET last_displayed_at = ? "
             "WHERE id = ? AND deleted_at IS NULL",
             (now, recipe_id),
         )
@@ -606,7 +599,7 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, displayed_count, created_at
+            SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at
             FROM recipes
             WHERE saved_at IS NOT NULL
               AND deleted_at IS NULL
@@ -628,7 +621,6 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
 # did I first save this?". NULL `last_displayed_at` = "never cooked":
 #   - "recent" puts never-cooked at the bottom (nothing recent to surface)
 #   - "oldest" puts never-cooked at the top (nothing's more stale than that)
-# `most_cooked` / `least_cooked` order by total cooks (displayed_count).
 # `source_az` / `source_za` group recipes by their source name, with
 # null sources slotted at the end of both directions so the unsourced
 # pile is always the last tier the user sees instead of slicing into
@@ -636,12 +628,10 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
 # `saved_at` is the secondary tie-break so deploy-day libraries (all-NULL
 # `last_displayed_at`) match the prior newest-saved / oldest-saved ordering.
 _SORT_ORDERS: dict[str, str] = {
-    "oldest":       "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
-    "recent":       "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "most_cooked":  "r.displayed_count DESC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "least_cooked": "r.displayed_count ASC, r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "source_az":    "r.source ASC NULLS LAST, r.title ASC",
-    "source_za":    "r.source DESC NULLS LAST, r.title ASC",
+    "oldest":    "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
+    "recent":    "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
+    "source_az": "r.source ASC NULLS LAST, r.title ASC",
+    "source_za": "r.source DESC NULLS LAST, r.title ASC",
 }
 
 
@@ -739,7 +729,7 @@ def list_recipes(
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
-                       r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
+                       r.saved_at, r.last_displayed_at, r.created_at
                 FROM recipes_fts f
                 JOIN recipes r ON r.id = f.rowid
                 WHERE recipes_fts MATCH ?
@@ -757,7 +747,7 @@ def list_recipes(
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
-                       r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
+                       r.saved_at, r.last_displayed_at, r.created_at
                 FROM recipes r
                 WHERE r.saved_at IS NOT NULL AND r.deleted_at IS NULL
                   {where_extra}
@@ -808,7 +798,7 @@ def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
         rows = conn.execute(
             """
             SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
-                   r.saved_at, r.last_displayed_at, r.displayed_count, r.created_at
+                   r.saved_at, r.last_displayed_at, r.created_at
             FROM recipes_fts f
             JOIN recipes r ON r.id = f.rowid
             WHERE recipes_fts MATCH ?
