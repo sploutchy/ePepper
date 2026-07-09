@@ -237,6 +237,10 @@ def init_db() -> None:
                 (latest, applied_at),
             )
         _apply_migrations(conn)
+        # Re-apply the schema after migrations so any tables a migration
+        # dropped (e.g. recipes_fts) are recreated before the FTS rebuild
+        # below. All statements use IF NOT EXISTS, so this is idempotent.
+        conn.executescript(_SCHEMA)
         # One-shot FTS rebuild, gated behind a `meta.fts_rebuilt` sentinel.
         # `_rebuild_fts` derives the index from recipe JSON ingredients + tags
         # + LLM-translated keywords, so it can't be expressed as an FTS5
