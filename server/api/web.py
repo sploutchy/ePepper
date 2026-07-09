@@ -55,6 +55,12 @@ COOKIE_MAX_AGE = 30 * 24 * 3600
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 
+# Cache-busting query string appended to static asset URLs (see base.html).
+# Every deploy restarts the process, so this changes on each deploy and
+# forces browsers — notably installed home-screen PWAs, which otherwise
+# hang onto stale app.css/htmx.min.js indefinitely — to fetch fresh copies.
+templates.env.globals["asset_v"] = str(int(time.time()))
+
 
 def session_cookie_value() -> str:
     """Stateless auth-cookie value derived from the API key.
