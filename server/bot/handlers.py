@@ -212,7 +212,7 @@ def _web_app_line() -> str:
     return (
         f"🌐 <b>Web app:</b> "
         f"<a href=\"{html.escape(WEB_URL)}/app/\">{html.escape(WEB_URL)}/app/</a> "
-        "(same API_KEY logs you in) — sort, filter, and browse the full repertoire."
+        "(same API_KEY logs you in) — filter and browse the full repertoire."
     )
 
 

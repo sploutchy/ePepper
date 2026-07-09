@@ -607,9 +607,9 @@ because the `.bin` contains the baked-in WiFi password + API key.
 
 For when OTA can't reach the device (bad build, bricked partition),
 `/app/flash` offers a no-toolchain recovery flash from desktop
-Chrome/Edge (ESP Web Tools over Web Serial, HTTPS required) — revealed
-by 7 clicks on the Status page's Device card. It consumes the
-CI-produced `epepper-merged.bin` + `manifest.json`.
+Chrome/Edge (ESP Web Tools over Web Serial, HTTPS required), linked
+from the Status page's Device card. It consumes the CI-produced
+`epepper-merged.bin` + `manifest.json`.
 
 - **`./firmware/` directory layout.** Four files, all produced by CI
   and served by the server:

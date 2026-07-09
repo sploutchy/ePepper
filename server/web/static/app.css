@@ -1376,9 +1376,8 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   .iconbtn { padding: 8px 10px; }
 
   /* Mobile: search takes the full first row (people want to type
-     comfortably), and the sort / source / tag selects share the
-     row below — two per row via flex-wrap, so the typical sort +
-     source pairing fits one line instead of stacking. */
+     comfortably), and the source select drops to the row below via
+     flex-wrap instead of stacking under the full-width search. */
   .list-controls {
     display: flex;
     flex-wrap: wrap;
