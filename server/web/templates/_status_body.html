@@ -224,8 +224,7 @@
         Firmware:
         {% if firmware_server_version and firmware_server_version > device.firmware_version %}
           <strong>update pending</strong>
-          <span class="muted">v{{ device.firmware_version }}</span>
-          <span class="warn-inline">{{ icon("alert-triangle", 14) }} v{{ firmware_server_version }}</span>
+          <span class="muted">v{{ device.firmware_version }} → v{{ firmware_server_version }}</span>
         {% else %}
           <strong>up to date</strong>
           <span class="muted">v{{ device.firmware_version }}</span>
