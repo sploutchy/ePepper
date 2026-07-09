@@ -5,10 +5,13 @@ RSSI).
 """
 
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
+from pathlib import Path
 from urllib.parse import urlparse
 
+import library
 from config import TZ
+from processing import fooby_cache
 
 
 # LiPo discharge curve, mV → %, piecewise linear between breakpoints.
@@ -88,6 +91,72 @@ def format_long_date(d: datetime) -> str:
     else:
         suffix = {1: "st", 2: "nd", 3: "rd"}.get(day % 10, "th")
     return f"{d.strftime('%A %B')} {day}{suffix}"
+
+
+def battery_label(pct: int) -> str:
+    """Qualitative word for a battery percentage — mirrors the thresholds
+    inlined in _status_body.html's `batt_label` so the web page and the
+    bot's /status read the same "good"/"fair"/etc. for the same charge.
+    """
+    if pct < 10:
+        return "critical"
+    if pct < 30:
+        return "low"
+    if pct < 60:
+        return "fair"
+    if pct < 85:
+        return "good"
+    return "full"
+
+
+def get_firmware_server_version() -> int | None:
+    """Latest firmware version published by CI (rsynced into the
+    bind-mounted firmware/ dir). None when no firmware has been pushed
+    yet, in which case callers skip the "update pending" chip.
+    """
+    try:
+        version_file = Path("/app/firmware/version.txt")
+        if version_file.exists():
+            return int(version_file.read_text().strip())
+    except (ValueError, OSError):
+        pass
+    return None
+
+
+def tomorrow_preview() -> dict:
+    """What the midnight scheduler will push tomorrow, for the status page
+    and the bot's /status to share:
+      1. An anniversary candidate landing on tomorrow's calendar day, if any.
+      2. Else the pre-fetched Fooby weekly-inspiration pick, if the cache
+         is warm for tomorrow's date.
+      3. Else neither — caller falls back to a generic "Fooby will play" hint.
+
+    Returns a dict with keys: date (long-form string), anniversary
+    (recipe row or None), anniversary_years_ago (int or None), fooby
+    (cached dict or None).
+    """
+    now_local = datetime.now(TZ)
+    tomorrow = now_local + timedelta(days=1)
+    anniversary = library.pick_anniversary_recipe(
+        tomorrow.strftime("%m-%d"), tomorrow.year
+    )
+    years_ago: int | None = None
+    if anniversary and anniversary.get("last_displayed_at"):
+        cooked_year = datetime.fromtimestamp(
+            anniversary["last_displayed_at"], TZ
+        ).year
+        years_ago = tomorrow.year - cooked_year
+    fooby: dict | None = None
+    if anniversary is None:
+        cached = fooby_cache.get()
+        if cached and cached.get("for_date") == tomorrow.date().isoformat():
+            fooby = cached
+    return {
+        "date": format_long_date(tomorrow),
+        "anniversary": anniversary,
+        "anniversary_years_ago": years_ago,
+        "fooby": fooby,
+    }
 
 
 def rssi_quality(rssi: int) -> str:

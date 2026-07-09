@@ -33,7 +33,16 @@ from processing.recipes import (
     ingest_recipe,
     translate_for_search,
 )
-from status_helpers import battery_pct, humanize_ago, humanize_date, rssi_quality, source_name
+from status_helpers import (
+    battery_label,
+    battery_pct,
+    get_firmware_server_version,
+    humanize_ago,
+    humanize_date,
+    rssi_quality,
+    source_name,
+    tomorrow_preview,
+)
 
 log = logging.getLogger(__name__)
 
@@ -265,8 +274,42 @@ async def cmd_clear(update: Update, context) -> None:
     await update.message.reply_text("🧹 Display cleared.")
 
 
+def _format_tomorrow_html(preview: dict) -> str:
+    """One-line "what's queued for tomorrow" body, mirroring the web
+    status page's Tomorrow card: bold title (linked when it's a saved
+    recipe and WEB_URL is configured) leads, source and reason trail as
+    italic detail — same "real info first, detail after" shape as the
+    rest of /status.
+    """
+    anniversary = preview["anniversary"]
+    fooby = preview["fooby"]
+    if anniversary:
+        title = html.escape(anniversary["title"])
+        if WEB_URL:
+            title = f'<a href="{html.escape(WEB_URL)}/app/recipes/{anniversary["id"]}">{title}</a>'
+        line = f"<b>{title}</b>"
+        src_html = _format_source_html(anniversary.get("url"))
+        if src_html:
+            line += f" {src_html}"
+        years_ago = preview["anniversary_years_ago"]
+        reason = "cooked last year" if years_ago == 1 else (
+            f"cooked {years_ago} years ago" if years_ago else "past anniversary"
+        )
+        return f"{line}\n<i>{reason}</i>"
+    if fooby:
+        title = html.escape(fooby["title"])
+        return f"<b>{title}</b>\n<i>inspiration from Fooby</i>"
+    return "<i>No past cook lands on this date — a Fooby inspiration will play instead.</i>"
+
+
 def _build_status_text() -> str:
-    """Render the /status sectioned snapshot as a single HTML string."""
+    """Render the /status sectioned snapshot as a single HTML string.
+
+    Each fact leads with the bold, glanceable takeaway (a title, a
+    qualitative word) and trails precise numbers as an italic,
+    parenthetical detail — mirrors the web status page's bold-label /
+    muted-number treatment so both surfaces read the same way.
+    """
     state = display_state.get()
     device = device_telemetry.get_device_status()
 
@@ -280,11 +323,16 @@ def _build_status_text() -> str:
         if src_html:
             line += f" {src_html}"
         if state["total_pages"] > 1:
-            line += f" — page {state['page']}/{state['total_pages']}"
+            line += f" <i>(page {state['page']}/{state['total_pages']})</i>"
         display_lines.append(line)
     else:
         display_lines.append(html.escape(state["type"]))
     sections.append("\n".join(display_lines))
+
+    # Tomorrow section — what the midnight scheduler will push next.
+    sections.append(
+        "<b>📅 Tomorrow</b>\n" + _format_tomorrow_html(tomorrow_preview())
+    )
 
     # Repertoire section
     library_lines = ["<b>📚 Repertoire</b>", f"{library.count_saved()} saved recipes"]
@@ -309,15 +357,28 @@ def _build_status_text() -> str:
             pct = battery_pct(device["battery_mv"])
             icon = "🔋" if pct >= 30 else "🪫"
             device_lines.append(
-                f"{icon} Battery: {pct}% ({device['battery_mv'] / 1000:.2f} V)"
+                f"{icon} Battery: <b>{battery_label(pct)}</b> <i>({pct}%)</i>"
             )
         if device.get("rssi"):
             rssi = device["rssi"]
-            device_lines.append(f"📶 Signal: {rssi} dBm ({rssi_quality(rssi)})")
+            device_lines.append(
+                f"📶 Signal: <b>{rssi_quality(rssi)}</b> <i>({rssi} dBm)</i>"
+            )
         if device.get("temperature_c") is not None:
-            device_lines.append(f"🌡 Temp: {device['temperature_c']:.1f} °C")
+            device_lines.append(f"🌡 Temp: <b>{device['temperature_c']:.1f} °C</b>")
         if device.get("humidity_pct") is not None:
-            device_lines.append(f"💧 Humidity: {device['humidity_pct']:.0f} %")
+            device_lines.append(f"💧 Humidity: <b>{device['humidity_pct']:.0f}%</b>")
+        if device.get("firmware_version"):
+            server_version = get_firmware_server_version()
+            fw_version = device["firmware_version"]
+            if server_version and server_version > fw_version:
+                device_lines.append(
+                    f"🖥 Firmware: <b>update pending</b> <i>(v{fw_version} → v{server_version})</i>"
+                )
+            else:
+                device_lines.append(
+                    f"🖥 Firmware: <b>up to date</b> <i>(v{fw_version})</i>"
+                )
         sections.append("\n".join(device_lines))
     else:
         sections.append("<b>📡 Device</b> — never seen")
@@ -332,9 +393,19 @@ async def cmd_status(update: Update, context) -> None:
 
 
 def _cooked_label(row: dict) -> str:
-    if row.get("last_displayed_at"):
-        return f"cooked {humanize_date(row['last_displayed_at'])}"
-    return "never cooked"
+    """"cooked <when>" (or "never cooked"), plus a parenthetical tag
+    list when the recipe has any — the cook-date is the "real info",
+    tags are supporting detail, same ordering as the rest of /status.
+    """
+    label = (
+        f"cooked {humanize_date(row['last_displayed_at'])}"
+        if row.get("last_displayed_at")
+        else "never cooked"
+    )
+    tags = row.get("tags")
+    if tags:
+        label += f" ({html.escape(', '.join(tags))})"
+    return label
 
 
 def _render_search_page(
@@ -573,6 +644,21 @@ async def on_text(update: Update, context) -> None:
         log.info("URL detected from user %s: %s", update.effective_user.id, url)
         msg = await update.message.reply_text("🔍 Fetching recipe...")
         await _fetch_and_display_recipe(url, msg)
+        return
+
+    # No link — only offer to search the repertoire when the text
+    # actually matches something saved, so a plain "thanks!" still gets
+    # the generic hint instead of a search suggestion that goes nowhere.
+    if library.search(text, limit=1):
+        token = _stash_search(text)
+        label = text if len(text) <= 30 else text[:29] + "…"
+        keyboard = InlineKeyboardMarkup([[
+            InlineKeyboardButton(f'🔍 Search "{label}"', callback_data=f"search:{token}:0")
+        ]])
+        await update.message.reply_text(
+            "Didn't catch a link, but that matches your repertoire:",
+            reply_markup=keyboard,
+        )
         return
 
     await update.message.reply_text(

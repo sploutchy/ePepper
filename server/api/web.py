@@ -14,7 +14,6 @@ import logging
 import re
 import secrets
 import time
-from datetime import datetime, timedelta
 from pathlib import Path
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
@@ -23,7 +22,6 @@ from fastapi.templating import Jinja2Templates
 import backup
 import device_telemetry
 from display import state as display_state
-from processing import fooby_cache
 import library
 from config import API_KEY, PHOTO_MAX_MB, TZ
 
@@ -37,7 +35,15 @@ except ImportError:
     pass
 from display.push import push_recipe_to_display
 from processing.recipes import IngestError, ingest_recipe, normalize_recipe_for_render
-from status_helpers import battery_pct, format_long_date, humanize_ago, humanize_date, rssi_quality, source_name
+from status_helpers import (
+    battery_pct,
+    get_firmware_server_version,
+    humanize_ago,
+    humanize_date,
+    rssi_quality,
+    source_name,
+    tomorrow_preview,
+)
 
 log = logging.getLogger(__name__)
 
@@ -530,16 +536,7 @@ def _status_ctx(request: Request) -> dict:
     display = display_state.get()
     device = device_telemetry.get_device_status()
     pct = battery_pct(device["battery_mv"]) if device.get("battery_mv") else None
-    # Latest firmware version published by CI (rsynced into the bind-mounted
-    # firmware/ dir). None when no firmware has been pushed yet, in which
-    # case the template skips the "update pending" chip.
-    firmware_server_version: int | None = None
-    try:
-        version_file = Path("/app/firmware/version.txt")
-        if version_file.exists():
-            firmware_server_version = int(version_file.read_text().strip())
-    except (ValueError, OSError):
-        pass
+    firmware_server_version = get_firmware_server_version()
     overdue_s = (
         int(time.time()) - device["last_seen"]
         if device.get("last_seen") else 0
@@ -552,31 +549,13 @@ def _status_ctx(request: Request) -> dict:
         device.get("battery_mv", 0) > 0
         and device["battery_mv"] < device_telemetry.LOW_BATTERY_MV
     )
-    # Tomorrow's preview — mirrors what the midnight scheduler will push:
-    #   1. If an anniversary candidate lands on tomorrow's MM-DD, show that.
-    #   2. Else, surface the pre-fetched Fooby pick from fooby_cache (set
-    #      by the previous midnight tick or the startup prefetch). The
-    #      template links the title to the source URL and labels it
-    #      "inspiration from Fooby".
-    #   3. Else, generic "Fooby will play" hint (cache missing / stale —
-    #      a first deploy that hasn't reached its first midnight yet,
-    #      typically).
-    now_local = datetime.now(TZ)
-    tomorrow = now_local + timedelta(days=1)
-    next_anniv = library.pick_anniversary_recipe(
-        tomorrow.strftime("%m-%d"), tomorrow.year
-    )
-    next_anniv_years_ago: int | None = None
-    if next_anniv and next_anniv.get("last_displayed_at"):
-        cooked_year = datetime.fromtimestamp(
-            next_anniv["last_displayed_at"], TZ
-        ).year
-        next_anniv_years_ago = tomorrow.year - cooked_year
-    fooby_preview: dict | None = None
-    if next_anniv is None:
-        cached = fooby_cache.get()
-        if cached and cached.get("for_date") == tomorrow.date().isoformat():
-            fooby_preview = cached
+    # Tomorrow's preview — mirrors what the midnight scheduler will push.
+    # See status_helpers.tomorrow_preview for the anniversary → Fooby →
+    # generic-hint fallback order (shared with the bot's /status).
+    tomorrow_ctx = tomorrow_preview()
+    next_anniv = tomorrow_ctx["anniversary"]
+    next_anniv_years_ago = tomorrow_ctx["anniversary_years_ago"]
+    fooby_preview = tomorrow_ctx["fooby"]
     return {
         "request": request,
         "display": display,
@@ -591,7 +570,7 @@ def _status_ctx(request: Request) -> dict:
         "last_backup_at": backup.get_last_backup_at(),
         "next_anniversary": next_anniv,
         "next_anniversary_years_ago": next_anniv_years_ago,
-        "next_anniversary_date": format_long_date(tomorrow),
+        "next_anniversary_date": tomorrow_ctx["date"],
         "fooby_preview": fooby_preview,
         "firmware_server_version": firmware_server_version,
         # _context_globals only fires on the full /status page render; the
