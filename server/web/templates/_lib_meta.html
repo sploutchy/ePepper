@@ -14,4 +14,4 @@
     HTMX partial) so the search box + dropdowns — which live outside #list —
     reset natively rather than keeping stale selections. Shown only when a
     search or source filter is active (tag cloud handles its own clear). -#}
-{%- if q or source %} <a href=”/app/” class=”clear-filter”>clear</a>{% endif %}
+{%- if q or source %} <a href=”/app/{% if sort %}?sort={{ sort }}{% endif %}” class=”clear-filter”>clear</a>{% endif %}
