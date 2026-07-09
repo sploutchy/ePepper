@@ -7,6 +7,5 @@
 {%- if q %} — search &ldquo;{{ q }}&rdquo;
 {%- elif source %} — from {{ source|capitalize }}
 {%- elif tag %} — #{{ tag }}
-{%- else %} — recently cooked
 {%- endif %}
 {%- if q or source %} <a href="/app/" class="clear-filter">clear</a>{% endif %}
