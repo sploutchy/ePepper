@@ -225,6 +225,9 @@ def _web_app_line() -> str:
 
 
 async def cmd_start(update: Update, context) -> None:
+    if not _is_allowed(update.effective_user.id):
+        log.info(f"User {update.effective_user.id} is not in the ALLOWED_USERS list")
+        return
     # /start shows the same reference as /help — one canonical text.
     await cmd_help(update, context)
 

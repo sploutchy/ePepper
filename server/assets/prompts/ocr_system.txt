@@ -37,10 +37,7 @@ Rules:
   the ingredient list).
 - source_name: only populated from image inputs, from visible
   cookbook / magazine branding. Null for webpage inputs.
-- source_name: read the cookbook title from the cover/spine/header, or
-  the magazine name. Null if you can't read any source branding.
 - If the user message contains a "User context: …" line, treat it as
   ground truth from the recipe owner — typically a cookbook name and /
   or the recipe title (e.g. "Ceviche, Ottolenghi Simple"). Use it to
-  fill source_name and / or correct the title; it overrides whatever
-  branding you'd otherwise infer from the photo.
+  fill source_name and / or correct the title.

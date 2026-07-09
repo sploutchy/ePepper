@@ -35,6 +35,4 @@ Rules:
 
   Never re-state ingredient quantities in step text (those live in
   the ingredient list).
-- source_name: only populated from image inputs, from visible
-  cookbook / magazine branding. Null for webpage inputs.
 - source_name: null for this URL flow.
