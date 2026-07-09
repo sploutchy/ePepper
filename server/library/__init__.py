@@ -1,4 +1,4 @@
-"""Recipe library: persistent storage for pushed recipes, comments."""
+"""Recipe library: persistent storage for pushed recipes and tags."""
 
 from library.db import (
     init_db,
@@ -7,8 +7,7 @@ from library.db import (
     find_by_url,
     save_recipe,
     touch_displayed,
-    add_comment,
-    get_comments,
+    set_tags,
     search,
     pick_anniversary_recipe,
     count_saved,
@@ -16,7 +15,6 @@ from library.db import (
     list_sources,
     list_tags,
     delete_recipe,
-    remove_comment,
     set_translated_keywords,
     recipes_needing_translation,
     get_panel_state,
@@ -32,8 +30,7 @@ __all__ = [
     "find_by_url",
     "save_recipe",
     "touch_displayed",
-    "add_comment",
-    "get_comments",
+    "set_tags",
     "search",
     "pick_anniversary_recipe",
     "count_saved",
@@ -41,7 +38,6 @@ __all__ = [
     "list_sources",
     "list_tags",
     "delete_recipe",
-    "remove_comment",
     "set_translated_keywords",
     "recipes_needing_translation",
     "get_panel_state",

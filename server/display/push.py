@@ -7,14 +7,13 @@ can render to the display without importing the telegram bot module.
 import logging
 
 from display import state as display_state
-import library
 
 log = logging.getLogger(__name__)
 
 
 def push_recipe_to_display(row: dict) -> bool:
-    """Render the recipe in `row` with its current comments and push to the
-    panel. Returns True on success, False if rendering raised — the
+    """Render the recipe in `row` and push it to the panel.
+    Returns True on success, False if rendering raised — the
     previous display content is preserved in the failure case (atomic commit
     inside `display_state.set_recipe`).
 
@@ -37,11 +36,10 @@ def push_recipe_to_display(row: dict) -> bool:
             "Recipe id=%s already on display; skipping push", row["id"],
         )
         return True
-    comments = [c["body"] for c in library.get_comments(row["id"])]
     try:
         display_state.set_recipe(
             row["recipe"],
-            comments=comments,
+            comments=[],
             recipe_id=row["id"],
             url=row["url"],
         )

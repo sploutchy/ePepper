@@ -57,8 +57,10 @@
     </button>
   </div>
 
+  <div id="recipe-tags">{% include "_tags.html" %}</div>
+
   {# Magazine-style two-column body on desktop: ingredients pin into a
-     sticky left aside, instructions + notes flow in the main column.
+     sticky left aside, instructions flow in the main column.
      The grid collapses to a single column at ≤ 900px (see .recipe-body
      responsive rules) and the sidebar's sticky behaviour is dropped. #}
   <div class="recipe-body">
@@ -94,12 +96,6 @@
           {% endif %}
         {% endfor %}
       {% endif %}
-
-      <h2>Notes</h2>
-      <div id="comments">
-        {% set r_id = r.id %}
-        {% include "_comments.html" %}
-      </div>
     </section>
   </div>
 

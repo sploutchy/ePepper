@@ -85,7 +85,6 @@ def restore_on_startup() -> None:
             )
             library.clear_panel_state()
             return
-        comments = [c["body"] for c in library.get_comments(row["id"])]
         # Silent rebuild (BUG-2): count_display=False so restoring the
         # panel doesn't arm a displayed bump and get mis-counted as a
         # cook on the next device /image fetch. set_recipe always lands
@@ -94,7 +93,7 @@ def restore_on_startup() -> None:
         # last web-preview page.
         display_state.set_recipe(
             row["recipe"],
-            comments=comments,
+            comments=[],
             recipe_id=row["id"],
             url=row["url"],
             count_display=False,

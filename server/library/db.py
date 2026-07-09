@@ -2,7 +2,6 @@
 
 Tables (full column list in `_SCHEMA` below):
     recipes      — one row per known URL
-    comments     — free-text notes attached to a recipe
     recipes_fts  — FTS5 index for /search
 
 `saved_at` is NULL until the user explicitly saves the recipe; until then
@@ -44,39 +43,30 @@ CREATE TABLE IF NOT EXISTS recipes (
     deleted_at          INTEGER,
     source              TEXT,                       -- lowercase source name (from URL); NULL if unsourced
     last_displayed_at   INTEGER,                    -- updated on every successful push_recipe_to_display
-    translated_keywords TEXT                        -- LLM-produced FR/DE search blob; NULL = pending, "" = tried & gave up
+    translated_keywords TEXT,                       -- LLM-produced FR/DE search blob; NULL = pending, "" = tried & gave up
+    tags                TEXT                        -- comma-separated lowercase tags; NULL = none
 );
 
 CREATE INDEX IF NOT EXISTS idx_recipes_saved_at ON recipes(saved_at);
 CREATE INDEX IF NOT EXISTS idx_recipes_source ON recipes(source);
 CREATE INDEX IF NOT EXISTS idx_recipes_last_displayed_at ON recipes(last_displayed_at);
 
-CREATE TABLE IF NOT EXISTS comments (
-    id         INTEGER PRIMARY KEY AUTOINCREMENT,
-    recipe_id  INTEGER NOT NULL,
-    body       TEXT NOT NULL,
-    created_at INTEGER NOT NULL,
-    FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_comments_recipe_id ON comments(recipe_id);
-
 -- FTS5 index for /search. rowid mirrors recipes.id so we can JOIN cheaply.
 -- We manage inserts/updates/deletes manually rather than via triggers
--- because ingredients, notes, and translated keywords are derived
--- (JSON / aggregated comments / LLM output).
+-- because ingredients and translated keywords are derived
+-- (JSON / LLM output).
 -- `translated` carries LLM-produced FR/DE keywords so a recipe stored
 -- in one language is searchable from the other (see processing.recipes
 -- :translate_for_search). Empty until the backfill catches it up.
 CREATE VIRTUAL TABLE IF NOT EXISTS recipes_fts USING fts5(
-    title, ingredients, notes, translated,
+    title, ingredients, tags, translated,
     tokenize='unicode61 remove_diacritics 2'
 );
 
 -- Singleton-row table tracking what's currently on the e-ink panel, so a
 -- container restart can re-render the same recipe + page instead of
 -- coming back to an empty display. Only populated for SAVED recipes
--- (recipe_id is enough to re-derive everything — parsed recipe, comments,
+-- (recipe_id is enough to re-derive everything — parsed recipe and
 -- url all live on the recipes row). Pushes of unsaved recipes don't write
 -- here; clearing the panel deletes the row. `id` is locked to 1 so any
 -- INSERT/UPDATE collapses onto the same row.
@@ -167,6 +157,20 @@ def _current_schema_version(conn: sqlite3.Connection) -> int:
     return int(row["v"])
 
 
+def _latest_migration_version() -> int:
+    """Return the numeric prefix of the highest-numbered migration file, or 0."""
+    if not os.path.isdir(MIGRATIONS_DIR):
+        return 0
+    versions = []
+    for fname in os.listdir(MIGRATIONS_DIR):
+        if not fname.endswith(".sql"):
+            continue
+        m = _MIGRATION_PREFIX_RE.match(fname)
+        if m:
+            versions.append(int(m.group(1)))
+    return max(versions) if versions else 0
+
+
 def _apply_migrations(conn: sqlite3.Connection) -> None:
     """Run any migrations/*.sql whose numeric prefix exceeds the stored version.
 
@@ -207,11 +211,11 @@ def init_db() -> None:
 
     Three-phase startup:
       1. Run the baseline CREATE TABLE IF NOT EXISTS script. This is
-         idempotent and covers every schema element introduced before the
-         migrations system existed (version 0).
-      2. Stamp `schema_version` with row (0, now) if no row exists yet —
-         brand-new DBs and pre-migrations-era DBs both bootstrap to 0 so
-         later migration files run cleanly.
+         idempotent and covers every schema element.
+      2. Stamp `schema_version` with the latest migration version if no row
+         exists yet — brand-new DBs skip all historical migrations since their
+         schema is already current. Pre-migrations-era DBs with no recorded
+         version start at version 0 and get caught up by `_apply_migrations`.
       3. Apply any library/migrations/*.sql whose numeric prefix is
          greater than the currently-recorded version, recording each as
          it goes. See `_apply_migrations`.
@@ -221,20 +225,27 @@ def init_db() -> None:
         conn.executescript(_SCHEMA)
         if _current_schema_version(conn) < 0:
             applied_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            # Stamp at the latest migration version so fresh DBs (whose
+            # schema already reflects all migrations) don't re-run historical
+            # ALTER/DROP statements against a schema that never had those
+            # columns/tables. Pre-existing DBs without any recorded version
+            # stamp at 0 instead — that path no longer applies since the
+            # migration system was introduced before the first ALTER migration.
+            latest = _latest_migration_version()
             conn.execute(
-                "INSERT INTO schema_version (version, applied_at) VALUES (0, ?)",
-                (applied_at,),
+                "INSERT INTO schema_version (version, applied_at) VALUES (?, ?)",
+                (latest, applied_at),
             )
         _apply_migrations(conn)
         # One-shot FTS rebuild, gated behind a `meta.fts_rebuilt` sentinel.
-        # `_rebuild_fts` derives the index from several sources (recipe JSON
-        # ingredients + aggregated comments + LLM-translated keywords), so it
-        # can't be expressed as an FTS5 `'rebuild'` command (that only mirrors
-        # a single external-content table 1:1). Gating it means the
-        # O(library-size) rebuild runs once on a fresh DB and never again on
-        # routine restarts. The ongoing index is kept correct incrementally by
-        # `_fts_upsert` on every write. To force a rebuild after restoring an
-        # old snapshot, delete the `fts_rebuilt` row from `meta`.
+        # `_rebuild_fts` derives the index from recipe JSON ingredients + tags
+        # + LLM-translated keywords, so it can't be expressed as an FTS5
+        # `'rebuild'` command (that only mirrors a single external-content
+        # table 1:1). Gating it means the O(library-size) rebuild runs once
+        # on a fresh DB and never again on routine restarts. The ongoing index
+        # is kept correct incrementally by `_fts_upsert` on every write. To
+        # force a rebuild after restoring an old snapshot, delete the
+        # `fts_rebuilt` row from `meta`.
         row = conn.execute(
             "SELECT value FROM meta WHERE key = 'fts_rebuilt'"
         ).fetchone()
@@ -256,35 +267,27 @@ def _ingredients_text(parsed_json: str) -> str:
     return "\n".join(str(i) for i in ings if i)
 
 
-def _comments_text(conn: sqlite3.Connection, recipe_id: int) -> str:
-    rows = conn.execute(
-        "SELECT body FROM comments WHERE recipe_id = ? ORDER BY created_at ASC",
-        (recipe_id,),
-    ).fetchall()
-    return "\n".join(r["body"] for r in rows)
-
-
 def _fts_upsert(
     conn: sqlite3.Connection,
     recipe_id: int,
     title: str,
     ingredients: str,
-    notes: str,
+    tags: str,
     translated: str = "",
 ) -> None:
     conn.execute("DELETE FROM recipes_fts WHERE rowid = ?", (recipe_id,))
     conn.execute(
-        "INSERT INTO recipes_fts (rowid, title, ingredients, notes, translated) "
+        "INSERT INTO recipes_fts (rowid, title, ingredients, tags, translated) "
         "VALUES (?, ?, ?, ?, ?)",
-        (recipe_id, title, ingredients, notes, translated),
+        (recipe_id, title, ingredients, tags, translated),
     )
 
 
 def _rebuild_fts(conn: sqlite3.Connection) -> None:
-    """Re-populate `recipes_fts` from `recipes` + `comments`. Idempotent."""
+    """Re-populate `recipes_fts` from `recipes`. Idempotent."""
     conn.execute("DELETE FROM recipes_fts")
     rows = conn.execute(
-        "SELECT id, title, parsed_json, translated_keywords FROM recipes"
+        "SELECT id, title, parsed_json, tags, translated_keywords FROM recipes"
     ).fetchall()
     for row in rows:
         _fts_upsert(
@@ -292,7 +295,7 @@ def _rebuild_fts(conn: sqlite3.Connection) -> None:
             row["id"],
             row["title"],
             _ingredients_text(row["parsed_json"]),
-            _comments_text(conn, row["id"]),
+            row["tags"] or "",
             row["translated_keywords"] or "",
         )
 
@@ -353,7 +356,7 @@ def upsert_recipe(
                     lang        = excluded.lang,
                     source      = excluded.source,
                     deleted_at  = NULL
-                RETURNING id, translated_keywords
+                RETURNING id, translated_keywords, tags
                 """,
                 (canonical, title, payload, lang, source_lower, now),
             )
@@ -370,17 +373,15 @@ def upsert_recipe(
                     source             = excluded.source,
                     deleted_at         = NULL,
                     translated_keywords = excluded.translated_keywords
-                RETURNING id, translated_keywords
+                RETURNING id, translated_keywords, tags
                 """,
                 (canonical, title, payload, lang, source_lower, now, translated_keywords),
             )
         row = cur.fetchone()
         recipe_id = int(row["id"])
         translated = row["translated_keywords"] or ""
-        _fts_upsert(
-            conn, recipe_id, title, ingredients,
-            _comments_text(conn, recipe_id), translated,
-        )
+        tag_str = row["tags"] or ""
+        _fts_upsert(conn, recipe_id, title, ingredients, tag_str, translated)
     return recipe_id
 
 
@@ -392,7 +393,7 @@ def set_translated_keywords(recipe_id: int, blob: str) -> None:
     """
     with _connect() as conn:
         row = conn.execute(
-            "SELECT title, parsed_json FROM recipes "
+            "SELECT title, parsed_json, tags FROM recipes "
             "WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
@@ -404,7 +405,7 @@ def set_translated_keywords(recipe_id: int, blob: str) -> None:
         )
         _fts_upsert(
             conn, recipe_id, row["title"], _ingredients_text(row["parsed_json"]),
-            _comments_text(conn, recipe_id), blob,
+            row["tags"] or "", blob,
         )
 
 
@@ -442,6 +443,7 @@ def _row_to_dict(row) -> dict:
         "saved_at": row["saved_at"],
         "last_displayed_at": row["last_displayed_at"],
         "created_at": row["created_at"],
+        "tags": [t.strip() for t in (row["tags"] or "").split(",") if t.strip()],
     }
 
 
@@ -449,7 +451,7 @@ def get_recipe(recipe_id: int) -> dict | None:
     """Fetch a non-deleted recipe row + parsed dict. None if not found."""
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at, tags "
             "FROM recipes WHERE id = ? AND deleted_at IS NULL",
             (recipe_id,),
         ).fetchone()
@@ -461,7 +463,7 @@ def find_by_url(url: str) -> dict | None:
     canonical = normalize_url(url)
     with _connect() as conn:
         row = conn.execute(
-            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at "
+            "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at, tags "
             "FROM recipes WHERE url = ? AND deleted_at IS NULL",
             (canonical,),
         ).fetchone()
@@ -519,38 +521,9 @@ def delete_recipe(recipe_id: int) -> bool:
     return affected
 
 
-def remove_comment(comment_id: int) -> int | None:
-    """Delete a comment. Returns the parent recipe_id if a row was deleted, else None."""
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT recipe_id FROM comments WHERE id = ?", (comment_id,)
-        ).fetchone()
-        if row is None:
-            return None
-        recipe_id = int(row["recipe_id"])
-        conn.execute("DELETE FROM comments WHERE id = ?", (comment_id,))
-        # Re-index FTS with the new (shorter) notes blob.
-        recipe = conn.execute(
-            "SELECT title, parsed_json, translated_keywords FROM recipes WHERE id = ?",
-            (recipe_id,),
-        ).fetchone()
-        if recipe is not None:
-            _fts_upsert(
-                conn,
-                recipe_id,
-                recipe["title"],
-                _ingredients_text(recipe["parsed_json"]),
-                _comments_text(conn, recipe_id),
-                recipe["translated_keywords"] or "",
-            )
-    return recipe_id
-
-
-def add_comment(recipe_id: int, body: str) -> int | None:
-    """Append a comment to a recipe. Returns the comment id, or None if the
-    recipe doesn't exist or has been soft-deleted (so callers can't end up
-    with orphan comments on a deleted row)."""
-    now = int(time.time())
+def set_tags(recipe_id: int, tags: list[str]) -> bool:
+    """Set the tag list for a recipe. Returns True if the row was found and updated."""
+    tag_str = ",".join(t.lower().strip() for t in tags if t.strip()) or None
     with _connect() as conn:
         row = conn.execute(
             "SELECT title, parsed_json, translated_keywords FROM recipes "
@@ -558,21 +531,16 @@ def add_comment(recipe_id: int, body: str) -> int | None:
             (recipe_id,),
         ).fetchone()
         if row is None:
-            return None
-        cur = conn.execute(
-            "INSERT INTO comments (recipe_id, body, created_at) VALUES (?, ?, ?)",
-            (recipe_id, body, now),
+            return False
+        conn.execute(
+            "UPDATE recipes SET tags = ? WHERE id = ?",
+            (tag_str, recipe_id),
         )
-        comment_id = int(cur.lastrowid)
         _fts_upsert(
-            conn,
-            recipe_id,
-            row["title"],
-            _ingredients_text(row["parsed_json"]),
-            _comments_text(conn, recipe_id),
-            row["translated_keywords"] or "",
+            conn, recipe_id, row["title"], _ingredients_text(row["parsed_json"]),
+            tag_str or "", row["translated_keywords"] or "",
         )
-    return comment_id
+    return True
 
 
 def count_saved() -> int:
@@ -599,7 +567,7 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     with _connect() as conn:
         row = conn.execute(
             """
-            SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at
+            SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at, tags
             FROM recipes
             WHERE saved_at IS NOT NULL
               AND deleted_at IS NULL
@@ -621,61 +589,48 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
 # did I first save this?". NULL `last_displayed_at` = "never cooked":
 #   - "recent" puts never-cooked at the bottom (nothing recent to surface)
 #   - "oldest" puts never-cooked at the top (nothing's more stale than that)
-# `source_az` / `source_za` group recipes by their source name, with
-# null sources slotted at the end of both directions so the unsourced
-# pile is always the last tier the user sees instead of slicing into
-# the middle of the alphabet.
 # `saved_at` is the secondary tie-break so deploy-day libraries (all-NULL
 # `last_displayed_at`) match the prior newest-saved / oldest-saved ordering.
 _SORT_ORDERS: dict[str, str] = {
-    "oldest":    "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
-    "recent":    "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
-    "source_az": "r.source ASC NULLS LAST, r.title ASC",
-    "source_za": "r.source DESC NULLS LAST, r.title ASC",
+    "oldest": "r.last_displayed_at ASC NULLS FIRST, r.saved_at ASC",
+    "recent": "r.last_displayed_at DESC NULLS LAST, r.saved_at DESC",
 }
 
 
-_TAG_RE = re.compile(r'#(\w+)', re.UNICODE)
-
-
 def _recipe_ids_with_tag(conn: sqlite3.Connection, tag: str) -> list[int]:
-    """Recipe ids whose comments contain `#tag` as a standalone hashtag.
-
-    Two-stage match: a SQL LIKE pulls anything with `#tag` as a substring
-    (cheap with no index but the comments table is small), then a Python
-    regex with a word boundary drops false positives like `#tagteam` when
-    filtering for `#tag`.
-    """
+    """Recipe ids whose `tags` column contains `tag` as an exact comma-separated entry."""
     lowered = tag.lower()
-    rx = re.compile(rf'#{re.escape(lowered)}\b', re.IGNORECASE)
     rows = conn.execute(
-        "SELECT DISTINCT recipe_id, body FROM comments WHERE LOWER(body) LIKE ?",
-        (f"%#{lowered}%",),
+        """
+        SELECT id FROM recipes
+        WHERE deleted_at IS NULL
+          AND saved_at IS NOT NULL
+          AND (
+            tags = ?
+            OR tags LIKE ?
+            OR tags LIKE ?
+            OR tags LIKE ?
+          )
+        """,
+        (lowered, f"{lowered},%", f"%,{lowered}", f"%,{lowered},%"),
     ).fetchall()
-    return sorted({r["recipe_id"] for r in rows if rx.search(r["body"])})
+    return sorted(r["id"] for r in rows)
 
 
 def list_tags() -> list[tuple[str, int]]:
-    """Distinct `#hashtag` tokens across saved recipes' comments.
+    """Distinct tags from saved recipes, sorted by frequency desc then alpha.
 
-    Returns `[(tag, count), ...]` sorted by frequency desc, then alpha.
-    Used to populate the library page's tag filter. Tags are case-folded
-    to lowercase so `#Weeknight` and `#weeknight` collapse.
+    Returns `[(tag, count), ...]`. Used to populate the library page's tag
+    filter cloud. Tags are stored as comma-separated lowercase strings.
     """
     counts: dict[str, int] = {}
     with _connect() as conn:
         rows = conn.execute(
-            """
-            SELECT c.body FROM comments c
-            JOIN recipes r ON r.id = c.recipe_id
-            WHERE r.deleted_at IS NULL
-              AND r.saved_at IS NOT NULL
-              AND c.body LIKE '%#%'
-            """
+            "SELECT tags FROM recipes "
+            "WHERE tags IS NOT NULL AND saved_at IS NOT NULL AND deleted_at IS NULL"
         ).fetchall()
     for row in rows:
-        for match in _TAG_RE.findall(row["body"]):
-            tag = match.lower()
+        for tag in (t.strip() for t in row["tags"].split(",") if t.strip()):
             counts[tag] = counts.get(tag, 0) + 1
     return sorted(counts.items(), key=lambda x: (-x[1], x[0]))
 
@@ -697,8 +652,8 @@ def list_recipes(
     source: lowercase source key (matching `source_name(url).lower()`).
     Filters to recipes whose stored `source` column equals this value.
 
-    tag: a `#tag` token (without the `#`) appearing in any comment on the
-    recipe. Pre-filtered to a set of ids via a separate query so the main
+    tag: a tag token appearing in the recipe's `tags` column.
+    Pre-filtered to a set of ids via a separate query so the main
     pagination can stay in SQL.
     """
     order_by = _SORT_ORDERS.get(sort) if sort else None
@@ -729,7 +684,7 @@ def list_recipes(
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
-                       r.saved_at, r.last_displayed_at, r.created_at
+                       r.saved_at, r.last_displayed_at, r.created_at, r.tags
                 FROM recipes_fts f
                 JOIN recipes r ON r.id = f.rowid
                 WHERE recipes_fts MATCH ?
@@ -747,7 +702,7 @@ def list_recipes(
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
-                       r.saved_at, r.last_displayed_at, r.created_at
+                       r.saved_at, r.last_displayed_at, r.created_at, r.tags
                 FROM recipes r
                 WHERE r.saved_at IS NOT NULL AND r.deleted_at IS NULL
                   {where_extra}
@@ -778,7 +733,7 @@ _FTS_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
 
 
 def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
-    """Full-text search over saved recipes (title + ingredients + comments).
+    """Full-text search over saved recipes (title + ingredients + tags).
 
     Only returns recipes the user explicitly saved (saved_at set). Most
     relevant first. The query is tokenized into quoted phrases so FTS5
@@ -798,7 +753,7 @@ def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
         rows = conn.execute(
             """
             SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
-                   r.saved_at, r.last_displayed_at, r.created_at
+                   r.saved_at, r.last_displayed_at, r.created_at, r.tags
             FROM recipes_fts f
             JOIN recipes r ON r.id = f.rowid
             WHERE recipes_fts MATCH ?
@@ -812,17 +767,6 @@ def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
-def get_comments(recipe_id: int) -> list[dict[str, Any]]:
-    """Return comments for a recipe, oldest first."""
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT id, body, created_at FROM comments "
-            "WHERE recipe_id = ? ORDER BY created_at ASC",
-            (recipe_id,),
-        ).fetchall()
-    return [{"id": r["id"], "body": r["body"], "created_at": r["created_at"]} for r in rows]
-
-
 # --- Display-panel persistence ---------------------------------------------
 
 
@@ -833,7 +777,7 @@ def get_panel_state() -> dict | None:
     flagged as the active panel content, else None (panel is meant to
     be idle, or only an unsaved push was active and didn't get
     persisted). The caller (display_persistence.restore_on_startup)
-    re-derives the rest from `recipe_id` via get_recipe + get_comments.
+    re-derives the rest from `recipe_id` via get_recipe.
     """
     with _connect() as conn:
         row = conn.execute(

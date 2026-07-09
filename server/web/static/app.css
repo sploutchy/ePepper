@@ -270,7 +270,125 @@ body.centered {
      draws a top hairline, so adding one here stacked two lines with a
      wide gap between them. The recipe list's own borders carry the
      separation now. */
+  margin: 0 0 16px;
+}
+
+/* Sort toggle — two pill-shaped radio labels that look like a segmented
+   control. The active option gets a filled accent background. The hidden
+   radio inputs drive the :checked state and HTMX fires on change. */
+.sort-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface);
+}
+.sort-opt {
+  display: flex;
+  align-items: center;
+  padding: 11px 16px;
+  font-size: 15px;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background .15s var(--ease), color .15s var(--ease);
+  user-select: none;
+}
+.sort-opt input[type="radio"] { display: none; }
+.sort-opt + .sort-opt { border-left: 1px solid var(--border); }
+.sort-opt--active {
+  background: var(--surface-alt);
+  color: var(--text);
+  font-weight: 500;
+}
+.sort-opt:hover:not(.sort-opt--active) { background: var(--surface-alt); color: var(--text-dim); }
+
+/* Tag cloud (library page, outside the form) */
+.tag-cloud {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   margin: 0 0 24px;
+}
+
+/* Tag pills — shared between the tag cloud, card tags, and recipe detail */
+.tag-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 12px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  background: var(--surface);
+  transition: border-color .15s var(--ease), color .15s var(--ease), background .15s var(--ease);
+  white-space: nowrap;
+}
+a.tag-pill:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  text-decoration: none;
+  background: var(--accent-soft);
+}
+.tag-pill--active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.tag-pill--sm {
+  padding: 2px 9px;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+}
+
+/* Card-level tag row (inside .card-title) */
+.card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 2px;
+}
+
+/* Recipe detail — tag section between .actions and .recipe-body */
+.recipe-tag-list {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 28px;
+}
+.tag-edit-btn {
+  color: var(--faint);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  padding: 4px 8px;
+}
+.tag-edit-btn:hover { color: var(--accent); }
+
+.tag-editor {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 28px;
+  flex-wrap: wrap;
+}
+.tag-input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  border-radius: var(--r-md);
+  font-size: 15px;
+  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
+}
+.tag-input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 4px var(--accent-soft);
 }
 
 .list-search,
@@ -1034,86 +1152,6 @@ button.link.accent:hover {
   color: var(--text);
 }
 
-/* Notes / comments */
-.comments {
-  list-style: none;
-  margin: 0 0 20px;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.comments li {
-  position: relative;
-  background: var(--accent-soft);
-  border-left: 3px solid var(--accent);
-  padding: 14px 44px 14px 18px;
-  border-radius: 0 var(--r-md) var(--r-md) 0;
-  font-size: 15px;
-  line-height: 1.55;
-  color: var(--text);
-}
-.comments li.muted {
-  background: transparent;
-  border-left-color: var(--border);
-  color: var(--muted);
-  font-style: italic;
-}
-.comment-body { display: block; }
-.comments li button.link.danger {
-  position: absolute;
-  top: 6px;
-  right: 10px;
-  background: transparent;
-  border: 0;
-  color: var(--muted);
-  font-size: 18px;
-  line-height: 1;
-  padding: 4px 8px;
-  border-radius: 4px;
-  cursor: pointer;
-  transition: color .15s var(--ease), background .15s var(--ease);
-}
-.comments li button.link.danger:hover {
-  color: var(--danger);
-  background: var(--danger-soft);
-}
-
-.add-comment {
-  display: grid;
-  gap: 10px;
-}
-.add-comment textarea {
-  width: 100%;
-  padding: 14px 16px;
-  border: 1px solid var(--border);
-  background: var(--surface);
-  color: var(--text);
-  border-radius: var(--r-md);
-  font-size: 15px;
-  font-family: var(--font-body);
-  resize: vertical;
-  min-height: 64px;
-  line-height: 1.5;
-  transition: border-color .15s var(--ease), box-shadow .15s var(--ease);
-}
-.add-comment textarea:focus {
-  outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 4px var(--accent-soft);
-}
-.add-comment button {
-  justify-self: end;
-  padding: 10px 20px;
-  background: var(--text);
-  color: var(--bg);
-  border: 0;
-  border-radius: var(--r-md);
-  font-weight: 600;
-  font-size: 14px;
-}
-.add-comment button:hover { background: var(--text-dim); }
-
 .recipe-footer {
   margin-top: 56px;
   padding-top: 28px;
@@ -1272,74 +1310,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   color: var(--muted);
   opacity: 0.6;
 }
-/* ----------  Save-note link (proposal 2)  ----------
-   The notes form drops the filled "Add" pill in favour of a quiet paprika
-   text link, right-aligned under the textarea — same chrome family as
-   "Push to display" and "Delete this recipe", just smaller. */
-.add-comment--link button.link.accent {
-  justify-self: end;
-  background: transparent;
-  color: var(--accent);
-  font-weight: 500;
-  font-size: 13px;
-  letter-spacing: 0.05em;
-  padding: 6px 0;
-}
-.add-comment--link button.link.accent:hover {
-  background: transparent;
-  color: var(--accent-hover);
-  text-decoration: underline;
-}
-
-
-/* ----------  Notes as marginalia (proposal 3)  ----------
-   Drop the paprika-tinted alert-box treatment in favour of a single
-   paprika hairline on the left and italic body. No fill, no close
-   button — the note reads as a pencil mark in the margin, not as a
-   dismissable toast. */
-.comments--marginalia li {
-  background: transparent;
-  border-left: 1px solid var(--accent);
-  border-radius: 0;
-  padding: 4px 0 4px 18px;
-  font-style: italic;
-  font-size: 16px;
-  line-height: 1.55;
-  color: var(--text);
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-}
-.comments--marginalia li.muted {
-  border-left-color: var(--border);
-  color: var(--muted);
-  display: block;  /* no delete button on the empty-state row */
-}
-.comments--marginalia .comment-body { flex: 1; min-width: 0; }
-/* Quiet × icon, only inks-up on hover or keyboard focus so the marginalia
-   reads cleanly when not being acted on. */
-.comment-delete {
-  background: transparent;
-  border: 0;
-  padding: 2px 4px;
-  margin: 1px 0 0;
-  color: var(--muted);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity .15s var(--ease), color .15s var(--ease);
-  flex-shrink: 0;
-  font-style: normal;
-}
-.comments--marginalia li:hover .comment-delete,
-.comment-delete:focus-visible { opacity: 1; }
-.comment-delete:hover { color: var(--danger); }
-@media (hover: none) {
-  /* Touch devices have no hover — keep the affordance visible (low-key) */
-  .comment-delete { opacity: 0.5; }
-}
-
-
-/* ----------  Library tiers (proposal 5, without the lead)  ----------
+/* ----------  Library tiers  ----------
    Magazine-contents-page tiering: a small-caps date eyebrow with a
    hairline above each time bucket. The lead row that used to promote
    the on-display recipe to the top was removed — the existing on-air
@@ -1389,6 +1360,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
     grid-template-columns: none;
   }
   .list-search { flex: 1 1 100%; }
+  .sort-toggle { flex: 1 1 auto; }
   .list-select { flex: 1 1 calc(50% - 4px); min-width: 0; }
   /* Mobile: title spans the row, meta + badge share the second row so
      ON DISPLAY pins to the bottom-right next to the cooked-meta —

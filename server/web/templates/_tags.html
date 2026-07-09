@@ -1,0 +1,27 @@
+{% from "_icons.html" import icon %}
+{% if editing %}
+<form class="tag-editor"
+      hx-post="/app/recipes/{{ r.id }}/tags"
+      hx-target="#recipe-tags"
+      hx-swap="innerHTML">
+  <input class="tag-input" type="text" name="tags"
+         value="{{ r.tags | join(', ') }}"
+         placeholder="weeknight, quick, végétarien…"
+         autofocus>
+  <button type="submit" class="link accent">Save</button>
+  <a href="/app/recipes/{{ r.id }}" class="link muted">Cancel</a>
+</form>
+{% else %}
+<div class="recipe-tag-list">
+  {% for t in r.tags %}
+    <a href="/app/?tag={{ t }}" class="tag-pill">{{ t }}</a>
+  {% endfor %}
+  <button class="tag-edit-btn link"
+          hx-get="/app/recipes/{{ r.id }}/tags/edit"
+          hx-target="#recipe-tags"
+          hx-swap="innerHTML">
+    {{ icon("tag", 13) }}
+    {% if r.tags %}edit tags{% else %}add tags{% endif %}
+  </button>
+</div>
+{% endif %}

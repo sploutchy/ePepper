@@ -204,10 +204,7 @@ async def login_submit(request: Request, api_key: str = Form(...)):
 _PAGE_SIZE = 20
 
 
-_VALID_SORTS = {
-    "oldest", "recent",
-    "source_az", "source_za",
-}
+_VALID_SORTS = {"oldest", "recent"}
 
 
 def _sanitize_sort(sort: str | None) -> str | None:
@@ -242,15 +239,6 @@ def _sanitize_tag(tag: str | None) -> str | None:
         return None
     return s
 
-
-_SOURCE_SLUG_RE = __import__("re").compile(r"[^a-z0-9]+")
-
-
-def _slug_for_source(name: str) -> str:
-    """Snake-case a source name into a stable CSS hook (`src-bon-app-tit`).
-    Only used as a className suffix on the per-source tier <ul>."""
-    s = _SOURCE_SLUG_RE.sub("-", name.lower()).strip("-")
-    return f"src-{s or 'misc'}"
 
 
 def _bucket_by_recency(
@@ -303,21 +291,6 @@ def _bucket_by_recency(
     return [t for t in tiers if t[2]]
 
 
-def _bucket_by_source(recipes: list[dict]) -> list[tuple[str, str, list[dict]]]:
-    """Group consecutive recipes sharing the same source under one
-    heading. Relies on the SQL ORDER BY having already sorted by
-    source so same-source rows arrive together."""
-    groups: list[tuple[str, str, list[dict]]] = []
-    last_key = object()
-    for r in recipes:
-        src = source_name(r.get("url")) or "Unsourced"
-        if src != last_key:
-            groups.append((_slug_for_source(src), src, []))
-            last_key = src
-        groups[-1][2].append(r)
-    return groups
-
-
 def _bucket_recipes(
     recipes: list[dict], sort: str | None
 ) -> list[tuple[str, str, list[dict]]]:
@@ -326,8 +299,6 @@ def _bucket_recipes(
     Returns a list of (slug, label, rows) tuples in display order;
     empty tiers are dropped. The template just iterates — no logic.
     """
-    if sort in ("source_az", "source_za"):
-        return _bucket_by_source(recipes)
     return _bucket_by_recency(recipes, ascending=sort == "oldest")
 
 
@@ -338,8 +309,7 @@ def _sanitize_tier(tier: str | None) -> str:
     """Whitelist what we accept in the `prev_tier` query param so a
     crafted value can't slip into the template output unescaped or
     break the matching logic. Tier slugs are lowercase + digits +
-    hyphens only (see _bucket_by_* — fixed strings + _slug_for_source's
-    re.sub output)."""
+    hyphens only (see _bucket_by_recency — fixed strings)."""
     if not tier:
         return ""
     s = tier.strip().lower()
@@ -723,41 +693,33 @@ async def recipe_detail(request: Request, recipe_id: int):
     if row is None:
         raise HTTPException(404)
     ctx = _context_globals(request)
-    ctx.update({
-        "r": row,
-        "comments": library.get_comments(recipe_id),
-    })
+    ctx.update({"r": row, "editing": False})
     return templates.TemplateResponse(request, "recipe.html", ctx)
 
 
-def _comments_ctx(request: Request, recipe_id: int) -> dict:
-    return {
-        "request": request,
-        "r_id": recipe_id,
-        "comments": library.get_comments(recipe_id),
-    }
-
-
-@router.post("/recipes/{recipe_id}/comments", response_class=HTMLResponse)
-async def add_comment(request: Request, recipe_id: int, body: str = Form(...)):
+@router.get("/recipes/{recipe_id}/tags/edit", response_class=HTMLResponse)
+async def tags_edit(request: Request, recipe_id: int):
     _require_auth(request)
-    body = body.strip()
-    if not body:
-        # No-op: just return the existing list so the form stays put.
-        return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
-    if library.get_recipe(recipe_id) is None:
+    row = library.get_recipe(recipe_id)
+    if row is None:
         raise HTTPException(404)
-    library.add_comment(recipe_id, body)
-    return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
+    return templates.TemplateResponse(
+        request, "_tags.html", {"r": row, "editing": True},
+    )
 
 
-@router.delete("/recipes/{recipe_id}/comments/{comment_id}", response_class=HTMLResponse)
-async def delete_comment(request: Request, recipe_id: int, comment_id: int):
+@router.post("/recipes/{recipe_id}/tags", response_class=HTMLResponse)
+async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="")):
     _require_auth(request)
-    parent = library.remove_comment(comment_id)
-    if parent is None or parent != recipe_id:
+    row = library.get_recipe(recipe_id)
+    if row is None:
         raise HTTPException(404)
-    return templates.TemplateResponse(request, "_comments.html", _comments_ctx(request, recipe_id))
+    parsed = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    library.set_tags(recipe_id, parsed)
+    row = library.get_recipe(recipe_id)
+    return templates.TemplateResponse(
+        request, "_tags.html", {"r": row, "editing": False},
+    )
 
 
 # --- Push to display -------------------------------------------------------

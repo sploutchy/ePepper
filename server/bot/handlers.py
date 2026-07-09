@@ -45,12 +45,6 @@ log = logging.getLogger(__name__)
 _PENDING_MAX = 32
 _pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
 
-# Telegram's per-message API limit is 4096 chars; we cap user-supplied
-# /comment text well below that so the echoed confirmation (which wraps
-# the note in extra prose + HTML) can never exceed the limit and raise
-# BadRequest mid-handler.
-_COMMENT_MAX_CHARS = 3500
-
 # Short tokens → search queries, so paginated /search buttons can carry a
 # 6-char ref in their 64-byte callback_data instead of stuffing the full
 # query (and risking truncation / encoding issues).
@@ -135,7 +129,6 @@ def _stash_search(query: str) -> str:
 # — it's a bootstrapping command.
 _BOT_COMMANDS: list[tuple[str, str]] = [
     ("search", "Find a saved recipe"),
-    ("comment", "Add a note to the displayed recipe"),
     ("status", "Device + repertoire status"),
     ("clear", "Clear the display"),
     ("help", "Show all commands"),
@@ -174,7 +167,6 @@ def create_bot() -> Application:
     app.add_handler(CommandHandler("help", cmd_help))
     app.add_handler(CommandHandler("clear", cmd_clear))
     app.add_handler(CommandHandler("status", cmd_status))
-    app.add_handler(CommandHandler("comment", cmd_comment))
     app.add_handler(CommandHandler("search", cmd_search))
     app.add_handler(MessageHandler(filters.PHOTO, on_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
@@ -338,64 +330,6 @@ async def cmd_status(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
     await update.message.reply_text(_build_status_text(), parse_mode="HTML")
-
-
-async def cmd_comment(update: Update, context) -> None:
-    """Add a comment to the recipe currently on the display.
-
-    Three branches:
-      - Nothing showing → tell the user to push something first.
-      - Pushed-but-unsaved recipe → tell the user to tap 💾 Save first.
-      - Already-saved recipe → append the note immediately.
-    """
-    if not _is_allowed(update.effective_user.id):
-        return
-
-    state = display_state.get()
-
-    if state["type"] != "recipe":
-        await update.message.reply_text(
-            "No recipe on the display — push one first, then add notes with /comment."
-        )
-        return
-
-    text = " ".join(context.args).strip() if context.args else ""
-    if not text:
-        await update.message.reply_text(
-            "Usage: <code>/comment &lt;text&gt;</code> — add a note to the "
-            "recipe currently on the panel.",
-            parse_mode="HTML",
-        )
-        return
-
-    # Cap before storing/echoing — a multi-KB clipboard paste would
-    # otherwise blow past Telegram's 4096-char per-message limit when
-    # echoed back, raising BadRequest. Trim with an ellipsis marker so the
-    # saved note and the echoed confirmation agree on what was kept.
-    if len(text) > _COMMENT_MAX_CHARS:
-        text = text[:_COMMENT_MAX_CHARS - 1] + "…"
-
-    recipe_id = state.get("recipe_id")
-    if recipe_id is None:
-        # Pushed-but-unsaved: there's no library row to attach the note to.
-        await update.message.reply_text(
-            "This recipe isn't saved yet — tap 💾 Save under it first, then /comment again."
-        )
-        return
-
-    # Saved-recipe branch: append immediately.
-    if library.add_comment(recipe_id, text) is None:
-        # Recipe vanished or was soft-deleted between push and /comment.
-        await update.message.reply_text(
-            "⚠️ That recipe is gone — push a saved one to the display first."
-        )
-        return
-    log.info("Comment added to recipe %d (%d chars)", recipe_id, len(text))
-    # Deliberately do NOT re-push: the note will land on the panel on the
-    # next real push.
-    await update.message.reply_text(
-        "📝 Note added. It'll show on the panel next time you display this recipe."
-    )
 
 
 def _cooked_label(row: dict) -> str:

@@ -8,12 +8,10 @@
 {%- elif source %} — from {{ source|capitalize }}
 {%- elif tag %} — #{{ tag }}
 {%- elif sort == 'oldest' %} — least recently cooked
-{%- elif sort == 'source_az' %} — by source, A → Z
-{%- elif sort == 'source_za' %} — by source, Z → A
 {%- else %} — recently cooked
 {%- endif %}
 {#- Reset sits next to the filter it reverses. A plain link to /app/ (not an
     HTMX partial) so the search box + dropdowns — which live outside #list —
     reset natively rather than keeping stale selections. Shown only when a
-    search, source/tag filter, or non-default sort is active. -#}
-{%- if q or source or tag or sort %} <a href="/app/" class="clear-filter">clear</a>{% endif %}
+    search or source filter is active (tag cloud handles its own clear). -#}
+{%- if q or source %} <a href=”/app/” class=”clear-filter”>clear</a>{% endif %}

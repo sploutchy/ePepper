@@ -12,33 +12,29 @@
   <span id="lib-meta" class="meta">{% include "_lib_meta.html" %}</span>
 </div>
 
-{# One form holds the search input + sort + source + tag filters. HTMX fires
-   on text input (debounced) and select changes, including all named fields
-   so any control's change replays the full query. #}
+{# One form holds the search input + sort + source filters. HTMX fires
+   on text input (debounced), radio change, and select changes.
+   A hidden `tag` field carries the active tag filter through sort/search
+   changes so clicking a tag then refining by sort preserves the filter.
+   The tag cloud below (outside the form) uses plain `<a>` links for
+   full-page navigation — clicking a tag replaces the URL cleanly. #}
 <form class="list-controls"
       hx-get="/app/_search"
       hx-target="#list"
       hx-swap="innerHTML"
-      hx-trigger="input changed delay:200ms from:input[type=search], change from:select, search">
+      hx-trigger="input changed delay:200ms from:input[type=search], change from:select, change from:input[type=radio], search">
   <input class="list-search" type="search" name="q"
          value="{{ q }}"
-         placeholder="Search title, ingredients, notes…"
+         placeholder="Search title, ingredients, tags…"
          autofocus>
-  <select name="sort" class="list-select" aria-label="Sort">
-    {# Native <optgroup> headings cluster the six sorts by axis (when /
-       how often / which source). The collapsed dropdown shows just the
-       option label ("Recently" / "Most" / "A → Z"), and the page meta
-       line under the title spells out the full phrase ("— most cooked")
-       so the closed chip stays compact without losing context. #}
-    <optgroup label="Last cooked">
-      <option value=""             {% if not sort %}selected{% endif %}>Recently</option>
-      <option value="oldest"       {% if sort == 'oldest' %}selected{% endif %}>Least recently</option>
-    </optgroup>
-    <optgroup label="Source">
-      <option value="source_az"    {% if sort == 'source_az' %}selected{% endif %}>A → Z</option>
-      <option value="source_za"    {% if sort == 'source_za' %}selected{% endif %}>Z → A</option>
-    </optgroup>
-  </select>
+  <div class="sort-toggle">
+    <label class="sort-opt {% if not sort or sort == 'recent' %}sort-opt--active{% endif %}">
+      <input type="radio" name="sort" value="" {% if not sort or sort == 'recent' %}checked{% endif %}>Recently
+    </label>
+    <label class="sort-opt {% if sort == 'oldest' %}sort-opt--active{% endif %}">
+      <input type="radio" name="sort" value="oldest" {% if sort == 'oldest' %}checked{% endif %}>Oldest
+    </label>
+  </div>
   {% if sources %}
     <select name="source" class="list-select" aria-label="Source">
       <option value="" {% if not source %}selected{% endif %}>All sources</option>
@@ -47,17 +43,23 @@
       {% endfor %}
     </select>
   {% endif %}
-  {% if tags %}
-    {# Tag dropdown — values come from `#hashtags` users dropped inside notes.
-       Counts hint at how big each subset is. #}
-    <select name="tag" class="list-select" aria-label="Tag">
-      <option value="" {% if not tag %}selected{% endif %}>All tags</option>
-      {% for t, n in tags %}
-        <option value="{{ t }}" {% if tag == t %}selected{% endif %}>#{{ t }} ({{ n }})</option>
-      {% endfor %}
-    </select>
-  {% endif %}
+  <input type="hidden" name="tag" value="{{ tag }}">
 </form>
+{% if tags %}
+  {# Tag cloud — full-page navigation links so the URL cleanly reflects
+     the active tag. Clicking a tag replaces the full URL (clears search
+     and sort). The active tag is highlighted with tag-pill--active. #}
+  <div class="tag-cloud">
+    {% if tag %}
+      <a href="/app/" class="tag-pill tag-pill--active">{{ tag }} ×</a>
+    {% endif %}
+    {% for t, n in tags %}
+      {% if t != tag %}
+        <a href="/app/?tag={{ t }}" class="tag-pill">{{ t }}</a>
+      {% endif %}
+    {% endfor %}
+  </div>
+{% endif %}
 
 <div id="list">
   {% include "_list.html" %}
