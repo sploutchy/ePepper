@@ -114,8 +114,8 @@ database table dump.
   This month / Earlier this year / Older** — each introduced by a
   small-caps date eyebrow with a hairline on top.
 - Inside each tier, rows still use the editorial vocabulary: serif
-  title, tracked small-caps source, right-aligned `cooked Nx, last X
-  days ago` in muted body type. Hairlines between rows.
+  title, tracked small-caps source, right-aligned `cooked X days ago`
+  (or `never cooked`) in muted body type. Hairlines between rows.
 - The currently-on-display recipe is **not** promoted to a separate
   lead row at the top. The on-air dot inside its list row is enough
   of a signal — a dedicated lead made the page feel like a
