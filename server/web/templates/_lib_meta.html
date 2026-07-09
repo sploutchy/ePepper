@@ -1,17 +1,12 @@
 {# Inner of the library-header meta line. Rendered standalone here (initial
    page load) and again at the top of _list.html with hx-swap-oob so it
-   stays in sync with the active sort / source / tag filter as the user
-   plays with the dropdowns. Kept as a separate include to keep the
-   branch logic in one place. #}
+   stays in sync with the active source / tag filter as the user plays with
+   the dropdowns. Kept as a separate include to keep the branch logic in one
+   place. #}
 {{ saved_count }} recipe{{ '' if saved_count == 1 else 's' }}
-{%- if q %} — search “{{ q }}”
+{%- if q %} — search &ldquo;{{ q }}&rdquo;
 {%- elif source %} — from {{ source|capitalize }}
 {%- elif tag %} — #{{ tag }}
-{%- elif sort == 'oldest' %} — recent last
 {%- else %} — recently cooked
 {%- endif %}
-{#- Reset sits next to the filter it reverses. A plain link to /app/ (not an
-    HTMX partial) so the search box + dropdowns — which live outside #list —
-    reset natively rather than keeping stale selections. Shown only when a
-    search or source filter is active (tag cloud handles its own clear). -#}
-{%- if q or source %} <a href=”/app/{% if sort %}?sort={{ sort }}{% endif %}” class=”clear-filter”>clear</a>{% endif %}
+{%- if q or source %} <a href="/app/" class="clear-filter">clear</a>{% endif %}

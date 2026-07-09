@@ -263,7 +263,7 @@ body.centered {
 /* ----------  List controls (library search) ---------- */
 .list-controls {
   display: grid;
-  grid-template-columns: 1fr auto auto;
+  grid-template-columns: 1fr auto;
   gap: 10px;
   align-items: stretch;
   /* No border-bottom or padding-bottom — the first recipe row already
@@ -272,36 +272,6 @@ body.centered {
      separation now. */
   margin: 0 0 16px;
 }
-
-/* Sort toggle — two pill-shaped radio labels that look like a segmented
-   control. The active option gets a filled accent background. The hidden
-   radio inputs drive the :checked state and HTMX fires on change. */
-.sort-toggle {
-  display: inline-flex;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  overflow: hidden;
-  background: var(--surface);
-}
-.sort-opt {
-  display: flex;
-  align-items: center;
-  padding: 11px 16px;
-  font-size: 15px;
-  color: var(--muted);
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background .15s var(--ease), color .15s var(--ease);
-  user-select: none;
-}
-.sort-opt input[type="radio"] { display: none; }
-.sort-opt + .sort-opt { border-left: 1px solid var(--border); }
-.sort-opt--active {
-  background: var(--surface-alt);
-  color: var(--text);
-  font-weight: 500;
-}
-.sort-opt:hover:not(.sort-opt--active) { background: var(--surface-alt); color: var(--text-dim); }
 
 /* Tag cloud (library page, outside the form) */
 .tag-cloud {
@@ -1416,8 +1386,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
     grid-template-columns: none;
   }
   .list-search { flex: 1 1 100%; }
-  .sort-toggle { flex: 1 1 auto; }
-  .list-select { flex: 1 1 calc(50% - 4px); min-width: 0; }
+  .list-select { flex: 1 1 auto; min-width: 0; }
   /* Mobile: title spans the row, meta + badge share the second row so
      ON DISPLAY pins to the bottom-right next to the cooked-meta —
      same vocabulary as desktop, just stacked. */

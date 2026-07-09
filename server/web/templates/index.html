@@ -12,29 +12,20 @@
   <span id="lib-meta" class="meta">{% include "_lib_meta.html" %}</span>
 </div>
 
-{# One form holds the search input + sort + source filters. HTMX fires
-   on text input (debounced), radio change, and select changes.
-   A hidden `tag` field carries the active tag filter through sort/search
-   changes so clicking a tag then refining by sort preserves the filter.
-   The tag cloud below (outside the form) uses plain `<a>` links for
-   full-page navigation — clicking a tag replaces the URL cleanly. #}
+{# One form holds the search input + source filter. HTMX fires on text
+   input (debounced) and select changes. A hidden `tag` field carries the
+   active tag filter through search/source changes so clicking a tag then
+   refining by search or source preserves the filter. The tag cloud below
+   (outside the form) uses plain `<a>` links for full-page navigation. #}
 <form class="list-controls"
       hx-get="/app/_search"
       hx-target="#list"
       hx-swap="innerHTML"
-      hx-trigger="input changed delay:200ms from:input[type=search], change from:select, change from:input[type=radio], search">
+      hx-trigger="input changed delay:200ms from:input[type=search], change from:select, search">
   <input class="list-search" type="search" name="q"
          value="{{ q }}"
          placeholder="Search title, ingredients, tags…"
          autofocus>
-  <div class="sort-toggle">
-    <label class="sort-opt {% if not sort or sort == 'recent' %}sort-opt--active{% endif %}">
-      <input type="radio" name="sort" value="" {% if not sort or sort == 'recent' %}checked{% endif %}>Recent first
-    </label>
-    <label class="sort-opt {% if sort == 'oldest' %}sort-opt--active{% endif %}">
-      <input type="radio" name="sort" value="oldest" {% if sort == 'oldest' %}checked{% endif %}>Recent last
-    </label>
-  </div>
   {% if sources %}
     <select name="source" class="list-select" aria-label="Source">
       <option value="" {% if not source %}selected{% endif %}>All sources</option>
@@ -47,8 +38,7 @@
 </form>
 {% if tags %}
   {# Tag cloud — full-page navigation links so the URL cleanly reflects
-     the active tag. Clicking a tag replaces the full URL (clears search
-     and sort). The active tag is highlighted with tag-pill--active. #}
+     the active tag. The active tag is highlighted with tag-pill--active. #}
   <div class="tag-cloud">
     {% if tag %}
       <a href="/app/" class="tag-pill tag-pill--active">{{ tag }} ×</a>

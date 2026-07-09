@@ -204,16 +204,6 @@ async def login_submit(request: Request, api_key: str = Form(...)):
 _PAGE_SIZE = 20
 
 
-_VALID_SORTS = {"oldest", "recent"}
-
-
-def _sanitize_sort(sort: str | None) -> str | None:
-    """Ignore anything not in the whitelist — list_recipes splices the sort
-    key into SQL via a separate dict, but we still drop garbage here so the
-    template's `selected` markers reflect reality."""
-    return sort if sort in _VALID_SORTS else None
-
-
 def _sanitize_source(source: str | None) -> str | None:
     """Lowercase + strip. Empty/whitespace → None. SQL uses parameter
     binding so the value can't escape the WHERE clause."""
@@ -241,17 +231,13 @@ def _sanitize_tag(tag: str | None) -> str | None:
 
 
 
-def _bucket_by_recency(
-    recipes: list[dict], ascending: bool
+def _bucket_recipes(
+    recipes: list[dict],
 ) -> list[tuple[str, str, list[dict]]]:
-    """Slot recipes into time-tiers for the (least) recently cooked sorts.
+    """Group recipes into time-tiers (most-recently-cooked first).
 
-    Mirrors the substring matches the old _list.html template did against
-    humanize_date() output. Never-cooked recipes get their own tier instead
-    of being silently absorbed into "Older" — the SQL puts them at the start
-    (NULLS FIRST on `oldest`) or end (NULLS LAST on `recent`), and the tier
-    sequence here matches: "Never cooked" anchors the top when the sort is
-    least-recent-first, and the bottom when it's most-recent-first.
+    Returns a list of (slug, label, rows) tuples in display order;
+    empty tiers are dropped. The template just iterates — no logic.
     """
     this_week: list[dict] = []
     this_month: list[dict] = []
@@ -274,32 +260,14 @@ def _bucket_by_recency(
             this_year.append(r)
         else:
             older.append(r)
-    # Most-recent first (default sort) flows top→bottom: this week → never.
-    # Least-recent first (ascending) reverses the time tiers so the oldest
-    # cook lands at the top and the freshest at the bottom.
-    time_tiers = [
+    tiers = [
         ("this-week", "This week", this_week),
         ("this-month", "This month", this_month),
         ("this-year", "Earlier this year", this_year),
         ("older", "Older", older),
+        ("never", "Never cooked", never),
     ]
-    never_tier = ("never", "Never cooked", never)
-    if ascending:
-        tiers = [never_tier] + list(reversed(time_tiers))
-    else:
-        tiers = time_tiers + [never_tier]
     return [t for t in tiers if t[2]]
-
-
-def _bucket_recipes(
-    recipes: list[dict], sort: str | None
-) -> list[tuple[str, str, list[dict]]]:
-    """Group recipes into named tiers matching the active sort.
-
-    Returns a list of (slug, label, rows) tuples in display order;
-    empty tiers are dropped. The template just iterates — no logic.
-    """
-    return _bucket_by_recency(recipes, ascending=sort == "oldest")
 
 
 _TIER_SLUG_RE = __import__("re").compile(r"^[a-z0-9-]{1,64}$")
@@ -320,7 +288,6 @@ def _list_context(
     request: Request,
     q: str,
     offset: int,
-    sort: str | None,
     source: str | None,
     tag: str | None,
     prev_tier: str = "",
@@ -329,13 +296,12 @@ def _list_context(
         offset=offset,
         limit=_PAGE_SIZE + 1,
         query=q or None,
-        sort=sort,
         source=source,
         tag=tag,
     )
     has_more = len(rows) > _PAGE_SIZE
     rows = rows[:_PAGE_SIZE]
-    tiers = _bucket_recipes(rows, sort)
+    tiers = _bucket_recipes(rows)
     return {
         "request": request,
         "recipes": rows,
@@ -346,7 +312,6 @@ def _list_context(
         "prev_tier": prev_tier,
         "last_tier": tiers[-1][0] if tiers else "",
         "q": q,
-        "sort": sort or "",
         "source": source or "",
         "tag": tag or "",
         "sources": library.list_sources(),
@@ -355,10 +320,7 @@ def _list_context(
         "next_offset": offset + _PAGE_SIZE,
         "has_more": has_more,
         "fmt_saved": _fmt_saved,
-        # Helpers for the per-row source chip on the list cards.
         "source_name": source_name,
-        # Marks the recipe currently rendered on the e-ink display so the
-        # list can flag it. None if the display isn't showing a saved recipe.
         "current_recipe_id": display_state.get().get("recipe_id"),
     }
 
@@ -368,16 +330,14 @@ async def index(
     request: Request,
     q: str = "",
     offset: int = 0,
-    sort: str | None = None,
     source: str | None = None,
     tag: str | None = None,
 ):
     _require_auth(request)
-    sort = _sanitize_sort(sort)
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
     ctx = _context_globals(request)
-    ctx.update(_list_context(request, q, offset, sort, source, tag))
+    ctx.update(_list_context(request, q, offset, source, tag))
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
@@ -386,13 +346,12 @@ async def search_partial(
     request: Request,
     q: str = "",
     offset: int = 0,
-    sort: str | None = None,
     source: str | None = None,
     tag: str | None = None,
     prev_tier: str | None = None,
 ):
     """HTMX partial — re-renders only the result list as the search box,
-    sort, source, or tag filter changes, or the Load more button is tapped.
+    source, or tag filter changes, or the Load more button is tapped.
 
     `prev_tier` is the slug of the last tier the previous batch painted;
     when this batch's first tier matches, we skip its <h2> so the
@@ -400,43 +359,24 @@ async def search_partial(
     spans multiple pages.
     """
     _require_auth(request)
-    sort = _sanitize_sort(sort)
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
     ctx = _list_context(
-        request, q, offset, sort, source, tag,
+        request, q, offset, source, tag,
         prev_tier=_sanitize_tier(prev_tier),
     )
-    # `is_partial` toggles the OOB swap of the library-header meta line
-    # (count + active sort/filter label). Suppressed on infinite-scroll
-    # appends (offset > 0) — those don't change the filter state, so
-    # an OOB rewrite would just flicker.
     ctx["is_partial"] = offset == 0
-    # _list_context skips the page-level globals (saved_count, etc.)
-    # because cards don't need them; the OOB meta does, so add it.
     ctx["saved_count"] = library.count_saved()
     response = templates.TemplateResponse(request, "_list.html", ctx)
-    # Filter-change responses (offset == 0) push the user-facing URL
-    # so a browser reload re-hits index() with the active sort/filter
-    # params. Without this, the <select> auto-restores its UI value
-    # on reload but the server falls back to default ordering because
-    # the URL bar still reads /app/ with no query string.
-    # Pagination responses (offset > 0) leave the URL alone — the
-    # user is already on the right URL and we don't want to encode
-    # offset in history.
     if offset == 0:
-        response.headers["HX-Replace-Url"] = _user_facing_url(q, sort, source, tag)
+        response.headers["HX-Replace-Url"] = _user_facing_url(q, source, tag)
     return response
 
 
-def _user_facing_url(
-    q: str, sort: str | None, source: str | None, tag: str | None,
-) -> str:
-    """Build the URL the browser bar should reflect for an active
-    filter set. Empty / falsy values are omitted so the URL stays
-    clean ("/app/" rather than "/app/?q=&sort=&source=&tag=")."""
+def _user_facing_url(q: str, source: str | None, tag: str | None) -> str:
+    """Build the URL the browser bar should reflect for an active filter set."""
     from urllib.parse import urlencode
-    params = [(k, v) for k, v in [("q", q), ("sort", sort), ("source", source), ("tag", tag)] if v]
+    params = [(k, v) for k, v in [("q", q), ("source", source), ("tag", tag)] if v]
     return "/app/" + ("?" + urlencode(params) if params else "")
 
 
