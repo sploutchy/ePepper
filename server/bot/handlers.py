@@ -238,18 +238,19 @@ async def cmd_start(update: Update, context) -> None:
 # commands that belong to it. The native /-menu (set via set_my_commands)
 # covers the most-used ones, so /help is the deep reference.
 _HELP_TEXT = (
-    "🫑 <b>ePepper — help</b>\n\n"
-    "<b>Add a recipe</b>\n"
+    "🫑 <b><u>ePepper — help</u></b>\n\n"
+    "<b><u>Add a recipe</u></b>\n"
     "Paste a link or send a photo of a cookbook / magazine page — I'll "
     "push it to the panel.\n"
     "<i>Use the web app to save without displaying.</i>\n\n"
-    "<b>Repertoire</b>\n"
+    "<b><u>Repertoire</u></b>\n"
     "Tap Save under a push to keep a recipe.\n"
-    "  /search &lt;query&gt; — find a saved recipe (paginated)\n\n"
-    "<b>Display</b>\n"
+    "  /search &lt;query&gt; — find a saved recipe (paginated); plain text "
+    "works too if it matches\n\n"
+    "<b><u>Display</u></b>\n"
     "Physical buttons cycle pages.\n"
     "  /clear — clear the panel\n\n"
-    "<b>Info</b>\n"
+    "<b><u>Info</u></b>\n"
     "  /status — device + repertoire snapshot\n"
 )
 
@@ -313,10 +314,12 @@ def _build_status_text() -> str:
     state = display_state.get()
     device = device_telemetry.get_device_status()
 
-    sections = ["🫑 <b>ePepper Status</b>"]
+    sections = ["🫑 <b><u>ePepper Status</u></b>"]
 
     # Display section — "<b>title</b> from <source> — page X/Y" on one line.
-    display_lines = ["<b>Display</b>"]
+    # The section label is bold+underline; the recipe title below it stays
+    # plain bold — that distinction is the whole point (label vs. content).
+    display_lines = ["<b><u>Display</u></b>"]
     if state["title"]:
         line = f"<b>{html.escape(state['title'])}</b>"
         src_html = _format_source_html(state.get("url"))
@@ -331,11 +334,11 @@ def _build_status_text() -> str:
 
     # Tomorrow section — what the midnight scheduler will push next.
     sections.append(
-        "<b>Tomorrow</b>\n" + _format_tomorrow_html(tomorrow_preview())
+        "<b><u>Tomorrow</u></b>\n" + _format_tomorrow_html(tomorrow_preview())
     )
 
     # Repertoire section
-    library_lines = ["<b>Repertoire</b>", f"{library.count_saved()} saved recipes"]
+    library_lines = ["<b><u>Repertoire</u></b>", f"{library.count_saved()} saved recipes"]
     if backup.is_enabled():
         last_ts = backup.get_last_backup_at()
         backup_text = humanize_ago(last_ts) if last_ts else "never"
@@ -354,7 +357,7 @@ def _build_status_text() -> str:
             else ""
         )
         device_lines = [
-            f"<b>Device</b> — {humanize_ago(device['last_seen'])}{stale_suffix}"
+            f"<b><u>Device</u></b> — {humanize_ago(device['last_seen'])}{stale_suffix}"
         ]
         if device["battery_mv"]:
             pct = battery_pct(device["battery_mv"])
@@ -385,7 +388,7 @@ def _build_status_text() -> str:
                 )
         sections.append("\n".join(device_lines))
     else:
-        sections.append("<b>Device</b> — never seen")
+        sections.append("<b><u>Device</u></b> — never seen")
 
     return "\n\n".join(sections)
 
