@@ -56,6 +56,7 @@ _PROMPT_FILES = {
     "URL_SYSTEM": "url_system",
     "OCR_SYSTEM": "ocr_system",
     "TRANSLATE_SYSTEM": "translate_system",
+    "TAGS_SYSTEM": "tags_system",
 }
 
 
@@ -108,4 +109,20 @@ def translate_user(title: str, ingredients: list[str], native_lang: str) -> str:
         f"Native language: {native_lang}\n"
         f"Title: {title}\n"
         f"Ingredients:\n{joined}"
+    )
+
+
+def tags_user(title: str, ingredients: list[str], vocabulary: list[str]) -> str:
+    """User message for the tag-picking pass.
+
+    `vocabulary` is the closed set of tags the model is allowed to choose
+    from — it's interpolated directly into the prompt rather than relying
+    on the system prompt alone, since it changes per household/per call.
+    """
+    joined_ings = "\n".join(f"- {ing}" for ing in ingredients)
+    joined_tags = ", ".join(vocabulary)
+    return (
+        f"Title: {title}\n"
+        f"Ingredients:\n{joined_ings}\n"
+        f"Available tags: {joined_tags}"
     )

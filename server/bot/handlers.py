@@ -1,5 +1,6 @@
 """Telegram bot handlers for ePepper."""
 
+import asyncio
 import html
 import logging
 import re
@@ -31,6 +32,7 @@ from display.push import push_recipe_to_display
 from processing.recipes import (
     IngestError,
     ingest_recipe,
+    pick_tags,
     translate_for_search,
 )
 from status_helpers import (
@@ -836,29 +838,47 @@ async def on_save_button(update: Update, context) -> None:
         return
 
     url, recipe = pending
-    translated = await translate_for_search(recipe)
+    vocabulary = [t for t, _ in library.list_tags()]
+    translated, tags = await asyncio.gather(
+        translate_for_search(recipe), pick_tags(recipe, vocabulary),
+    )
     recipe_id = library.upsert_recipe(
         url, recipe,
         translated_keywords=translated,
         source=source_name(url),
     )
     library.save_recipe(recipe_id)
+    if tags:
+        library.set_tags(recipe_id, tags)
     # The pending-save flow only exists for recipes that were already
     # pushed to the panel transiently (recipe_id=None at push time, see
     # ingest_recipe) — touch_displayed never fired for them, so the row
     # would otherwise be born with last_displayed_at still NULL despite
     # having just been shown.
     library.touch_displayed(recipe_id)
-    log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
+    log.info("Bot save: id=%d title=%r tags=%r", recipe_id, recipe.get("title"), tags)
 
     await query.answer("Saved")
+    # Rebuild the confirmation body (not just the keyboard) so an
+    # auto-picked tag is visible right where the user is already looking
+    # — the tags were LLM-picked, so showing them (rather than applying
+    # silently) is what gives the user a chance to notice a wrong one and
+    # tap "Open in web" to fix it on the recipe's tag editor. No tags
+    # picked -> no line added, same as an empty search result staying quiet.
+    total_pages = display_state.get()["total_pages"]
+    body = _format_push_reply(recipe["title"], url, total_pages)
+    if tags:
+        body += f"\n<i>tags: {html.escape(', '.join(tags))}</i>"
     # Swap the keyboard to surface the next useful action — web link if
     # configured — instead of leaving a bare confirmation. The Save button
-    # itself is gone (already saved) so a stale tap can't double-save. The
-    # toast above is the only confirmation — the swapped keyboard is the
-    # lasting visual cue, so we don't also spawn a new chat message.
+    # itself is gone (already saved) so a stale tap can't double-save.
     new_markup = _push_inline_actions(recipe_id=recipe_id, pending_token=None)
     try:
-        await query.edit_message_reply_markup(reply_markup=new_markup)
+        await query.edit_message_text(
+            body,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=new_markup,
+        )
     except Exception:
         pass
