@@ -393,7 +393,9 @@ def _build_status_text() -> str:
 async def cmd_status(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
-    await update.message.reply_text(_build_status_text(), parse_mode="HTML")
+    await update.message.reply_text(
+        _build_status_text(), parse_mode="HTML", disable_web_page_preview=True,
+    )
 
 
 def _cooked_label(row: dict) -> str:
