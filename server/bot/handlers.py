@@ -299,7 +299,8 @@ def _format_tomorrow_html(preview: dict) -> str:
         return f"{line}\n<i>{reason}</i>"
     if fooby:
         title = html.escape(fooby["title"])
-        return f"<b>{title}</b>\n<i>inspiration from Fooby</i>"
+        fooby_link = f'<a href="{html.escape(fooby["url"])}">Fooby</a>'
+        return f"<b>{title}</b>\n<i>inspiration from {fooby_link}</i>"
     return "<i>No past cook lands on this date — a Fooby inspiration will play instead.</i>"
 
 
