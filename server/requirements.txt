@@ -1,4 +1,4 @@
-python-telegram-bot==22.7
+python-telegram-bot==22.8
 fastapi==0.136.3
 uvicorn==0.51.0
 Pillow==12.2.0
