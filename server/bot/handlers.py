@@ -106,7 +106,7 @@ async def notify_low_battery(battery_mv: int) -> None:
         )
         return
     text = (
-        f"🪫 ePepper battery is low: {battery_pct(battery_mv)}% "
+        f"❗ ePepper battery is low: {battery_pct(battery_mv)}% "
         f"({battery_mv / 1000:.2f} V) — charge soon."
     )
     for uid in recipients:
@@ -219,7 +219,7 @@ def _web_app_line() -> str:
     if not WEB_URL:
         return ""
     return (
-        f"🌐 <b>Web app:</b> "
+        f"<b>Web app:</b> "
         f"<a href=\"{html.escape(WEB_URL)}/app/\">{html.escape(WEB_URL)}/app/</a> "
         "(same API_KEY logs you in) — filter and browse the full repertoire."
     )
@@ -239,17 +239,17 @@ async def cmd_start(update: Update, context) -> None:
 # covers the most-used ones, so /help is the deep reference.
 _HELP_TEXT = (
     "🫑 <b>ePepper — help</b>\n\n"
-    "<b>➕ Add a recipe</b>\n"
+    "<b>Add a recipe</b>\n"
     "Paste a link or send a photo of a cookbook / magazine page — I'll "
     "push it to the panel.\n"
     "<i>Use the web app to save without displaying.</i>\n\n"
-    "<b>📚 Repertoire</b>\n"
-    "Tap 💾 Save under a push to keep a recipe.\n"
+    "<b>Repertoire</b>\n"
+    "Tap Save under a push to keep a recipe.\n"
     "  /search &lt;query&gt; — find a saved recipe (paginated)\n\n"
-    "<b>📺 Display</b>\n"
+    "<b>Display</b>\n"
     "Physical buttons cycle pages.\n"
     "  /clear — clear the panel\n\n"
-    "<b>ℹ️ Info</b>\n"
+    "<b>Info</b>\n"
     "  /status — device + repertoire snapshot\n"
 )
 
@@ -271,7 +271,7 @@ async def cmd_clear(update: Update, context) -> None:
     if not _is_allowed(update.effective_user.id):
         return
     display_state.clear()
-    await update.message.reply_text("🧹 Display cleared.")
+    await update.message.reply_text("✔️ Display cleared.")
 
 
 def _format_tomorrow_html(preview: dict) -> str:
@@ -316,7 +316,7 @@ def _build_status_text() -> str:
     sections = ["🫑 <b>ePepper Status</b>"]
 
     # Display section — "<b>title</b> from <source> — page X/Y" on one line.
-    display_lines = ["<b>📺 Display</b>"]
+    display_lines = ["<b>Display</b>"]
     if state["title"]:
         line = f"<b>{html.escape(state['title'])}</b>"
         src_html = _format_source_html(state.get("url"))
@@ -331,11 +331,11 @@ def _build_status_text() -> str:
 
     # Tomorrow section — what the midnight scheduler will push next.
     sections.append(
-        "<b>📅 Tomorrow</b>\n" + _format_tomorrow_html(tomorrow_preview())
+        "<b>Tomorrow</b>\n" + _format_tomorrow_html(tomorrow_preview())
     )
 
     # Repertoire section
-    library_lines = ["<b>📚 Repertoire</b>", f"{library.count_saved()} saved recipes"]
+    library_lines = ["<b>Repertoire</b>", f"{library.count_saved()} saved recipes"]
     if backup.is_enabled():
         last_ts = backup.get_last_backup_at()
         backup_text = humanize_ago(last_ts) if last_ts else "never"
@@ -343,45 +343,49 @@ def _build_status_text() -> str:
     sections.append("\n".join(library_lines))
 
     # Device section — header carries freshness so the rows can be tight.
-    # Fields are "as of last wake" (button press or daily timer).
+    # Fields are "as of last wake" (button press or daily timer). No icon
+    # unless something needs attention (❗ overdue, ❗ low battery) — a
+    # healthy reading is just the bold word, same restraint as the web
+    # status page's monochrome icons.
     if device["last_seen"]:
         stale_suffix = (
-            " ⚠️ overdue"
+            " ❗ overdue"
             if int(time.time()) - device["last_seen"] > device_telemetry.STALE_HEARTBEAT_S
             else ""
         )
         device_lines = [
-            f"<b>📡 Device</b> — {humanize_ago(device['last_seen'])}{stale_suffix}"
+            f"<b>Device</b> — {humanize_ago(device['last_seen'])}{stale_suffix}"
         ]
         if device["battery_mv"]:
             pct = battery_pct(device["battery_mv"])
-            icon = "🔋" if pct >= 30 else "🪫"
+            label = battery_label(pct)
+            prefix = "❗ " if label in ("critical", "low") else ""
             device_lines.append(
-                f"{icon} Battery: <b>{battery_label(pct)}</b> <i>({pct}%)</i>"
+                f"{prefix}Battery: <b>{label}</b> <i>({pct}%)</i>"
             )
         if device.get("rssi"):
             rssi = device["rssi"]
             device_lines.append(
-                f"📶 Signal: <b>{rssi_quality(rssi)}</b> <i>({rssi} dBm)</i>"
+                f"Signal: <b>{rssi_quality(rssi)}</b> <i>({rssi} dBm)</i>"
             )
         if device.get("temperature_c") is not None:
-            device_lines.append(f"🌡 Temp: <b>{device['temperature_c']:.1f} °C</b>")
+            device_lines.append(f"Temp: <b>{device['temperature_c']:.1f} °C</b>")
         if device.get("humidity_pct") is not None:
-            device_lines.append(f"💧 Humidity: <b>{device['humidity_pct']:.0f}%</b>")
+            device_lines.append(f"Humidity: <b>{device['humidity_pct']:.0f}%</b>")
         if device.get("firmware_version"):
             server_version = get_firmware_server_version()
             fw_version = device["firmware_version"]
             if server_version and server_version > fw_version:
                 device_lines.append(
-                    f"🖥 Firmware: <b>update pending</b> <i>(v{fw_version} → v{server_version})</i>"
+                    f"Firmware: <b>update pending</b> <i>(v{fw_version} → v{server_version})</i>"
                 )
             else:
                 device_lines.append(
-                    f"🖥 Firmware: <b>up to date</b> <i>(v{fw_version})</i>"
+                    f"Firmware: <b>up to date</b> <i>(v{fw_version})</i>"
                 )
         sections.append("\n".join(device_lines))
     else:
-        sections.append("<b>📡 Device</b> — never seen")
+        sections.append("<b>Device</b> — never seen")
 
     return "\n\n".join(sections)
 
@@ -430,7 +434,7 @@ def _render_search_page(
     token = _stash_search(query)
 
     page_num = offset // _SEARCH_PAGE_SIZE + 1
-    header = f"🔍 <b>Matches for \"{html.escape(query)}\"</b>"
+    header = f"<b>Matches for \"{html.escape(query)}\"</b>"
     if offset > 0 or has_more:
         header += f"  ·  page {page_num}"
     lines: list[str] = [header, ""]
@@ -566,11 +570,11 @@ async def on_push_button(update: Update, context) -> None:
     # Replace the results list with a final committed-confirmation and drop
     # the buttons so a stale tap can't re-push.
     title = html.escape(row["title"])
-    pushed_body = f"🔍 <b>{title}</b>"
+    pushed_body = f"<b>{title}</b>"
     src_html = _format_source_html(row.get("url"))
     if src_html:
         pushed_body += f" {src_html}"
-    pushed_body += "\n\n✅ Pushed to display"
+    pushed_body += "\n\n✔️ Pushed to display"
     if total > 1:
         pushed_body += f" — {total} pages"
     try:
@@ -593,7 +597,7 @@ async def on_photo(update: Update, context) -> None:
         return
 
     log.info("Photo received from user %s", update.effective_user.id)
-    msg = await update.message.reply_text("🤖 Converting the recipe with an LLM…")
+    msg = await update.message.reply_text("Converting the recipe with an LLM…")
 
     try:
         photo = update.message.photo[-1]
@@ -642,7 +646,7 @@ async def on_text(update: Update, context) -> None:
     if match:
         url = match.group(0).rstrip(").,;:!?'\"")
         log.info("URL detected from user %s: %s", update.effective_user.id, url)
-        msg = await update.message.reply_text("🔍 Fetching recipe...")
+        msg = await update.message.reply_text("Fetching recipe...")
         await _fetch_and_display_recipe(url, msg)
         return
 
@@ -653,7 +657,7 @@ async def on_text(update: Update, context) -> None:
         token = _stash_search(text)
         label = text if len(text) <= 30 else text[:29] + "…"
         keyboard = InlineKeyboardMarkup([[
-            InlineKeyboardButton(f'🔍 Search "{label}"', callback_data=f"search:{token}:0")
+            InlineKeyboardButton(f'Search "{label}"', callback_data=f"search:{token}:0")
         ]])
         await update.message.reply_text(
             "Didn't catch a link, but that matches your repertoire:",
@@ -669,13 +673,13 @@ async def on_text(update: Update, context) -> None:
 async def _fetch_and_display_recipe(url: str, msg) -> None:
     """Fetch a recipe URL, render all pages, push to display, and reply.
 
-    The placeholder reply starts as "🔍 Fetching recipe…". If the URL
+    The placeholder reply starts as "Fetching recipe…". If the URL
     falls through to the LLM, the placeholder is edited once to make the
     longer wait legible.
     """
     async def _on_llm_start() -> None:
         try:
-            await msg.edit_text("🤖 Converting the recipe with an LLM…")
+            await msg.edit_text("Converting the recipe with an LLM…")
         except Exception:
             log.debug("placeholder edit on LLM start failed", exc_info=True)
 
@@ -696,21 +700,22 @@ def _push_inline_actions(
     """Inline buttons that follow a push confirmation.
 
     Layout differs by state:
-      - Unsaved (pending_token set): 💾 Save first, optionally 🌐 Web link
-        to the Add page so the user can re-route to the web flow.
-      - Already-saved (recipe_id set): 🌐 Web link to the recipe detail
-        page so notes / scaling / source-original-link are one tap away.
+      - Unsaved (pending_token set): Save first, optionally an Open in web
+        link to the Add page so the user can re-route to the web flow.
+      - Already-saved (recipe_id set): Open in web link to the recipe
+        detail page so notes / scaling / source-original-link are one tap
+        away.
     Returns None when there'd be no useful buttons to add (e.g. saved
     recipe and no WEB_URL configured).
     """
     row: list[InlineKeyboardButton] = []
     if pending_token is not None:
         row.append(InlineKeyboardButton(
-            "💾 Save", callback_data=f"save:{pending_token}"
+            "Save", callback_data=f"save:{pending_token}"
         ))
     if WEB_URL and recipe_id is not None:
         row.append(InlineKeyboardButton(
-            "🌐 Open in web",
+            "Open in web",
             url=f"{WEB_URL}/app/recipes/{recipe_id}",
         ))
     if not row:
@@ -725,7 +730,7 @@ async def _present_result(result: dict, msg) -> None:
       - Already-saved (`recipe_id` set): no Save button, just the web
         link for one-tap access to notes / scaling.
       - New URL (`recipe_id is None`): stash the parsed dict in the
-        pending map and offer 💾 Save — the library row is only created
+        pending map and offer Save — the library row is only created
         when the user taps it. Pending-stash is Telegram-specific UX, so
         it lives here rather than inside ingest_recipe.
 
@@ -757,7 +762,7 @@ async def _present_result(result: dict, msg) -> None:
         )
         return
 
-    # New URL / unseen photo — stash the parsed dict so the 💾 Save
+    # New URL / unseen photo — stash the parsed dict so the Save
     # callback can persist on demand.
     token = _stash_pending(url, recipe)
     await msg.edit_text(
@@ -787,17 +792,17 @@ def _format_source_html(url: str | None) -> str:
 
 def _format_push_reply(title: str, url: str | None, total_pages: int) -> str:
     """Two-line confirmation for a pushed recipe (HTML, matches /status style)."""
-    body = f"✅ <b>{html.escape(title)}</b>"
+    body = f"✔️ <b>{html.escape(title)}</b>"
     src_html = _format_source_html(url)
     if src_html:
         body += f" {src_html}"
     if total_pages > 1:
-        body += f"\n📄 {total_pages} pages"
+        body += f"\n<i>({total_pages} pages)</i>"
     return body
 
 
 async def on_save_button(update: Update, context) -> None:
-    """User tapped 💾 Save — persist the recipe to the repertoire."""
+    """User tapped Save — persist the recipe to the repertoire."""
     query = update.callback_query
     if not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
@@ -834,7 +839,7 @@ async def on_save_button(update: Update, context) -> None:
     library.touch_displayed(recipe_id)
     log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
 
-    await query.answer("💾 Saved")
+    await query.answer("Saved")
     # Swap the keyboard to surface the next useful action — web link if
     # configured — instead of leaving a bare confirmation. The Save button
     # itself is gone (already saved) so a stale tap can't double-save.
@@ -844,4 +849,4 @@ async def on_save_button(update: Update, context) -> None:
     except Exception:
         pass
     if query.message is not None:
-        await query.message.reply_text("💾 Saved to repertoire.")
+        await query.message.reply_text("✔️ Saved to repertoire.")
