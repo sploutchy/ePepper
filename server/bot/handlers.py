@@ -240,7 +240,7 @@ async def cmd_start(update: Update, context) -> None:
 _HELP_TEXT = (
     "🫑 <b>ePepper — help</b>\n\n"
     "▸ <b>Add a recipe</b>\n"
-    "Paste a link or send a photo of a cookbook / magazine page — I'll "
+    "Paste a link or send a photo of a cookbook or magazine page — I'll "
     "push it to the panel.\n"
     "<i>Use the web app to save without displaying.</i>\n\n"
     "▸ <b>Repertoire</b>\n"
@@ -251,7 +251,7 @@ _HELP_TEXT = (
     "Physical buttons cycle pages.\n"
     "  /clear — clear the panel\n\n"
     "▸ <b>Info</b>\n"
-    "  /status — device + repertoire snapshot\n"
+    "  /status — device + repertoire status\n"
 )
 
 
@@ -292,10 +292,11 @@ def _format_tomorrow_html(preview: dict) -> str:
         src_html = _format_source_html(anniversary.get("url"))
         if src_html:
             line += f" {src_html}"
-        years_ago = preview["anniversary_years_ago"]
-        reason = "cooked last year" if years_ago == 1 else (
-            f"cooked {years_ago} years ago" if years_ago else "past anniversary"
-        )
+        # pick_anniversary_recipe only ever returns a row displayed in a
+        # strictly earlier year, so years_ago is always >= 1 here — the
+        # `or 1` is just a defensive fallback, not a reachable branch.
+        years_ago = preview["anniversary_years_ago"] or 1
+        reason = "cooked last year" if years_ago == 1 else f"cooked {years_ago} years ago"
         return f"{line}\n<i>{reason}</i>"
     if fooby:
         title = html.escape(fooby["title"])
@@ -503,7 +504,7 @@ async def cmd_search(update: Update, context) -> None:
     rendered = _render_search_page(query, offset=0)
     if rendered is None:
         await update.message.reply_text(
-            f"No saved recipes match '{query}'. Try a shorter or different term."
+            f'No saved recipes match "{query}". Try a shorter or different term.'
         )
         return
     body, keyboard = rendered
@@ -525,7 +526,7 @@ async def on_search_nav(update: Update, context) -> None:
         _, token, offset_str = query.data.split(":")
         offset = int(offset_str)
     except (ValueError, IndexError):
-        await query.answer("Bad callback.", show_alert=True)
+        await query.answer("That didn't go through — try again.", show_alert=True)
         return
     query_text = _search_queries.get(token)
     if not query_text:
@@ -560,7 +561,7 @@ async def on_push_button(update: Update, context) -> None:
         _, recipe_id_str = query.data.split(":")
         recipe_id = int(recipe_id_str)
     except (ValueError, IndexError):
-        await query.answer("Bad callback.", show_alert=True)
+        await query.answer("That didn't go through — try again.", show_alert=True)
         return
 
     row = library.get_recipe(recipe_id)
@@ -569,7 +570,7 @@ async def on_push_button(update: Update, context) -> None:
         return
 
     if not push_recipe_to_display(row):
-        await query.answer("Couldn't render that recipe.", show_alert=True)
+        await query.answer("Couldn't render that recipe to the display.", show_alert=True)
         return
     total = display_state.get()["total_pages"]
     log.info("Search pushed: id=%d title=%r", row["id"], row["title"])
@@ -653,7 +654,7 @@ async def on_text(update: Update, context) -> None:
     if match:
         url = match.group(0).rstrip(").,;:!?'\"")
         log.info("URL detected from user %s: %s", update.effective_user.id, url)
-        msg = await update.message.reply_text("Fetching recipe...")
+        msg = await update.message.reply_text("Fetching recipe…")
         await _fetch_and_display_recipe(url, msg)
         return
 
@@ -818,12 +819,12 @@ async def on_save_button(update: Update, context) -> None:
         _, token = query.data.split(":", 1)
     except ValueError:
         log.warning("on_save_button: malformed callback data %r", query.data)
-        await query.answer("Bad callback.", show_alert=True)
+        await query.answer("That didn't go through — try again.", show_alert=True)
         return
 
     pending = _pending.pop(token, None)
     if pending is None:
-        await query.answer("Session expired — repush the URL to save.", show_alert=True)
+        await query.answer("Session expired — paste the link again to save it.", show_alert=True)
         try:
             await query.edit_message_reply_markup(reply_markup=None)
         except Exception:
