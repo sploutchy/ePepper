@@ -842,11 +842,11 @@ async def on_save_button(update: Update, context) -> None:
     await query.answer("Saved")
     # Swap the keyboard to surface the next useful action — web link if
     # configured — instead of leaving a bare confirmation. The Save button
-    # itself is gone (already saved) so a stale tap can't double-save.
+    # itself is gone (already saved) so a stale tap can't double-save. The
+    # toast above is the only confirmation — the swapped keyboard is the
+    # lasting visual cue, so we don't also spawn a new chat message.
     new_markup = _push_inline_actions(recipe_id=recipe_id, pending_token=None)
     try:
         await query.edit_message_reply_markup(reply_markup=new_markup)
     except Exception:
         pass
-    if query.message is not None:
-        await query.message.reply_text("✔️ Saved to repertoire.")
