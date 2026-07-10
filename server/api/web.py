@@ -460,7 +460,7 @@ async def add_url(request: Request, url: str = Form(...)):
     _require_auth(request)
     url = url.strip()
     if not (url.startswith("http://") or url.startswith("https://")):
-        return _add_error(request, "Not a `http(s)://` URL.")
+        return _add_error(request, "Not an `http(s)://` URL.")
 
     existing = library.find_by_url(url)
     if existing is not None:
