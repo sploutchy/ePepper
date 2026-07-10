@@ -318,7 +318,11 @@ def _build_status_text() -> str:
 
     sections = ["🫑 <b>ePepper Status</b>"]
 
-    # Display section — "<b>title</b> from <source> — page X/Y" on one line.
+    # Display section — "<b>title</b> from <source> (N pages)" on one line.
+    # Page *count* only, never a current-page claim: the device tracks its
+    # own page position locally after a physical button press and never
+    # reports it back (see api/server.py's /device/status DES-D note), so
+    # display_state["page"] is stale the moment someone flips a page.
     # The section label gets a leading ▸ marker; the recipe title below it
     # stays plain bold — that distinction is the whole point (label vs.
     # content), without leaning on underline.
@@ -329,7 +333,7 @@ def _build_status_text() -> str:
         if src_html:
             line += f" {src_html}"
         if state["total_pages"] > 1:
-            line += f" <i>(page {state['page']}/{state['total_pages']})</i>"
+            line += f" <i>({state['total_pages']} pages)</i>"
         display_lines.append(line)
     else:
         display_lines.append(html.escape(state["type"]))
