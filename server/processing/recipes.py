@@ -93,6 +93,14 @@ def _get_session() -> aiohttp.ClientSession:
     return _session
 
 
+async def close_session() -> None:
+    """Close the shared fetch session. Called from main()'s shutdown path."""
+    global _session
+    if _session is not None and not _session.closed:
+        await _session.close()
+    _session = None
+
+
 async def process_recipe_url(
     url: str,
     *,
@@ -149,7 +157,7 @@ def _try_scraper(url: str, html: str) -> dict | None:
             scraper = scrape_html(html, org_url=url, wild_mode=True)
 
         raw_instructions = scraper.instructions()
-        log.info("Raw instructions:\n%s", raw_instructions)
+        log.debug("Raw instructions:\n%s", raw_instructions)
 
         lang = _detect_language(url, raw_instructions, html)
 
@@ -175,10 +183,15 @@ def _try_scraper(url: str, html: str) -> dict | None:
             )
             return None
 
-        log.info("Parsed recipe: %s (lang=%s)", recipe["title"], lang)
-        log.info("  Ingredients (%d): %s", len(recipe["ingredients"]), recipe["ingredients"])
-        log.info("  Instructions (%d): %s", len(recipe["instructions"]), recipe["instructions"])
-        log.info("  Time: %s, Servings: %s", recipe["total_time"], recipe["servings"])
+        log.info(
+            "Parsed recipe: %s (lang=%s, %d ingredients, %d instructions, "
+            "time=%s, servings=%s)",
+            recipe["title"], lang, len(recipe["ingredients"]),
+            len(recipe["instructions"]), recipe["total_time"], recipe["servings"],
+        )
+        # Full payloads only at DEBUG — one line per user action at INFO.
+        log.debug("  Ingredients: %s", recipe["ingredients"])
+        log.debug("  Instructions: %s", recipe["instructions"])
 
         return recipe
 
@@ -383,17 +396,35 @@ async def ingest_recipe(
     import library
     from display.push import push_recipe_to_display
 
+    # Dedupe lookup runs even when persist=False — the bot's URL-paste
+    # path wants to know "is this already in the library so I should push
+    # the saved row (with its Save-state) instead of stashing another
+    # pending token?". When persist=True, the lookup also avoids a wasted
+    # re-translate / re-upsert on an existing URL.
+    existing: dict | None = None
+
     if isinstance(source, str):
-        recipe = await process_recipe_url(source, on_llm_start=on_llm_start)
-        if recipe is None:
-            raise IngestError(f"No recipe parsed from URL: {source}")
         url = source
+        # Dedupe BEFORE the parse: an already-known URL is pushed from its
+        # stored row anyway, so re-fetching (and possibly paying an LLM
+        # call) just to discard the fresh parse was pure waste. This also
+        # matches the web add flow, which checks find_by_url first.
+        existing = library.find_by_url(url)
+        if existing is not None:
+            recipe = existing["recipe"]
+        else:
+            recipe = await process_recipe_url(source, on_llm_start=on_llm_start)
+            if recipe is None:
+                raise IngestError(f"No recipe parsed from URL: {source}")
     elif isinstance(source, (bytes, bytearray)):
         image_bytes = bytes(source)
         result = await process_recipe_image(image_bytes, hint=hint)
         if result is None:
             raise IngestError("No recipe parsed from image bytes")
         recipe, url = result
+        # Image sources derive their surrogate URL from the OCR output, so
+        # the dedupe lookup can only happen after the parse.
+        existing = library.find_by_url(url)
     else:
         raise TypeError(
             f"ingest_recipe source must be str or bytes, got {type(source).__name__}"
@@ -401,13 +432,6 @@ async def ingest_recipe(
 
     recipe_id: int | None = None
     persisted = False
-
-    # Dedupe lookup runs even when persist=False — the bot's URL-paste
-    # path wants to know "is this already in the library so I should push
-    # the saved row (with its Save-state) instead of stashing another
-    # pending token?". When persist=True, the lookup also avoids a wasted
-    # re-translate / re-upsert on an existing URL.
-    existing = library.find_by_url(url)
 
     if persist:
         if existing is not None:
@@ -417,17 +441,7 @@ async def ingest_recipe(
                 recipe_id, url,
             )
         else:
-            vocabulary = [t for t, _ in library.list_tags()]
-            translated, tags = await asyncio.gather(
-                translate_for_search(recipe), pick_tags(recipe, vocabulary),
-            )
-            recipe_id = library.upsert_recipe(
-                url, recipe, translated_keywords=translated,
-                source=source_name(url),
-            )
-            library.save_recipe(recipe_id)
-            if tags:
-                library.set_tags(recipe_id, tags)
+            recipe_id, tags = await persist_recipe(url, recipe)
             log.info(
                 "ingest_recipe: persisted id=%d title=%r url=%s tags=%r",
                 recipe_id, recipe.get("title"), url, tags,
@@ -530,6 +544,32 @@ async def ingest_recipe(
         "recipe": recipe,
         "action": action,
     }
+
+
+async def persist_recipe(url: str, recipe: dict) -> tuple[int, list[str]]:
+    """Translate → upsert → save → tag a parsed recipe. Returns (id, tags).
+
+    The one canonical "write this recipe into the repertoire" sequence,
+    shared by `ingest_recipe`'s persist branch and the bot's deferred
+    Save button so the two can't drift (e.g. one auto-tagging and the
+    other not). Translation and tag-pick failures are tolerated inside
+    their helpers — a save never fails because the LLM hiccuped.
+    """
+    import library
+
+    vocabulary = [t for t, _ in library.list_tags()]
+    translated, tags = await asyncio.gather(
+        translate_for_search(recipe), pick_tags(recipe, vocabulary),
+    )
+    recipe_id = library.upsert_recipe(
+        url, recipe,
+        translated_keywords=translated,
+        source=source_name(url),
+    )
+    library.save_recipe(recipe_id)
+    if tags:
+        library.set_tags(recipe_id, tags)
+    return recipe_id, tags
 
 
 _SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")

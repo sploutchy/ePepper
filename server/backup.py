@@ -120,6 +120,11 @@ async def flush_if_dirty() -> bool:
         return False
     try:
         import asyncio
+        # Stamp the dirty-check watermark from BEFORE the snapshot: a write
+        # that lands while the snapshot/upload is in flight isn't in this
+        # backup, so it must still register as pending on the next tick.
+        # (Recording completion time instead would silently skip it.)
+        started_at = int(time.time())
         data = await asyncio.to_thread(_snapshot)
         ts = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
         filename = f"recipes_{ts}.db.gz"
@@ -130,7 +135,7 @@ async def flush_if_dirty() -> bool:
             filename=filename,
             caption=f"ePepper daily backup · {len(data)} B gzipped",
         )
-        _record_success(int(time.time()))
+        _record_success(started_at)
         log.info("Backup sent to chat %s (%d B gzipped)", BACKUP_CHAT_ID, len(data))
         return True
     except Exception:

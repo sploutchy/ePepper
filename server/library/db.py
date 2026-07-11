@@ -13,6 +13,7 @@ cooked" sort + the anniversary scheduler. `created_at` is set on first upsert.
 All timestamps are Unix seconds (integer).
 """
 
+import contextlib
 import datetime
 import json
 import logging
@@ -20,7 +21,6 @@ import os
 import re
 import sqlite3
 import time
-from typing import Any
 from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
 
 from config import DATA_DIR
@@ -149,6 +149,24 @@ def _connect() -> sqlite3.Connection:
     return conn
 
 
+@contextlib.contextmanager
+def _db():
+    """Connection with transaction semantics AND a guaranteed close.
+
+    `with sqlite3.connect(...) as conn` alone is only a transaction
+    context — it commits/rolls back but never closes, leaving the handle
+    to the GC. Closing explicitly also promptly checkpoints the WAL on
+    last-connection close, which keeps the backup dirty check's DB-file
+    mtime comparison honest.
+    """
+    conn = _connect()
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
+
+
 def _current_schema_version(conn: sqlite3.Connection) -> int:
     """Return the highest applied migration version, or -1 if none recorded."""
     row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
@@ -221,7 +239,7 @@ def init_db() -> None:
          it goes. See `_apply_migrations`.
     """
     os.makedirs(DATA_DIR, exist_ok=True)
-    with _connect() as conn:
+    with _db() as conn:
         conn.executescript(_SCHEMA)
         if _current_schema_version(conn) < 0:
             applied_at = datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -348,7 +366,7 @@ def upsert_recipe(
     ingredients = _ingredients_text(payload)
     source_lower = source.lower() if source else None
 
-    with _connect() as conn:
+    with _db() as conn:
         if translated_keywords is None:
             cur = conn.execute(
                 """
@@ -395,7 +413,7 @@ def set_translated_keywords(recipe_id: int, blob: str) -> None:
     Called by the startup backfill task once it has the LLM response. No-op
     if the recipe was deleted between the SELECT and the UPDATE.
     """
-    with _connect() as conn:
+    with _db() as conn:
         row = conn.execute(
             "SELECT title, parsed_json, tags FROM recipes "
             "WHERE id = ? AND deleted_at IS NULL",
@@ -421,7 +439,7 @@ def recipes_needing_translation() -> list[dict]:
     sentinel empty string to mark "tried, gave up") so we don't keep
     pinging the LLM for a row that already failed once.
     """
-    with _connect() as conn:
+    with _db() as conn:
         rows = conn.execute(
             "SELECT id, title, parsed_json, lang FROM recipes "
             "WHERE translated_keywords IS NULL AND deleted_at IS NULL"
@@ -453,7 +471,7 @@ def _row_to_dict(row) -> dict:
 
 def get_recipe(recipe_id: int) -> dict | None:
     """Fetch a non-deleted recipe row + parsed dict. None if not found."""
-    with _connect() as conn:
+    with _db() as conn:
         row = conn.execute(
             "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at, tags "
             "FROM recipes WHERE id = ? AND deleted_at IS NULL",
@@ -465,7 +483,7 @@ def get_recipe(recipe_id: int) -> dict | None:
 def find_by_url(url: str) -> dict | None:
     """Return the saved recipe for a URL, or None if we don't have it or it's deleted."""
     canonical = normalize_url(url)
-    with _connect() as conn:
+    with _db() as conn:
         row = conn.execute(
             "SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at, tags "
             "FROM recipes WHERE url = ? AND deleted_at IS NULL",
@@ -482,14 +500,14 @@ def save_recipe(recipe_id: int) -> bool:
     `deleted_at` so re-adding a previously-deleted URL restores the row.
     """
     now = int(time.time())
-    with _connect() as conn:
+    with _db() as conn:
         cur = conn.execute(
             "UPDATE recipes "
             "SET saved_at = COALESCE(saved_at, ?), deleted_at = NULL "
             "WHERE id = ?",
             (now, recipe_id),
         )
-    return cur.rowcount > 0
+        return cur.rowcount > 0
 
 
 def touch_displayed(recipe_id: int) -> None:
@@ -501,7 +519,7 @@ def touch_displayed(recipe_id: int) -> None:
     soft-deleted.
     """
     now = int(time.time())
-    with _connect() as conn:
+    with _db() as conn:
         conn.execute(
             "UPDATE recipes SET last_displayed_at = ? "
             "WHERE id = ? AND deleted_at IS NULL",
@@ -512,7 +530,7 @@ def touch_displayed(recipe_id: int) -> None:
 def delete_recipe(recipe_id: int) -> bool:
     """Soft-delete a recipe. Returns True if a non-deleted row was hit."""
     now = int(time.time())
-    with _connect() as conn:
+    with _db() as conn:
         cur = conn.execute(
             "UPDATE recipes SET deleted_at = ? "
             "WHERE id = ? AND deleted_at IS NULL",
@@ -528,7 +546,7 @@ def delete_recipe(recipe_id: int) -> bool:
 def set_tags(recipe_id: int, tags: list[str]) -> bool:
     """Set the tag list for a recipe. Returns True if the row was found and updated."""
     tag_str = ",".join(t.lower().strip() for t in tags if t.strip()) or None
-    with _connect() as conn:
+    with _db() as conn:
         row = conn.execute(
             "SELECT title, parsed_json, translated_keywords FROM recipes "
             "WHERE id = ? AND deleted_at IS NULL",
@@ -549,7 +567,7 @@ def set_tags(recipe_id: int, tags: list[str]) -> bool:
 
 def count_saved() -> int:
     """Number of non-deleted recipes in the library that the user explicitly saved."""
-    with _connect() as conn:
+    with _db() as conn:
         return conn.execute(
             "SELECT COUNT(*) FROM recipes "
             "WHERE saved_at IS NOT NULL AND deleted_at IS NULL"
@@ -568,7 +586,7 @@ def pick_anniversary_recipe(today_mmdd: str, today_year: int) -> dict | None:
     on 2025-05-20 resurfaces on 2026-05-20, regardless of when it was first
     saved.
     """
-    with _connect() as conn:
+    with _db() as conn:
         row = conn.execute(
             """
             SELECT id, url, title, parsed_json, lang, saved_at, last_displayed_at, created_at, tags
@@ -613,7 +631,7 @@ def list_tags() -> list[tuple[str, int]]:
     filter cloud. Tags are stored as comma-separated lowercase strings.
     """
     counts: dict[str, int] = {}
-    with _connect() as conn:
+    with _db() as conn:
         rows = conn.execute(
             "SELECT tags FROM recipes "
             "WHERE tags IS NOT NULL AND saved_at IS NOT NULL AND deleted_at IS NULL"
@@ -649,7 +667,7 @@ def list_recipes(
         where_extra += " AND r.source = ? "
         extra_params.append(source.lower())
     if tag:
-        with _connect() as conn_tag:
+        with _db() as conn_tag:
             tag_ids = _recipe_ids_with_tag(conn_tag, tag)
         if not tag_ids:
             return []
@@ -665,7 +683,7 @@ def list_recipes(
         # "kartoffel" finds "kartoffeln", "kartoffelpüree", etc. The
         # quoting still escapes any FTS5 operators the user typed.
         fts_query = " ".join(f'"{t}"*' for t in tokens)
-        with _connect() as conn:
+        with _db() as conn:
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
@@ -688,7 +706,7 @@ def list_recipes(
         # cooked", sunk to the bottom via NULLS LAST. `saved_at` is the
         # secondary tie-break so deploy-day libraries (all-NULL
         # `last_displayed_at`) match the prior newest-saved ordering.
-        with _connect() as conn:
+        with _db() as conn:
             rows = conn.execute(
                 f"""
                 SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
@@ -708,7 +726,7 @@ def list_sources() -> list[str]:
     """Distinct lowercase source keys from saved, non-deleted recipes,
     sorted alphabetically. Used to populate the library page's source
     filter dropdown."""
-    with _connect() as conn:
+    with _db() as conn:
         rows = conn.execute(
             "SELECT DISTINCT source FROM recipes "
             "WHERE source IS NOT NULL "
@@ -739,7 +757,7 @@ def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
     # "kartoffel" finds "kartoffeln", "kartoffelpüree", etc. The
     # quoting still escapes any FTS5 operators the user typed.
     fts_query = " ".join(f'"{t}"*' for t in tokens)
-    with _connect() as conn:
+    with _db() as conn:
         rows = conn.execute(
             """
             SELECT r.id, r.url, r.title, r.parsed_json, r.lang,
@@ -769,7 +787,7 @@ def get_panel_state() -> dict | None:
     persisted). The caller (display_persistence.restore_on_startup)
     re-derives the rest from `recipe_id` via get_recipe.
     """
-    with _connect() as conn:
+    with _db() as conn:
         row = conn.execute(
             "SELECT recipe_id, page FROM display_panel WHERE id = 1"
         ).fetchone()
@@ -778,7 +796,7 @@ def get_panel_state() -> dict | None:
 
 def set_panel_state(recipe_id: int, page: int = 1) -> None:
     """Persist the active panel recipe + page. Singleton row, UPSERT semantics."""
-    with _connect() as conn:
+    with _db() as conn:
         conn.execute(
             "INSERT INTO display_panel (id, recipe_id, page) VALUES (1, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET recipe_id = excluded.recipe_id, "
@@ -789,5 +807,5 @@ def set_panel_state(recipe_id: int, page: int = 1) -> None:
 
 def clear_panel_state() -> None:
     """Drop the persisted panel state. Called when the display is cleared."""
-    with _connect() as conn:
+    with _db() as conn:
         conn.execute("DELETE FROM display_panel WHERE id = 1")
