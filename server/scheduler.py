@@ -295,10 +295,20 @@ async def midnight_loop() -> None:
     changed)."""
     while True:
         now = datetime.now(TZ)
+        target_date = now.date() + timedelta(days=1)
         sleep_s = _seconds_until_next_local_midnight(now)
         log.info("Midnight scheduler sleeping %.0fs until next local midnight", sleep_s)
         try:
             await asyncio.sleep(sleep_s)
+            # Guard against waking early (asyncio sleeps on the monotonic
+            # clock; an NTP step of the wall clock can leave us a few
+            # seconds short of midnight). Running the chores while it's
+            # still "yesterday" would push the wrong anniversary AND
+            # double-fire at the real midnight — sleep off the remainder.
+            while datetime.now(TZ).date() < target_date:
+                await asyncio.sleep(
+                    max(1.0, _seconds_until_next_local_midnight(datetime.now(TZ)))
+                )
         except asyncio.CancelledError:
             log.info("Midnight scheduler cancelled")
             raise
