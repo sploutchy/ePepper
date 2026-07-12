@@ -113,6 +113,19 @@ char pendingContentHash[16] = "";
 // land us at the wrong time after a network blip.
 int32_t nextWakeInS = -1;
 
+// Set when a wake that needed the server couldn't reach it at all (WiFi
+// join failed, TCP connect failed). computeSleepSeconds then retries in
+// RETRY_SLEEP_S instead of drifting a full day on a single blip — before
+// this, one failed 06:00 wake meant stale content until tomorrow. A
+// server that IS reachable but errors (401 bad key, 5xx) keeps the daily
+// cadence: hourly retries against a persistent misconfig would just burn
+// battery.
+bool serverUnreachable = false;
+
+#ifndef RETRY_SLEEP_S
+#define RETRY_SLEEP_S 3600  // 1 h — retry cadence after an unreachable-server wake
+#endif
+
 
 void setup() {
     Serial.begin(115200);
@@ -213,6 +226,7 @@ void handleRefresh(bool force) {
 
     connectWiFi();
     if (WiFi.status() != WL_CONNECTED) {
+        serverUnreachable = true;  // retry sooner than the daily fallback
         return;
     }
 
@@ -272,6 +286,7 @@ void handlePageChange(const char* direction) {
         Serial.println("[Action] Cold state — refreshing to recover page count");
         connectWiFi();
         if (WiFi.status() != WL_CONNECTED) {
+            serverUnreachable = true;
             return;
         }
         reportDeviceStatus();
@@ -488,8 +503,11 @@ bool pollServer() {
 
     int code = http.GET();
     if (code != 200) {
-        // Server reachable but erroring (bad API key → 401, 5xx, down).
-        // Panel keeps its last content; the next refresh retries.
+        // Negative codes are connection-level failures (DNS, TCP, TLS) —
+        // treat like a WiFi blip and retry in RETRY_SLEEP_S. Positive
+        // non-200s (bad API key → 401, 5xx) mean the server is up but
+        // unhappy; keep the daily cadence rather than hammering it.
+        if (code < 0) serverUnreachable = true;
         Serial.printf("[API] /version returned %d\n", code);
         http.end();
         return false;
@@ -673,16 +691,26 @@ bool cacheAllPages() {
         Serial.printf("[Cache] Refusing to cache %d pages\n", totalPages);
         return false;
     }
+    bool touchedFs = false;
     for (int p = 1; p <= totalPages; p++) {
-        if (!downloadImage(p) || !writeCacheFile(p, imageBuffer, imageSize)) {
-            Serial.printf("[Cache] Page %d build failed — aborting\n", p);
-            // We may have already overwritten lower pages with new content
-            // while higher ones are still stale. Invalidate so page turns
-            // fall back to the network instead of serving a mixed cache; the
-            // next refresh that sees the same content_hash rebuilds cleanly.
+        if (!downloadImage(p)) {
+            Serial.printf("[Cache] Page %d download failed — aborting\n", p);
+            // Only invalidate if we already overwrote lower pages with new
+            // content (mixed cache). A download failure before ANY write —
+            // e.g. a forced refresh while the server is unreachable —
+            // leaves the existing cache fully intact and still trustworthy
+            // for offline page turns.
+            if (touchedFs) cachedHash[0] = '\0';
+            return false;
+        }
+        if (!writeCacheFile(p, imageBuffer, imageSize)) {
+            Serial.printf("[Cache] Page %d write failed — aborting\n", p);
+            // writeCacheFile may have removed/truncated this page's file;
+            // the cache can no longer be trusted as a whole.
             cachedHash[0] = '\0';
             return false;
         }
+        touchedFs = true;
     }
     clearCacheAbove(totalPages);
     // Never promote an empty hash: a hashless server (no content_hash) would
@@ -741,7 +769,15 @@ float readBatteryVoltage() {
     digitalWrite(BATTERY_ENABLE_PIN, HIGH);
     delay(10);  // ADC settle
 
-    int raw = analogRead(BATTERY_ADC_PIN);
+    // Average several samples — a single ESP32 ADC read is noisy enough
+    // (tens of mV) to flap the server's low-battery threshold.
+    const int kSamples = 8;
+    uint32_t sum = 0;
+    for (int i = 0; i < kSamples; i++) {
+        sum += analogRead(BATTERY_ADC_PIN);
+        delay(2);
+    }
+    int raw = sum / kSamples;
     digitalWrite(BATTERY_ENABLE_PIN, LOW);
 
     // ESP32-S3 ADC: 12-bit (0-4095), 0-3.3 V range, ~2:1 divider on this board.
@@ -867,12 +903,15 @@ bool waitForLongPress(int btnPin, int thresholdMs) {
 // ---- Sleep ----
 
 // Pick the sleep duration: server-provided next_wake_in_s when present
-// and sane, otherwise the 24-h fallback. The bounds are a sanity check
+// and sane, otherwise the 24-h fallback — shortened to RETRY_SLEEP_S when
+// this wake needed the server and couldn't reach it, so a single blip
+// doesn't cost a full day of stale content. The bounds are a sanity check
 // against a clock-skewed server (e.g. a value of 1 s would burn the
 // battery; a value of 30 days would silently kill the device).
 uint64_t computeSleepSeconds() {
     if (nextWakeInS < (int32_t)MIN_SLEEP_S || nextWakeInS > (int32_t)MAX_SLEEP_S) {
-        return DAILY_REFRESH_INTERVAL_S;
+        return serverUnreachable ? (uint64_t)RETRY_SLEEP_S
+                                 : (uint64_t)DAILY_REFRESH_INTERVAL_S;
     }
     return (uint64_t)nextWakeInS;
 }

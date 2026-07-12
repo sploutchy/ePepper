@@ -6,7 +6,6 @@ import re
 import time
 import uuid
 from collections import OrderedDict
-from typing import Tuple
 
 from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -31,7 +30,7 @@ from display.push import push_recipe_to_display
 from processing.recipes import (
     IngestError,
     ingest_recipe,
-    translate_for_search,
+    persist_recipe,
 )
 from status_helpers import (
     battery_label,
@@ -52,7 +51,7 @@ log = logging.getLogger(__name__)
 # not yet rated; once a star is tapped (or 32 newer pushes have arrived)
 # the entry is removed.
 _PENDING_MAX = 32
-_pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
+_pending: "OrderedDict[str, tuple[str, dict]]" = OrderedDict()
 
 # Short tokens → search queries, so paginated /search buttons can carry a
 # 6-char ref in their 64-byte callback_data instead of stuffing the full
@@ -226,7 +225,7 @@ def _web_app_line() -> str:
 
 
 async def cmd_start(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         log.info(f"User {update.effective_user.id} is not in the ALLOWED_USERS list")
         return
     # /start shows the same reference as /help — one canonical text.
@@ -240,7 +239,7 @@ async def cmd_start(update: Update, context) -> None:
 _HELP_TEXT = (
     "🫑 <b>ePepper — help</b>\n\n"
     "▸ <b>Add a recipe</b>\n"
-    "Paste a link or send a photo of a cookbook / magazine page — I'll "
+    "Paste a link or send a photo of a cookbook or magazine page — I'll "
     "push it to the panel.\n"
     "<i>Use the web app to save without displaying.</i>\n\n"
     "▸ <b>Repertoire</b>\n"
@@ -251,12 +250,12 @@ _HELP_TEXT = (
     "Physical buttons cycle pages.\n"
     "  /clear — clear the panel\n\n"
     "▸ <b>Info</b>\n"
-    "  /status — device + repertoire snapshot\n"
+    "  /status — device + repertoire status\n"
 )
 
 
 async def cmd_help(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     web = _web_app_line()
     text = _HELP_TEXT + (f"\n{web}\n" if web else "")
@@ -269,7 +268,7 @@ async def cmd_help(update: Update, context) -> None:
 
 async def cmd_clear(update: Update, context) -> None:
     """Clear the e-ink panel immediately."""
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     display_state.clear()
     await update.message.reply_text("✔️ Display cleared.")
@@ -292,10 +291,11 @@ def _format_tomorrow_html(preview: dict) -> str:
         src_html = _format_source_html(anniversary.get("url"))
         if src_html:
             line += f" {src_html}"
-        years_ago = preview["anniversary_years_ago"]
-        reason = "cooked last year" if years_ago == 1 else (
-            f"cooked {years_ago} years ago" if years_ago else "past anniversary"
-        )
+        # pick_anniversary_recipe only ever returns a row displayed in a
+        # strictly earlier year, so years_ago is always >= 1 here — the
+        # `or 1` is just a defensive fallback, not a reachable branch.
+        years_ago = preview["anniversary_years_ago"] or 1
+        reason = "cooked last year" if years_ago == 1 else f"cooked {years_ago} years ago"
         return f"{line}\n<i>{reason}</i>"
     if fooby:
         title = html.escape(fooby["title"])
@@ -317,7 +317,11 @@ def _build_status_text() -> str:
 
     sections = ["🫑 <b>ePepper Status</b>"]
 
-    # Display section — "<b>title</b> from <source> — page X/Y" on one line.
+    # Display section — "<b>title</b> from <source> (N pages)" on one line.
+    # Page *count* only, never a current-page claim: the device tracks its
+    # own page position locally after a physical button press and never
+    # reports it back (see api/server.py's /device/status DES-D note), so
+    # display_state["page"] is stale the moment someone flips a page.
     # The section label gets a leading ▸ marker; the recipe title below it
     # stays plain bold — that distinction is the whole point (label vs.
     # content), without leaning on underline.
@@ -328,7 +332,7 @@ def _build_status_text() -> str:
         if src_html:
             line += f" {src_html}"
         if state["total_pages"] > 1:
-            line += f" <i>(page {state['page']}/{state['total_pages']})</i>"
+            line += f" <i>({state['total_pages']} pages)</i>"
         display_lines.append(line)
     else:
         display_lines.append(html.escape(state["type"]))
@@ -396,7 +400,7 @@ def _build_status_text() -> str:
 
 
 async def cmd_status(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     await update.message.reply_text(
         _build_status_text(), parse_mode="HTML", disable_web_page_preview=True,
@@ -488,7 +492,7 @@ def _render_search_page(
 
 async def cmd_search(update: Update, context) -> None:
     """Full-text search the saved recipe repertoire; tap a result to push it."""
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
 
     query = " ".join(context.args).strip() if context.args else ""
@@ -503,7 +507,7 @@ async def cmd_search(update: Update, context) -> None:
     rendered = _render_search_page(query, offset=0)
     if rendered is None:
         await update.message.reply_text(
-            f"No saved recipes match '{query}'. Try a shorter or different term."
+            f'No saved recipes match "{query}". Try a shorter or different term.'
         )
         return
     body, keyboard = rendered
@@ -518,14 +522,14 @@ async def cmd_search(update: Update, context) -> None:
 async def on_search_nav(update: Update, context) -> None:
     """User tapped « Prev / Next » under a /search result page."""
     query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
         return
     try:
         _, token, offset_str = query.data.split(":")
         offset = int(offset_str)
     except (ValueError, IndexError):
-        await query.answer("Bad callback.", show_alert=True)
+        await query.answer("That didn't go through — try again.", show_alert=True)
         return
     query_text = _search_queries.get(token)
     if not query_text:
@@ -553,14 +557,14 @@ async def on_search_nav(update: Update, context) -> None:
 async def on_push_button(update: Update, context) -> None:
     """User tapped a numbered /search result — render and push that recipe."""
     query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
         return
     try:
         _, recipe_id_str = query.data.split(":")
         recipe_id = int(recipe_id_str)
     except (ValueError, IndexError):
-        await query.answer("Bad callback.", show_alert=True)
+        await query.answer("That didn't go through — try again.", show_alert=True)
         return
 
     row = library.get_recipe(recipe_id)
@@ -569,7 +573,7 @@ async def on_push_button(update: Update, context) -> None:
         return
 
     if not push_recipe_to_display(row):
-        await query.answer("Couldn't render that recipe.", show_alert=True)
+        await query.answer("Couldn't render that recipe to the display.", show_alert=True)
         return
     total = display_state.get()["total_pages"]
     log.info("Search pushed: id=%d title=%r", row["id"], row["title"])
@@ -653,7 +657,7 @@ async def on_text(update: Update, context) -> None:
     if match:
         url = match.group(0).rstrip(").,;:!?'\"")
         log.info("URL detected from user %s: %s", update.effective_user.id, url)
-        msg = await update.message.reply_text("Fetching recipe...")
+        msg = await update.message.reply_text("Fetching recipe…")
         await _fetch_and_display_recipe(url, msg)
         return
 
@@ -811,19 +815,19 @@ def _format_push_reply(title: str, url: str | None, total_pages: int) -> str:
 async def on_save_button(update: Update, context) -> None:
     """User tapped Save — persist the recipe to the repertoire."""
     query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
         return
     try:
         _, token = query.data.split(":", 1)
     except ValueError:
         log.warning("on_save_button: malformed callback data %r", query.data)
-        await query.answer("Bad callback.", show_alert=True)
+        await query.answer("That didn't go through — try again.", show_alert=True)
         return
 
     pending = _pending.pop(token, None)
     if pending is None:
-        await query.answer("Session expired — repush the URL to save.", show_alert=True)
+        await query.answer("Session expired — paste the link again to save it.", show_alert=True)
         try:
             await query.edit_message_reply_markup(reply_markup=None)
         except Exception:
@@ -831,29 +835,36 @@ async def on_save_button(update: Update, context) -> None:
         return
 
     url, recipe = pending
-    translated = await translate_for_search(recipe)
-    recipe_id = library.upsert_recipe(
-        url, recipe,
-        translated_keywords=translated,
-        source=source_name(url),
-    )
-    library.save_recipe(recipe_id)
+    recipe_id, tags = await persist_recipe(url, recipe)
     # The pending-save flow only exists for recipes that were already
     # pushed to the panel transiently (recipe_id=None at push time, see
     # ingest_recipe) — touch_displayed never fired for them, so the row
     # would otherwise be born with last_displayed_at still NULL despite
     # having just been shown.
     library.touch_displayed(recipe_id)
-    log.info("Bot save: id=%d title=%r", recipe_id, recipe.get("title"))
+    log.info("Bot save: id=%d title=%r tags=%r", recipe_id, recipe.get("title"), tags)
 
     await query.answer("Saved")
+    # Rebuild the confirmation body (not just the keyboard) so an
+    # auto-picked tag is visible right where the user is already looking
+    # — the tags were LLM-picked, so showing them (rather than applying
+    # silently) is what gives the user a chance to notice a wrong one and
+    # tap "Open in web" to fix it on the recipe's tag editor. No tags
+    # picked -> no line added, same as an empty search result staying quiet.
+    total_pages = display_state.get()["total_pages"]
+    body = _format_push_reply(recipe["title"], url, total_pages)
+    if tags:
+        body += f"\n<i>tags: {html.escape(', '.join(tags))}</i>"
     # Swap the keyboard to surface the next useful action — web link if
     # configured — instead of leaving a bare confirmation. The Save button
-    # itself is gone (already saved) so a stale tap can't double-save. The
-    # toast above is the only confirmation — the swapped keyboard is the
-    # lasting visual cue, so we don't also spawn a new chat message.
+    # itself is gone (already saved) so a stale tap can't double-save.
     new_markup = _push_inline_actions(recipe_id=recipe_id, pending_token=None)
     try:
-        await query.edit_message_reply_markup(reply_markup=new_markup)
+        await query.edit_message_text(
+            body,
+            parse_mode="HTML",
+            disable_web_page_preview=True,
+            reply_markup=new_markup,
+        )
     except Exception:
         pass

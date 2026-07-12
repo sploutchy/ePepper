@@ -133,10 +133,14 @@
           {%- endif %}
         </span>
       {% endif %}
+      {# pick_anniversary_recipe only ever returns a row displayed in a
+         strictly earlier year, so next_anniversary_years_ago is always
+         >= 1 here — the `or 1` is a defensive fallback, not a reachable
+         branch (mirrors the same fix in the bot's /status). #}
+      {%- set years_ago = next_anniversary_years_ago or 1 -%}
       <span class="muted">
-        {%- if next_anniversary_years_ago == 1 %}cooked last year
-        {%- elif next_anniversary_years_ago and next_anniversary_years_ago > 1 %}cooked {{ next_anniversary_years_ago }} years ago
-        {%- else %}past anniversary
+        {%- if years_ago == 1 %}cooked last year
+        {%- else %}cooked {{ years_ago }} years ago
         {%- endif %}
       </span>
     </p>

@@ -6,6 +6,6 @@
 {{ saved_count }} recipe{{ '' if saved_count == 1 else 's' }}
 {%- if q %} — search &ldquo;{{ q }}&rdquo;
 {%- elif source %} — from {{ source|capitalize }}
-{%- elif tag %} — #{{ tag }}
+{%- elif tag %} — {{ tag }}
 {%- endif %}
 {%- if q or source or tag %} <a href="/app/" class="clear-filter">clear</a>{% endif %}

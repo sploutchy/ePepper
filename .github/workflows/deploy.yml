@@ -1,6 +1,9 @@
 name: Deploy
 
-# Push main → SSH to the VPS, pull, rebuild + restart, healthcheck.
+# Test, then (on main pushes) SSH to the VPS, pull, rebuild + restart,
+# healthcheck. The pytest job gates the deploy — a red test suite never
+# reaches the host — and also runs standalone on PRs that touch the
+# server, so faulty code is caught before merge.
 # Path filter keeps doc-only / firmware-only commits from triggering a rebuild.
 # Use the "Run workflow" button in the Actions tab for manual deploys.
 
@@ -10,17 +13,52 @@ on:
     paths:
       - 'server/**'
       - 'docker-compose.yml'
+      - '.github/workflows/deploy.yml'
+  pull_request:
+    paths:
+      - 'server/**'
+      - 'docker-compose.yml'
+      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
-# Never let two deploys overlap on the same host.
-concurrency:
-  group: deploy-vps
-  cancel-in-progress: false
-
 jobs:
-  deploy:
+  test:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          # Match the python:3.12-slim runtime image.
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: server/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Run tests
+        # tests/conftest.py stubs the required env vars (bot token,
+        # API key, temp DATA_DIR) — no secrets needed here.
+        run: pytest tests/ -q
+
+  deploy:
+    # PRs only run the test job; deploying is a main-push / dispatch thing.
+    if: github.event_name != 'pull_request'
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Never let two deploys overlap on the same host. Job-level (not
+    # workflow-level) so PR test runs don't serialize behind a deploy.
+    concurrency:
+      group: deploy-vps
+      cancel-in-progress: false
     steps:
       - name: Derive server host
         # SERVER_URL secret holds the full URL (e.g. https://epepper.fyx.ch);
