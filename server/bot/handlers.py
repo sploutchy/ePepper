@@ -1,13 +1,11 @@
 """Telegram bot handlers for ePepper."""
 
-import asyncio
 import html
 import logging
 import re
 import time
 import uuid
 from collections import OrderedDict
-from typing import Tuple
 
 from telegram import BotCommand, Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import (
@@ -32,8 +30,7 @@ from display.push import push_recipe_to_display
 from processing.recipes import (
     IngestError,
     ingest_recipe,
-    pick_tags,
-    translate_for_search,
+    persist_recipe,
 )
 from status_helpers import (
     battery_label,
@@ -54,7 +51,7 @@ log = logging.getLogger(__name__)
 # not yet rated; once a star is tapped (or 32 newer pushes have arrived)
 # the entry is removed.
 _PENDING_MAX = 32
-_pending: "OrderedDict[str, Tuple[str, dict]]" = OrderedDict()
+_pending: "OrderedDict[str, tuple[str, dict]]" = OrderedDict()
 
 # Short tokens → search queries, so paginated /search buttons can carry a
 # 6-char ref in their 64-byte callback_data instead of stuffing the full
@@ -228,7 +225,7 @@ def _web_app_line() -> str:
 
 
 async def cmd_start(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         log.info(f"User {update.effective_user.id} is not in the ALLOWED_USERS list")
         return
     # /start shows the same reference as /help — one canonical text.
@@ -258,7 +255,7 @@ _HELP_TEXT = (
 
 
 async def cmd_help(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     web = _web_app_line()
     text = _HELP_TEXT + (f"\n{web}\n" if web else "")
@@ -271,7 +268,7 @@ async def cmd_help(update: Update, context) -> None:
 
 async def cmd_clear(update: Update, context) -> None:
     """Clear the e-ink panel immediately."""
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     display_state.clear()
     await update.message.reply_text("✔️ Display cleared.")
@@ -403,7 +400,7 @@ def _build_status_text() -> str:
 
 
 async def cmd_status(update: Update, context) -> None:
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
     await update.message.reply_text(
         _build_status_text(), parse_mode="HTML", disable_web_page_preview=True,
@@ -495,7 +492,7 @@ def _render_search_page(
 
 async def cmd_search(update: Update, context) -> None:
     """Full-text search the saved recipe repertoire; tap a result to push it."""
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         return
 
     query = " ".join(context.args).strip() if context.args else ""
@@ -525,7 +522,7 @@ async def cmd_search(update: Update, context) -> None:
 async def on_search_nav(update: Update, context) -> None:
     """User tapped « Prev / Next » under a /search result page."""
     query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
         return
     try:
@@ -560,7 +557,7 @@ async def on_search_nav(update: Update, context) -> None:
 async def on_push_button(update: Update, context) -> None:
     """User tapped a numbered /search result — render and push that recipe."""
     query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
         return
     try:
@@ -818,7 +815,7 @@ def _format_push_reply(title: str, url: str | None, total_pages: int) -> str:
 async def on_save_button(update: Update, context) -> None:
     """User tapped Save — persist the recipe to the repertoire."""
     query = update.callback_query
-    if not _is_allowed(update.effective_user.id):
+    if not update.effective_user or not _is_allowed(update.effective_user.id):
         await query.answer("Not authorized.", show_alert=True)
         return
     try:
@@ -838,18 +835,7 @@ async def on_save_button(update: Update, context) -> None:
         return
 
     url, recipe = pending
-    vocabulary = [t for t, _ in library.list_tags()]
-    translated, tags = await asyncio.gather(
-        translate_for_search(recipe), pick_tags(recipe, vocabulary),
-    )
-    recipe_id = library.upsert_recipe(
-        url, recipe,
-        translated_keywords=translated,
-        source=source_name(url),
-    )
-    library.save_recipe(recipe_id)
-    if tags:
-        library.set_tags(recipe_id, tags)
+    recipe_id, tags = await persist_recipe(url, recipe)
     # The pending-save flow only exists for recipes that were already
     # pushed to the panel transiently (recipe_id=None at push time, see
     # ingest_recipe) — touch_displayed never fired for them, so the row
