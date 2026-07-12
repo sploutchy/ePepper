@@ -8,13 +8,17 @@ logs everyone out. Routes live under /app/ to keep the device-facing
 endpoints clean.
 """
 
+import asyncio
 import hashlib
 import hmac
 import logging
 import re
 import secrets
 import time
+from html import escape
 from pathlib import Path
+
+from markupsafe import Markup
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
@@ -194,7 +198,13 @@ async def login_page(request: Request, error: str | None = None):
 
 @router.post("/login")
 async def login_submit(request: Request, api_key: str = Form(...)):
-    if not secrets.compare_digest(api_key, API_KEY):
+    # Compare as bytes — compare_digest raises TypeError on non-ASCII str
+    # input, which would surface as a 500 instead of a failed login (same
+    # fix as _check_api_key in api/server.py).
+    if not secrets.compare_digest(api_key.encode("utf-8"), API_KEY.encode("utf-8")):
+        # Flat-rate the failure path so hammering the form with key
+        # guesses costs at least a second per attempt.
+        await asyncio.sleep(1)
         return RedirectResponse("/app/login?error=1", status_code=303)
     # Cookie carries an HMAC of the API key (not the key itself), so a cookie
     # leak doesn't hand over the device Bearer credential.
@@ -225,7 +235,10 @@ def _sanitize_source(source: str | None) -> str | None:
     return s or None
 
 
-_TAG_TOKEN_RE = __import__("re").compile(r"^[\w-]+$", __import__("re").UNICODE)
+# Word chars / hyphens, optionally space-separated ("main course"). No
+# `%` / `_` so a stored tag can't confuse the LIKE patterns in
+# library.db._recipe_ids_with_tag.
+_TAG_TOKEN_RE = re.compile(r"^[\w-]+(?: [\w-]+)*$")
 
 
 def _sanitize_tag(tag: str | None) -> str | None:
@@ -233,6 +246,7 @@ def _sanitize_tag(tag: str | None) -> str | None:
 
     Bound into SQL via parameter binding, but the strict character class
     also keeps random punctuation out of the tag dropdown's selected state.
+    Applied on write (tags_save) too, so every stored tag is filterable.
     """
     if not tag:
         return None
@@ -243,6 +257,9 @@ def _sanitize_tag(tag: str | None) -> str | None:
 
 
 
+_DAY_S = 86400
+
+
 def _bucket_recipes(
     recipes: list[dict],
 ) -> list[tuple[str, str, list[dict]]]:
@@ -250,25 +267,28 @@ def _bucket_recipes(
 
     Returns a list of (slug, label, rows) tuples in display order;
     empty tiers are dropped. The template just iterates — no logic.
+
+    Day thresholds mirror humanize_date's phrasing so a card's "3 weeks
+    ago" caption never lands outside its tier: <7 days = this week,
+    <30 = this month, <365 = earlier this year, else older.
     """
+    now = int(time.time())
     this_week: list[dict] = []
     this_month: list[dict] = []
     this_year: list[dict] = []
     older: list[dict] = []
     never: list[dict] = []
     for r in recipes:
-        if r.get("last_displayed_at") is None:
+        ts = r.get("last_displayed_at")
+        if ts is None:
             never.append(r)
             continue
-        phrase = humanize_date(r.get("last_displayed_at"))
-        if (
-            "min ago" in phrase or "h ago" in phrase or "just now" in phrase
-            or phrase == "yesterday" or "days ago" in phrase
-        ):
+        days = max(0, now - ts) // _DAY_S
+        if days < 7:
             this_week.append(r)
-        elif phrase == "last week" or "weeks ago" in phrase:
+        elif days < 30:
             this_month.append(r)
-        elif phrase == "last month" or "months ago" in phrase:
+        elif days < 365:
             this_year.append(r)
         else:
             older.append(r)
@@ -282,7 +302,7 @@ def _bucket_recipes(
     return [t for t in tiers if t[2]]
 
 
-_TIER_SLUG_RE = __import__("re").compile(r"^[a-z0-9-]{1,64}$")
+_TIER_SLUG_RE = re.compile(r"^[a-z0-9-]{1,64}$")
 
 
 def _sanitize_tier(tier: str | None) -> str:
@@ -431,9 +451,6 @@ def _add_error(request: Request, message: str) -> HTMLResponse:
     can't smuggle in markup — only the bounded backtick rewrite is
     promoted to safe HTML.
     """
-    import re
-    from html import escape
-    from markupsafe import Markup
     rendered = re.sub(r"`([^`]+)`", r"<code>\1</code>", escape(message))
     return templates.TemplateResponse(
         request, "_add_error.html",
@@ -460,7 +477,7 @@ async def add_url(request: Request, url: str = Form(...)):
     _require_auth(request)
     url = url.strip()
     if not (url.startswith("http://") or url.startswith("https://")):
-        return _add_error(request, "Not a `http(s)://` URL.")
+        return _add_error(request, "Not an `http(s)://` URL.")
 
     existing = library.find_by_url(url)
     if existing is not None:
@@ -628,7 +645,9 @@ async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    parsed = [t.strip().lower() for t in tags.split(",") if t.strip()]
+    # Same token rule as the ?tag= filter, so every stored tag stays
+    # selectable (and LIKE-safe — no % / _). Junk entries are dropped.
+    parsed = [t for t in (_sanitize_tag(x) for x in tags.split(",")) if t]
     library.set_tags(recipe_id, parsed)
     row = library.get_recipe(recipe_id)
     return templates.TemplateResponse(
