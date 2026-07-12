@@ -5,10 +5,16 @@ alternative to the Bearer token ONLY when a route opts in via
 allow_cookie=True. Just /image does so, because the status page renders the
 live display preview with `<img src="/image?v=...">` (see
 web/templates/_status_body.html:56): that <img> tag carries the session
-cookie but cannot easily attach a Bearer header. Every other device endpoint
-— notably /firmware/download, whose .bin carries the baked WiFi password +
-API key — is Bearer-only, so a leaked status-page session can't be used to
-exfiltrate firmware credentials.
+cookie but cannot easily attach a Bearer header. Every other DEVICE endpoint
+(e.g. /firmware/download) is Bearer-only.
+
+Note the boundary honestly: the browser session is NOT credential-free —
+/app/flash/epepper-merged.bin (api/web.py) deliberately serves the merged
+firmware image, which carries the baked WiFi password + API key, behind the
+same cookie, because ESP Web Tools can only fetch with browser credentials.
+A stolen session cookie is therefore equivalent to the API key until
+API_KEY is rotated; the cookie/Bearer split protects against accidental
+key leakage (logs, referers), not against a fully compromised session.
 """
 
 import asyncio
@@ -45,8 +51,8 @@ def _check_api_key(request: Request, allow_cookie: bool = False) -> bool:
     session cookie is accepted ONLY when `allow_cookie=True` (SEC-NEW-2):
     just /image opts in, for the status-page `<img src="/image">` preview
     that can't attach a Bearer header. Every other device endpoint stays
-    Bearer-only so a status-page session can't reach e.g.
-    /firmware/download and pull the baked credentials out of the .bin.
+    Bearer-only. (The merged firmware image is still reachable with a
+    session cookie via /app/flash — see the module docstring for why.)
 
     The query-param fallback was dropped — uvicorn's access log records the
     full path+query, so passing the key in `?key=` leaked it on every request.
@@ -134,7 +140,9 @@ async def image(request: Request, page: int = Query(None, ge=1)):
         headers={
             "Cache-Control": "no-store",
             "X-Hash": state["hash"],
-            "X-Page": str(state["page"]),
+            # The page actually served — state["page"] is always 1 (the
+            # device tracks its own page, DES-D) and would lie for ?page=N.
+            "X-Page": str(page),
             "X-Total-Pages": str(state["total_pages"]),
         },
     )

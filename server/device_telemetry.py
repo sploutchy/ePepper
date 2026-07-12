@@ -25,12 +25,15 @@ _device: dict[str, Any] = {
 }
 
 
-# Fire a low-battery alert the first time a reading drops below this, then
-# re-arm only once it climbs back above — so a flat battery doesn't alert on
-# every wake. The flag is in-memory (reset on restart); at ~1-2 reports/day a
-# stray repeat alert is harmless, so a plain edge trigger beats a hysteresis
-# band here.
+# Fire a low-battery alert the first time a reading drops below
+# LOW_BATTERY_MV, then re-arm only once it climbs back above
+# LOW_BATTERY_REARM_MV. The 100 mV hysteresis band matters because the ADC
+# reading is noisy (±tens of mV): a cell decaying through the threshold
+# would otherwise straddle it for weeks, re-arming and re-alerting on
+# alternating wakes. The flag is in-memory (reset on restart); at ~1-2
+# reports/day a stray repeat alert after a redeploy is harmless.
 LOW_BATTERY_MV = 3500
+LOW_BATTERY_REARM_MV = 3600
 
 _low_battery_alerted = False
 
@@ -56,7 +59,7 @@ def update_device_status(
     Returns `{"low_battery_alert_mv": int | None}`. When non-None, the
     battery just crossed below LOW_BATTERY_MV and the caller is expected
     to deliver this alert (e.g. via Telegram). Fires once until the
-    reading recovers above the threshold.
+    reading recovers above LOW_BATTERY_REARM_MV.
     """
     global _low_battery_alerted
 
@@ -80,7 +83,10 @@ def update_device_status(
             if not _low_battery_alerted:
                 _low_battery_alerted = True
                 alert_mv = battery_mv
-        else:
+        elif battery_mv >= LOW_BATTERY_REARM_MV:
+            # Only re-arm above the hysteresis band — readings inside
+            # [LOW_BATTERY_MV, LOW_BATTERY_REARM_MV) keep the current state
+            # so ADC noise around the threshold can't re-trigger the alert.
             _low_battery_alerted = False
 
     return {"low_battery_alert_mv": alert_mv}
