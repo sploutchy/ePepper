@@ -104,10 +104,15 @@ def _draw_glyph(draw, x: int, y: int, glyph: tuple[str, ...]) -> None:
 
 
 def _draw_button_glyphs(draw, page: int, total_pages: int) -> None:
-    """PREV / NEXT only when a page exists in that direction; REFRESH always."""
-    if page > 1:
+    """PREV / NEXT on any multi-page recipe; REFRESH always.
+
+    Both arrows are drawn on every page of a multi-page recipe because
+    the firmware wraps page navigation around (last → 1, 1 → last, see
+    computeLocalPage in esp32/src/main.cpp) — hiding an arrow at either
+    end would advertise a dead button that actually works.
+    """
+    if total_pages > 1:
         _draw_glyph(draw, _BTN_PREV_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_PREV)
-    if page < total_pages:
         _draw_glyph(draw, _BTN_NEXT_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_NEXT)
     _draw_glyph(draw, _BTN_REFRESH_X - _GLYPH_W // 2, _BTN_GLYPH_Y, _GLYPH_REFRESH)
 
