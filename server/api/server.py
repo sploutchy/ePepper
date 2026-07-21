@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 
 from fastapi import FastAPI, Query, Request, Response
-from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse
+from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 import device_telemetry
@@ -74,7 +74,11 @@ def _check_api_key(request: Request, allow_cookie: bool = False) -> bool:
 
 @app.get("/")
 async def root():
-    return {"name": "ePepper", "status": "ok"}
+    """Bare domain → web app. A 307 preserves the request method, though
+    this route only ever sees GETs; the Docker healthcheck (docker-compose.yml)
+    just needs the redirect chain to resolve to a 2xx, which /app/'s own
+    auth redirect (→ /app/login, 200) still satisfies unauthenticated."""
+    return RedirectResponse("/app/", status_code=307)
 
 
 @app.get("/version")
