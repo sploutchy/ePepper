@@ -115,9 +115,13 @@ jobs:
         env:
           SERVER_URL: ${{ secrets.SERVER_URL }}
         run: |
+          # / redirects to /app/, which itself redirects unauthenticated
+          # requests to /app/login (200) — -fL follows the whole chain and
+          # fails only if the final response is an error status. Exercises
+          # routing + auth middleware + template rendering, so it's a
+          # stronger signal than the old static JSON body ever was.
           for i in $(seq 1 12); do
-            if curl -fsS --max-time 5 "${SERVER_URL%/}/" \
-                 | grep -q '"status":"ok"'; then
+            if curl -fsSL --max-time 5 -o /dev/null "${SERVER_URL%/}/"; then
               echo "Healthy after attempt $i"
               exit 0
             fi
