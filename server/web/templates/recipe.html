@@ -101,8 +101,12 @@
 
   {# Delete sits at the very bottom, styled as a quiet link so it's reachable
      but never competes with Display for the user's attention. The earlier
-     side-by-side Display / Delete pairing invited fat-finger mistakes. #}
+     side-by-side Display / Delete pairing invited fat-finger mistakes. Edit
+     rides along the same way — installed PWAs have no address bar, so the
+     /edit page needs at least one quiet link somewhere reachable. #}
   <div class="recipe-footer">
+    <a href="/app/recipes/{{ r.id }}/edit" class="link muted">Edit recipe</a>
+    <span class="muted">·</span>
     <button class="link danger"
             hx-delete="/app/recipes/{{ r.id }}"
             hx-confirm="Delete this recipe?">

@@ -699,13 +699,14 @@ async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="
     )
 
 
-# --- Recipe content edit (hidden — no link anywhere; reached by typing
-# /recipes/<id>/edit directly) -----------------------------------------------
+# --- Recipe content edit (quiet — a small link in the recipe-page footer,
+# not a primary action) ------------------------------------------------------
 #
 # For hand-fixing small OCR/parsing mistakes (misread ingredient word, wrong
-# cookbook name) without SSHing in. Deliberately not surfaced from
-# recipe.html or anywhere in nav — see the recipe-168 fix in the project
-# history for the SSH-patch this replaces.
+# cookbook name) without SSHing in. Originally URL-only/unlinked, but
+# installed PWAs have no address bar to type into, so recipe.html links to
+# it (muted, next to Delete) — see the recipe-168 fix in the project history
+# for the SSH-patch this replaces.
 
 
 @router.get("/recipes/{recipe_id}/edit", response_class=HTMLResponse)

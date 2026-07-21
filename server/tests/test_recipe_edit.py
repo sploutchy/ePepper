@@ -145,13 +145,13 @@ def test_edit_page_omits_cookbook_name_field_for_url_recipes(client, test_db):
     assert 'name="cookbook_name"' not in resp.text
 
 
-def test_edit_page_not_linked_from_recipe_page(client, test_db):
-    """The edit page must stay reachable only by typing the URL — no
-    affordance on the normal recipe detail page."""
+def test_edit_page_linked_from_recipe_page(client, test_db):
+    """Installed PWAs have no address bar, so the edit page needs a real
+    (if quiet) link from the recipe page rather than being URL-only."""
     recipe_id = _save("https://example.com/r7")
     resp = client.get(f"/app/recipes/{recipe_id}")
     assert resp.status_code == 200
-    assert "/edit" not in resp.text
+    assert f'href="/app/recipes/{recipe_id}/edit"' in resp.text
 
 
 # --- POST /app/recipes/<id>/edit ---------------------------------------------
