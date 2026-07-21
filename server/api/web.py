@@ -14,9 +14,11 @@ import hmac
 import logging
 import re
 import secrets
+import sqlite3
 import time
 from html import escape
 from pathlib import Path
+from urllib.parse import urlparse
 
 from markupsafe import Markup
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
@@ -38,7 +40,9 @@ try:
 except ImportError:
     pass
 from display.push import push_recipe_to_display
-from processing.recipes import IngestError, ingest_recipe, normalize_recipe_for_render
+from processing.recipes import (
+    IngestError, ingest_recipe, normalize_recipe_for_render, slug, validate_llm_recipe,
+)
 from status_helpers import (
     battery_pct,
     get_firmware_server_version,
@@ -167,6 +171,46 @@ def _instruction_groups(recipe: dict) -> list[dict]:
     if not groups[0]["steps"] and groups[0]["heading"] is None and len(groups) > 1:
         groups = groups[1:]
     return groups
+
+
+# --- Hidden recipe-content edit page ---------------------------------------
+#
+# Plain-text round-trip for the /recipes/<id>/edit form (see the routes
+# below). Ingredients are one-per-line, no convention needed — passed
+# straight through to `validate_llm_recipe`, whose `_coerce_ingredients`
+# already newline-splits a raw string. Instructions need a heading
+# convention since a bare string input has no way to mark one: a line
+# starting with "## " becomes a heading, everything else a step.
+
+
+def _ingredients_textarea(recipe: dict) -> str:
+    return "\n".join(str(i) for i in recipe.get("ingredients") or [] if i)
+
+
+def _instructions_textarea(recipe: dict) -> str:
+    lines = []
+    for item in recipe.get("instructions") or []:
+        text = item.get("text", "") if isinstance(item, dict) else str(item)
+        if not text:
+            continue
+        if isinstance(item, dict) and item.get("type") == "heading":
+            lines.append(f"## {text}")
+        else:
+            lines.append(text)
+    return "\n".join(lines)
+
+
+def _parse_instructions_textarea(raw: str) -> list[dict]:
+    out: list[dict] = []
+    for line in raw.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        if line.startswith("## "):
+            out.append({"type": "heading", "text": line[3:].strip()})
+        else:
+            out.append({"type": "step", "text": line})
+    return out
 
 
 def _context_globals(request: Request) -> dict:
@@ -653,6 +697,87 @@ async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="
     return templates.TemplateResponse(
         request, "_tags.html", {"r": row, "all_tags": library.list_tags()},
     )
+
+
+# --- Recipe content edit (hidden — no link anywhere; reached by typing
+# /recipes/<id>/edit directly) -----------------------------------------------
+#
+# For hand-fixing small OCR/parsing mistakes (misread ingredient word, wrong
+# cookbook name) without SSHing in. Deliberately not surfaced from
+# recipe.html or anywhere in nav — see the recipe-168 fix in the project
+# history for the SSH-patch this replaces.
+
+
+@router.get("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
+async def recipe_edit_page(request: Request, recipe_id: int):
+    _require_auth(request)
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        raise HTTPException(404)
+    is_cookbook = urlparse(row["url"]).scheme == "cookbook"
+    ctx = _context_globals(request)
+    ctx.update({
+        "r": row,
+        "is_cookbook": is_cookbook,
+        "cookbook_name": urlparse(row["url"]).netloc if is_cookbook else "",
+        "ingredients_text": _ingredients_textarea(row["recipe"]),
+        "instructions_text": _instructions_textarea(row["recipe"]),
+    })
+    return templates.TemplateResponse(request, "edit.html", ctx)
+
+
+@router.post("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
+async def recipe_edit_save(
+    request: Request,
+    recipe_id: int,
+    # default="" rather than Form(...): FastAPI/Starlette treats an empty
+    # string as a "missing" required field and 422s before this handler
+    # runs, which would surface a raw JSON error instead of the friendly
+    # `_add_error` fragment below. `validate_llm_recipe` already rejects
+    # a blank title on its own.
+    title: str = Form(default=""),
+    lang: str = Form(default="en"),
+    total_time: str = Form(default=""),
+    servings: str = Form(default=""),
+    ingredients: str = Form(default=""),
+    instructions: str = Form(default=""),
+    cookbook_name: str = Form(default=""),
+):
+    _require_auth(request)
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        raise HTTPException(404)
+
+    raw = {
+        "title": title,
+        "ingredients": ingredients,
+        "instructions": _parse_instructions_textarea(instructions),
+        "total_time": total_time,
+        "servings": servings or None,
+        "lang": lang,
+    }
+    recipe = validate_llm_recipe(raw)
+    if recipe is None:
+        return _add_error(request, "Need a title and at least one ingredient or step.")
+
+    parsed_url = urlparse(row["url"])
+    is_cookbook = parsed_url.scheme == "cookbook"
+    if is_cookbook and cookbook_name.strip():
+        name_slug = slug(cookbook_name)
+        if not name_slug:
+            return _add_error(request, "Cookbook name needs at least one letter or digit.")
+        path_slug = parsed_url.path.lstrip("/") or slug(row["title"]) or "recipe"
+        new_url = f"cookbook://{name_slug}/{path_slug}"
+    else:
+        new_url = row["url"]
+    new_source = source_name(new_url)
+
+    try:
+        library.update_recipe_content(recipe_id, recipe, url=new_url, source=new_source)
+    except sqlite3.IntegrityError:
+        return _add_error(request, "That cookbook name is already used by another recipe.")
+
+    return _hx_redirect(f"/app/recipes/{recipe_id}")
 
 
 # --- Push to display -------------------------------------------------------

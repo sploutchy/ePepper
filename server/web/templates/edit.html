@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% from "_icons.html" import icon %}
+{% block title %}Edit {{ r.title }} · ePepper{% endblock %}
+
+{% block content %}
+<a href="/app/recipes/{{ r.id }}" class="back">{{ icon("chevron-left", 14) }} {{ r.title }}</a>
+
+<div class="page-header">
+  <h1>Edit recipe</h1>
+  <p>Hand-fix a title, ingredient, step, or source — for the small mistakes
+     OCR/parsing occasionally leaves behind. Tags stay on the recipe page.</p>
+</div>
+
+<div id="edit-result"></div>
+
+<form class="edit-form"
+      hx-post="/app/recipes/{{ r.id }}/edit"
+      hx-target="#edit-result"
+      hx-swap="innerHTML"
+      hx-disabled-elt="find button">
+
+  <div class="edit-field">
+    <label for="edit-title">Title</label>
+    <input class="list-search" type="text" id="edit-title" name="title"
+           value="{{ r.title }}" required>
+  </div>
+
+  <div class="edit-row">
+    <div class="edit-field">
+      <label for="edit-lang">Language</label>
+      <select class="list-select" id="edit-lang" name="lang">
+        {% for code, label in [("en", "English"), ("de", "Deutsch"), ("fr", "Français"), ("it", "Italiano")] %}
+          <option value="{{ code }}" {% if r.recipe.lang == code %}selected{% endif %}>{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="edit-field">
+      <label for="edit-total-time">Total time (min)</label>
+      <input class="list-search" type="number" min="0" id="edit-total-time"
+             name="total_time" value="{{ r.recipe.total_time or '' }}">
+    </div>
+    <div class="edit-field">
+      <label for="edit-servings">Servings</label>
+      <input class="list-search" type="text" id="edit-servings"
+             name="servings" value="{{ r.recipe.servings or '' }}">
+    </div>
+  </div>
+
+  {% if is_cookbook %}
+    <div class="edit-field">
+      <label for="edit-cookbook-name">Cookbook name</label>
+      <input class="list-search" type="text" id="edit-cookbook-name"
+             name="cookbook_name" value="{{ cookbook_name }}"
+             placeholder="e.g. Kathrin">
+      <p class="field-help">Shown as "from &lt;name&gt;" on the recipe page and panel.</p>
+    </div>
+  {% endif %}
+
+  <div class="edit-field">
+    <label for="edit-ingredients">Ingredients</label>
+    <textarea class="list-search" id="edit-ingredients" name="ingredients"
+              rows="10">{{ ingredients_text }}</textarea>
+    <p class="field-help">One ingredient per line.</p>
+  </div>
+
+  <div class="edit-field">
+    <label for="edit-instructions">Instructions</label>
+    <textarea class="list-search" id="edit-instructions" name="instructions"
+              rows="14">{{ instructions_text }}</textarea>
+    <p class="field-help">One step per line. Start a line with <code>## </code> to make it a section heading.</p>
+  </div>
+
+  <div class="edit-actions">
+    <button type="submit" class="link accent">Save changes</button>
+  </div>
+</form>
+{% endblock %}

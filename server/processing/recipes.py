@@ -575,8 +575,12 @@ async def persist_recipe(url: str, recipe: dict) -> tuple[int, list[str]]:
 _SLUG_KEEP_RE = re.compile(r"[^a-z0-9]+")
 
 
-def _slug(text: str) -> str:
-    """ASCII kebab-case slug; empty if `text` carries no ASCII letters/digits."""
+def slug(text: str) -> str:
+    """ASCII kebab-case slug; empty if `text` carries no ASCII letters/digits.
+
+    Public — also used by the hidden recipe-edit page (api/web.py) to
+    rebuild a cookbook:// URL's netloc when the user renames the source.
+    """
     import unicodedata
 
     norm = unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii")
@@ -592,8 +596,8 @@ def _ocr_url(source_name: str, title: str) -> str:
     which point `resolve_url` swaps in a content hash so the library's
     UNIQUE(url) still dedupes.
     """
-    src_slug = _slug(source_name) or "cookbook"
-    title_slug = _slug(title)
+    src_slug = slug(source_name) or "cookbook"
+    title_slug = slug(title)
     if not title_slug:
         return "cookbook://"
     return f"cookbook://{src_slug}/{title_slug}"

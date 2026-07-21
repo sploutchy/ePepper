@@ -3,6 +3,7 @@
 from library.db import (
     init_db,
     upsert_recipe,
+    update_recipe_content,
     get_recipe,
     find_by_url,
     save_recipe,
@@ -26,6 +27,7 @@ from library.db import (
 __all__ = [
     "init_db",
     "upsert_recipe",
+    "update_recipe_content",
     "get_recipe",
     "find_by_url",
     "save_recipe",

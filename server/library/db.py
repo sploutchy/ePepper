@@ -565,6 +565,50 @@ def set_tags(recipe_id: int, tags: list[str]) -> bool:
     return True
 
 
+def update_recipe_content(recipe_id: int, recipe: dict, url: str, source: str | None) -> bool:
+    """Overwrite a recipe's editable content (hidden /recipes/<id>/edit page,
+    for hand-fixing OCR/parsing mistakes). Returns True if the row was found
+    and updated.
+
+    Always nulls `translated_keywords` so the startup backfill task
+    regenerates the bilingual search blob against the corrected text,
+    rather than leaving it stale (mirrors the manual fix applied to
+    recipe 168 before this page existed).
+
+    `url`/`source` are the caller's *effective* values (unchanged from the
+    existing row, or freshly rebuilt) — this function does no URL/cookbook
+    logic of its own, just persists what it's given. A collision with
+    another recipe's URL raises `sqlite3.IntegrityError` (UNIQUE(url)) —
+    deliberately not caught here; the caller turns it into a form error.
+    """
+    # Lazy import — same reasoning as upsert_recipe: keeps this module
+    # below `processing` in the import layering for callers that don't
+    # want the processing/display side-effects.
+    from processing.recipes import normalize_recipe_for_render
+    recipe = normalize_recipe_for_render(recipe)
+    payload = json.dumps(recipe, ensure_ascii=False)
+    title = recipe.get("title") or "Untitled"
+    lang = recipe.get("lang") or "en"
+    canonical_url = normalize_url(url)
+    ingredients = _ingredients_text(payload)
+    source_lower = source.lower() if source else None
+
+    with _connect() as conn:
+        row = conn.execute(
+            "SELECT tags FROM recipes WHERE id = ? AND deleted_at IS NULL",
+            (recipe_id,),
+        ).fetchone()
+        if row is None:
+            return False
+        conn.execute(
+            "UPDATE recipes SET title = ?, parsed_json = ?, lang = ?, url = ?, "
+            "source = ?, translated_keywords = NULL WHERE id = ?",
+            (title, payload, lang, canonical_url, source_lower, recipe_id),
+        )
+        _fts_upsert(conn, recipe_id, title, ingredients, row["tags"] or "", "")
+    return True
+
+
 def count_saved() -> int:
     """Number of non-deleted recipes in the library that the user explicitly saved."""
     with _db() as conn:

@@ -455,6 +455,51 @@ a.tag-pill:hover {
   }
 }
 
+/* ----------  Recipe edit page (hidden — reached by URL only)  ---------- */
+.edit-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 640px;
+}
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.edit-field label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+}
+.edit-field .field-help {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+}
+.edit-field .field-help code {
+  font-size: 12px;
+  background: var(--surface);
+  border-radius: var(--r-sm);
+  padding: 1px 5px;
+}
+.edit-form textarea.list-search {
+  min-height: 120px;
+  resize: vertical;
+  font-family: var(--font-body);
+  line-height: 1.5;
+}
+.edit-row {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.edit-row .edit-field { flex: 1 1 160px; }
+.edit-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
 /* ----------  Library list  ---------- */
 .library-header {
   display: flex;
