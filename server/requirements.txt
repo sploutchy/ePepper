@@ -1,6 +1,6 @@
 python-telegram-bot==22.8
 fastapi==0.139.0
-uvicorn==0.51.0
+uvicorn==0.52.1
 Pillow==12.3.0
 pillow-heif==1.4.0
 recipe-scrapers==15.11.0
