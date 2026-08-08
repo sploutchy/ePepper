@@ -148,9 +148,7 @@ def tomorrow_preview() -> dict:
         years_ago = tomorrow.year - cooked_year
     fooby: dict | None = None
     if anniversary is None:
-        cached = fooby_cache.get()
-        if cached and cached.get("for_date") == tomorrow.date().isoformat():
-            fooby = cached
+        fooby = fooby_cache.preview_for(tomorrow.date())
     return {
         "date": format_long_date(tomorrow),
         "anniversary": anniversary,

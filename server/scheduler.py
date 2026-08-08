@@ -110,39 +110,58 @@ def _push_anniversary_for(today: datetime) -> bool:
     return True
 
 
+async def _ensure_weekly_snapshot(target: date) -> dict | None:
+    """Return the Fooby URL snapshot covering `target`'s ISO week.
+
+    Reuses the stored snapshot when its `week_start` matches the Monday
+    of `target`'s week. Otherwise fetches Fooby live, stores a fresh
+    snapshot, and returns it. Returns None on fetch failure or when
+    Fooby exposes no recipes — the caller then leaves the display
+    unchanged rather than pushing a stale week's pick.
+    """
+    week_start = fooby_cache.week_start_of(target)
+    snapshot = fooby_cache.get_week()
+    if snapshot is not None and snapshot["week_start"] == week_start.isoformat():
+        return snapshot
+    try:
+        urls = await fetch_weekly_inspiration_urls()
+    except Exception:
+        log.exception(
+            "Fooby snapshot: fetch failed for week starting %s", week_start.isoformat(),
+        )
+        return None
+    if not urls:
+        log.info(
+            "Fooby snapshot: no recipe URLs found for week starting %s",
+            week_start.isoformat(),
+        )
+        return None
+    fooby_cache.set_week(week_start, urls)
+    return fooby_cache.get_week()
+
+
 async def _push_fooby_inspiration_for(today: datetime) -> None:
     """Push one Fooby weekly-inspiration recipe, indexed by today's weekday.
 
-    Prefers the pre-fetched cache (`fooby_cache`, populated by the previous
-    tick's `_prefetch_fooby_for`) so the recipe the status page advertised
-    as "Tomorrow" is exactly what lands on the panel. Falls back to a live
-    fetch on first deploy, after a cache miss, or when yesterday's prefetch
-    failed.
+    Resolves the URL through `_ensure_weekly_snapshot`, which reuses the
+    Monday-fixed URL list for the whole ISO week — a mid-week reshuffle
+    by Fooby doesn't change what plays until the next Monday's tick.
 
     Transient: not added to the library. The user can still save it later
     by sending the URL to the Telegram bot. No retry — if the picked URL
     fails to parse, the display is left unchanged.
     """
-    today_iso = today.date().isoformat()
-    url: str | None = None
-    cached = fooby_cache.get()
-    if cached and cached.get("for_date") == today_iso:
-        url = cached.get("url")
-        log.info("Fooby inspiration: using pre-fetched URL %s", url)
-
+    snapshot = await _ensure_weekly_snapshot(today.date())
+    if snapshot is None:
+        log.info("Fooby inspiration: no snapshot available; leaving display unchanged")
+        return
+    url = fooby_cache.pick_url(today.date())
     if url is None:
-        try:
-            urls = await fetch_weekly_inspiration_urls()
-        except Exception:
-            log.exception("Fooby inspiration: fetch failed; leaving display unchanged")
-            return
-        if not urls:
-            log.info("Fooby inspiration: no recipe URLs found; leaving display unchanged")
-            return
-        # Mon=0..Sun=6 → deterministic rotation, same slot every week.
-        # Modulo keeps it safe when fewer than seven URLs are published.
-        idx = today.weekday() % len(urls)
-        url = urls[idx]
+        log.info(
+            "Fooby inspiration: snapshot has no URL for %s; leaving display unchanged",
+            today.date().isoformat(),
+        )
+        return
 
     # ingest_recipe handles the "already on display" short-circuit
     # internally (compares URL when the recipe isn't in the library);
@@ -170,15 +189,17 @@ async def _push_fooby_inspiration_for(today: datetime) -> None:
 
 
 async def _prefetch_fooby_for(target: date) -> None:
-    """Resolve + cache the Fooby pick that would play on `target`.
+    """Resolve + cache the title of the Fooby pick that would play on `target`.
 
     Skipped when `target` already has an anniversary candidate — in that
     case the midnight scheduler would push the anniversary, not a Fooby
-    recipe, so caching one would be misleading on the status preview.
+    recipe, so caching a title would be misleading on the status preview.
+    Also a no-op when the title is already in the snapshot (an earlier
+    tick in the same week resolved it).
 
-    Best-effort: every failure is logged, never raised. A miss just leaves
-    the cache stale; the status page falls back to a generic hint, and the
-    next midnight tick re-fetches live.
+    Best-effort: every failure is logged, never raised. A miss just
+    leaves the title absent; the status page falls back to a generic
+    hint, and the next tick tries again.
     """
     anniv = library.pick_anniversary_recipe(
         target.strftime("%m-%d"), target.year
@@ -189,22 +210,23 @@ async def _prefetch_fooby_for(target: date) -> None:
             target.isoformat(), anniv["id"],
         )
         return
-    try:
-        urls = await fetch_weekly_inspiration_urls()
-    except Exception:
-        log.exception("Fooby prefetch: fetch failed for %s", target.isoformat())
+    snapshot = await _ensure_weekly_snapshot(target)
+    if snapshot is None:
         return
-    if not urls:
-        log.info("Fooby prefetch: no recipe URLs found for %s", target.isoformat())
+    url = fooby_cache.pick_url(target)
+    if url is None:
+        log.info(
+            "Fooby prefetch: snapshot has no URL for %s", target.isoformat(),
+        )
         return
-    idx = target.weekday() % len(urls)
-    url = urls[idx]
+    if snapshot["titles"].get(url):
+        return
     recipe = await process_recipe_url(url)
     if recipe is None:
         log.info("Fooby prefetch: failed to parse %s", url)
         return
     title = recipe.get("title") or url
-    fooby_cache.set_pick(target, url, title)
+    fooby_cache.set_title(url, title)
 
 
 async def backfill_translations() -> None:
@@ -269,16 +291,21 @@ async def backfill_translations() -> None:
 
 
 async def initial_fooby_prefetch() -> None:
-    """One-shot prefetch on container start when the cache isn't current.
+    """One-shot prefetch on container start when the preview isn't ready.
 
     Without this, a fresh deploy or a restart between midnights would leave
     the status "Tomorrow" card showing the generic hint until the next
     midnight tick. With it, the preview lands as soon as the server is up.
+
+    Skipped when the snapshot already covers tomorrow's week AND tomorrow's
+    URL already has a cached title — nothing to do in that case.
     """
     tomorrow = (datetime.now(TZ) + timedelta(days=1)).date()
-    cached = fooby_cache.get()
-    if cached and cached.get("for_date") == tomorrow.isoformat():
-        log.info("Initial Fooby prefetch: cache already current for %s", tomorrow.isoformat())
+    if fooby_cache.preview_for(tomorrow) is not None:
+        log.info(
+            "Initial Fooby prefetch: preview already current for %s",
+            tomorrow.isoformat(),
+        )
         return
     log.info("Initial Fooby prefetch: refreshing for %s", tomorrow.isoformat())
     try:
