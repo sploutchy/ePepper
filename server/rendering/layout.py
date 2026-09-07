@@ -26,12 +26,11 @@ column repeat heuristic + the L10n table are also preserved — only the
 visual treatment moves.
 """
 
-import re
 import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
-from processing.recipes import normalize_recipe_for_render
+from processing.recipes import normalize_recipe_for_render, servings_count
 from config import (
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
@@ -406,7 +405,10 @@ def render_recipe(
         meta_parts.append(f"{recipe['total_time']} MIN")
     if recipe.get("servings"):
         servings_raw = str(recipe["servings"])
-        servings_num = re.sub(r"[^\d]", "", servings_raw)
+        # Free-form prose ("6 personnes en accompagnement, ou pour 4 en
+        # plat principal") carries more than one number; the meta line has
+        # room for the leading count only.
+        servings_num = servings_count(servings_raw)
         label = strings["servings"].upper()
         if servings_num:
             meta_parts.append(f"{servings_num} {label}")

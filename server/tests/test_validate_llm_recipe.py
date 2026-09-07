@@ -2,6 +2,7 @@ from processing.recipes import (
     _clean_instructions,
     _coerce_int,
     normalize_recipe_for_render,
+    servings_count,
     validate_llm_recipe,
 )
 
@@ -91,3 +92,26 @@ def test_clean_instructions_strips_step_headings_and_numbers():
     text = "Step 1\nChop the onions.\nSchritt 2\nMix everything."
     out = _clean_instructions(text)
     assert [i["text"] for i in out] == ["Chop the onions.", "Mix everything."]
+
+
+def test_servings_count_takes_the_leading_number():
+    assert servings_count("4") == "4"
+    assert servings_count("4 servings") == "4"
+    assert servings_count("Pour 4 personnes") == "4"
+    # A second count later in the sentence must not be glued to the first
+    # (a naive digit-strip turned this OCR'd string into "64").
+    assert servings_count(
+        "6 personnes en accompagnement, ou pour 4 en plat principal"
+    ) == "6"
+
+
+def test_servings_count_keeps_ranges():
+    assert servings_count("4-6") == "4-6"
+    assert servings_count("4 - 6 Portionen") == "4-6"
+    assert servings_count("serves 4 – 6") == "4–6"  # en dash kept as written
+
+
+def test_servings_count_without_digits():
+    assert servings_count("une grande poêle") is None
+    assert servings_count("") is None
+    assert servings_count(None) is None

@@ -23,6 +23,10 @@ def test_fmt_servings():
     assert _fmt_servings("4 servings") == "Serves 4"
     assert _fmt_servings("Pour 4 personnes") == "Serves 4"
     assert _fmt_servings("4-6") == "Serves 4-6"
+    # Prose carrying a second count keeps only the leading one.
+    assert _fmt_servings(
+        "6 personnes en accompagnement, ou pour 4 en plat principal"
+    ) == "Serves 6"
     assert _fmt_servings("une grande poêle") == "une grande poêle"
     assert _fmt_servings("") is None
     assert _fmt_servings(None) is None
