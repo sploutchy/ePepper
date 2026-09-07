@@ -41,7 +41,8 @@ except ImportError:
     pass
 from display.push import push_recipe_to_display
 from processing.recipes import (
-    IngestError, ingest_recipe, normalize_recipe_for_render, slug, validate_llm_recipe,
+    IngestError, ingest_recipe, normalize_recipe_for_render, servings_count, slug,
+    validate_llm_recipe,
 )
 from status_helpers import (
     battery_pct,
@@ -120,7 +121,8 @@ def _fmt_servings(raw) -> str | None:
 
     `servings` is free-form across sources ("4", "4 servings", "Pour 4
     personnes", "4-6"). The web UI is English regardless of recipe
-    language, so we pull the first integer (or range) and prefix it with
+    language, so we pull the first integer (or range) — via the same
+    `servings_count` the panel renderer uses — and prefix it with
     "Serves"; when there's no number to anchor on we fall back to the raw
     string. None/empty yields None so the template can drop the line.
     """
@@ -129,10 +131,8 @@ def _fmt_servings(raw) -> str | None:
     s = str(raw).strip()
     if not s:
         return None
-    m = re.search(r"\d+(?:\s*[–-]\s*\d+)?", s)
-    if m:
-        return f"Serves {m.group(0).replace(' ', '')}"
-    return s
+    count = servings_count(s)
+    return f"Serves {count}" if count else s
 
 
 def _ingredients(recipe: dict) -> list[str]:
