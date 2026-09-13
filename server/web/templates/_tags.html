@@ -1,75 +1,86 @@
 {% from "_icons.html" import icon %}
-<details class="tag-popover" id="tag-popover-{{ r.id }}">
-  <summary class="tag-summary">
+{% if not can(request, "library.edit") %}
+  {# Read-only: the pills stay clickable as library filters — that's the
+     half of what a tag does that doesn't write anything — but there's no
+     popover, no form and no autosave script. #}
+  {% if r.tags %}
     <span class="tag-summary-pills">
-      {% for t in r.tags %}<a href="/app/?tag={{ t }}" class="tag-pill tag-pill--sm" onclick="event.stopPropagation()">{{ t }}</a>{% endfor %}
+      {% for t in r.tags %}<a href="/app/?tag={{ t }}" class="tag-pill tag-pill--sm">{{ t }}</a>{% endfor %}
     </span>
-    <span class="tag-edit-hint">
-      {{ icon("tag", 12) }}
-      {% if r.tags %}edit{% else %}add tags{% endif %}
-    </span>
-  </summary>
-  <div class="tag-popup">
-    <form id="tag-form-{{ r.id }}"
-          hx-post="/app/recipes/{{ r.id }}/tags"
-          hx-target="#recipe-tags"
-          hx-swap="innerHTML">
-      <input type="hidden" name="tags" class="tag-hidden-input">
-      {% if all_tags %}
-        <div class="tag-chip-grid">
-          {% for t, n in all_tags %}
-            <label class="tag-chip {% if t in r.tags %}tag-chip--on{% endif %}">
-              <input type="checkbox" value="{{ t }}" {% if t in r.tags %}checked{% endif %}>{{ t }}
-            </label>
-          {% endfor %}
-        </div>
-      {% endif %}
-      <input type="text" class="tag-new-input" placeholder="new tag, another…">
-    </form>
-  </div>
-</details>
-<script>
-(function () {
-  var details = document.getElementById('tag-popover-{{ r.id }}');
-  if (!details) return;
-  var form = document.getElementById('tag-form-{{ r.id }}');
+  {% endif %}
+{% else %}
+  <details class="tag-popover" id="tag-popover-{{ r.id }}">
+    <summary class="tag-summary">
+      <span class="tag-summary-pills">
+        {% for t in r.tags %}<a href="/app/?tag={{ t }}" class="tag-pill tag-pill--sm" onclick="event.stopPropagation()">{{ t }}</a>{% endfor %}
+      </span>
+      <span class="tag-edit-hint">
+        {{ icon("tag", 12) }}
+        {% if r.tags %}edit{% else %}add tags{% endif %}
+      </span>
+    </summary>
+    <div class="tag-popup">
+      <form id="tag-form-{{ r.id }}"
+            hx-post="/app/recipes/{{ r.id }}/tags"
+            hx-target="#recipe-tags"
+            hx-swap="innerHTML">
+        <input type="hidden" name="tags" class="tag-hidden-input">
+        {% if all_tags %}
+          <div class="tag-chip-grid">
+            {% for t, n in all_tags %}
+              <label class="tag-chip {% if t in r.tags %}tag-chip--on{% endif %}">
+                <input type="checkbox" value="{{ t }}" {% if t in r.tags %}checked{% endif %}>{{ t }}
+              </label>
+            {% endfor %}
+          </div>
+        {% endif %}
+        <input type="text" class="tag-new-input" placeholder="new tag, another…">
+      </form>
+    </div>
+  </details>
+  <script>
+  (function () {
+    var details = document.getElementById('tag-popover-{{ r.id }}');
+    if (!details) return;
+    var form = document.getElementById('tag-form-{{ r.id }}');
 
-  form.querySelectorAll('.tag-chip input[type=checkbox]').forEach(function (cb) {
-    cb.addEventListener('change', function () {
-      cb.closest('.tag-chip').classList.toggle('tag-chip--on', cb.checked);
+    form.querySelectorAll('.tag-chip input[type=checkbox]').forEach(function (cb) {
+      cb.addEventListener('change', function () {
+        cb.closest('.tag-chip').classList.toggle('tag-chip--on', cb.checked);
+      });
     });
-  });
 
-  function collectAndSave() {
-    var checked = Array.from(form.querySelectorAll('input[type=checkbox]:checked')).map(function (cb) { return cb.value; });
-    var newRaw = form.querySelector('.tag-new-input').value;
-    var newTags = newRaw.split(',').map(function (t) { return t.trim().toLowerCase(); }).filter(Boolean);
-    var all = Array.from(new Set(checked.concat(newTags)));
-    form.querySelector('.tag-hidden-input').value = all.join(',');
-    htmx.trigger(form, 'submit');
-  }
-
-  details.addEventListener('toggle', function () {
-    if (!this.open) {
-      collectAndSave();
-    } else {
-      setTimeout(function () { form.querySelector('.tag-new-input').focus(); }, 0);
+    function collectAndSave() {
+      var checked = Array.from(form.querySelectorAll('input[type=checkbox]:checked')).map(function (cb) { return cb.value; });
+      var newRaw = form.querySelector('.tag-new-input').value;
+      var newTags = newRaw.split(',').map(function (t) { return t.trim().toLowerCase(); }).filter(Boolean);
+      var all = Array.from(new Set(checked.concat(newTags)));
+      form.querySelector('.tag-hidden-input').value = all.join(',');
+      htmx.trigger(form, 'submit');
     }
-  });
 
-  // Enter closes the popup so autosave fires via toggle; prevents native form submit.
-  form.querySelector('.tag-new-input').addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') { e.preventDefault(); details.open = false; }
-  });
+    details.addEventListener('toggle', function () {
+      if (!this.open) {
+        collectAndSave();
+      } else {
+        setTimeout(function () { form.querySelector('.tag-new-input').focus(); }, 0);
+      }
+    });
 
-  // Close on outside mousedown (fires before <details> re-toggle; autosave via toggle).
-  document.addEventListener('mousedown', function (e) {
-    if (!details.isConnected) return;
-    if (details.open && !details.contains(e.target)) details.open = false;
-  });
+    // Enter closes the popup so autosave fires via toggle; prevents native form submit.
+    form.querySelector('.tag-new-input').addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); details.open = false; }
+    });
 
-  document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && details.open && details.isConnected) details.open = false;
-  });
-})();
-</script>
+    // Close on outside mousedown (fires before <details> re-toggle; autosave via toggle).
+    document.addEventListener('mousedown', function (e) {
+      if (!details.isConnected) return;
+      if (details.open && !details.contains(e.target)) details.open = false;
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && details.open && details.isConnected) details.open = false;
+    });
+  })();
+  </script>
+{% endif %}

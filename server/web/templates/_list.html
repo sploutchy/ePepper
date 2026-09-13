@@ -11,13 +11,21 @@
   {% else %}
     <div class="empty-onboarding">
       <p><strong>Nothing saved yet.</strong></p>
-      <p class="muted">
-        Paste a recipe URL on the <a href="/app/add">Add page</a> to start your repertoire,
-        or send a URL or photo to the Telegram bot.
-      </p>
-      <p class="muted">
-        Use the tag editor on each recipe page to add tags (e.g. <code>weeknight</code>) — they'll appear as a filter cloud here.
-      </p>
+      {% if can(request, "library.add") %}
+        <p class="muted">
+          Paste a recipe URL on the <a href="/app/add">Add page</a> to start your repertoire,
+          or send a URL or photo to the Telegram bot.
+        </p>
+      {% else %}
+        {# An access code that can't add shouldn't be pointed at a page it
+           can't open. #}
+        <p class="muted">Recipes added to this repertoire will show up here.</p>
+      {% endif %}
+      {% if can(request, "library.edit") %}
+        <p class="muted">
+          Use the tag editor on each recipe page to add tags (e.g. <code>weeknight</code>) — they'll appear as a filter cloud here.
+        </p>
+      {% endif %}
     </div>
   {% endif %}
 {% else %}

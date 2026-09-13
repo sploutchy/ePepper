@@ -89,7 +89,7 @@
     {% endif %}
   {% endif %}
 
-  {% if display.type != "idle" %}
+  {% if display.type != "idle" and can(request, "display.control") %}
     <form class="status-actions"
           hx-post="/app/display/clear"
           hx-confirm="Clear the display?">
@@ -237,10 +237,14 @@
     {% endif %}
   {% endif %}
   {# OTA recovery — browser-based flasher for when OTA can't reach the
-     device. OTA is the normal path; this is a rare manual fallback. #}
-  <p class="status-actions">
-    <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash firmware</a>
-  </p>
+     device. OTA is the normal path; this is a rare manual fallback.
+     Admin-only: the merged image it serves carries the baked WiFi
+     password and API key. #}
+  {% if can(request, "device.admin") %}
+    <p class="status-actions">
+      <a class="link" href="/app/flash">{{ icon("upload", 14) }} Flash firmware</a>
+    </p>
+  {% endif %}
 </section>
 
 </div> {# /.status-cards #}

@@ -27,12 +27,32 @@
   {% block header %}
     <header class="topbar">
       <div class="topbar-inner">
-        <a href="/app/" class="brand">
-          <span class="brand-e">e</span>Pepper
-        </a>
+        {# The wordmark links home only for a code that can open the
+           repertoire — otherwise it's a link to a 403. #}
+        {% if can(request, "library.view") %}
+          <a href="/app/" class="brand">
+            <span class="brand-e">e</span>Pepper
+          </a>
+        {% else %}
+          <span class="brand"><span class="brand-e">e</span>Pepper</span>
+        {% endif %}
+        {# Nav entries appear only for access codes that carry the
+           function. A code that can't reach either page gets the wordmark
+           alone — which is the masthead DESIGN.md describes anyway. The
+           role chip shows only for non-admin codes, so the default
+           experience is unchanged. #}
         <nav class="topnav masthead-nav">
-          <a href="/app/add" class="masthead-link">Add</a>
-          <a href="/app/status" class="masthead-link">Status</a>
+          {% if can(request, "library.add") %}
+            <a href="/app/add" class="masthead-link">Add</a>
+          {% endif %}
+          {% if can(request, "status.view") %}
+            <a href="/app/status" class="masthead-link">Status</a>
+          {% endif %}
+          {% set role = access_label(request) %}
+          {% if role %}<span class="role-chip" title="Access level">{{ role }}</span>{% endif %}
+          <form action="/app/logout" method="post" class="masthead-logout">
+            <button type="submit" class="masthead-link">Sign out</button>
+          </form>
         </nav>
       </div>
     </header>

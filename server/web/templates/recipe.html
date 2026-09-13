@@ -47,17 +47,19 @@
 
   <div id="recipe-tags">{% include "_tags.html" %}</div>
 
-  <div class="actions">
-    {# Same link-style treatment as "Delete this recipe" in the footer —
-       quiet, no filled chrome. Push isn't destructive so we colour with
-       --accent (paprika) instead of --danger. #}
-    <button class="link accent"
-            hx-post="/app/recipes/{{ r.id }}/push"
-            hx-target="#toast"
-            hx-swap="innerHTML">
-      {{ icon("monitor", 14) }} Push to display
-    </button>
-  </div>
+  {% if can(request, "display.push") %}
+    <div class="actions">
+      {# Same link-style treatment as "Delete this recipe" in the footer —
+         quiet, no filled chrome. Push isn't destructive so we colour with
+         --accent (paprika) instead of --danger. #}
+      <button class="link accent"
+              hx-post="/app/recipes/{{ r.id }}/push"
+              hx-target="#toast"
+              hx-swap="innerHTML">
+        {{ icon("monitor", 14) }} Push to display
+      </button>
+    </div>
+  {% endif %}
 
   {# Magazine-style two-column body on desktop: ingredients pin into a
      sticky left aside, instructions flow in the main column.
@@ -104,14 +106,22 @@
      side-by-side Display / Delete pairing invited fat-finger mistakes. Edit
      rides along the same way — installed PWAs have no address bar, so the
      /edit page needs at least one quiet link somewhere reachable. #}
-  <div class="recipe-footer">
-    <a href="/app/recipes/{{ r.id }}/edit" class="link muted">Edit recipe</a>
-    <span class="muted">·</span>
-    <button class="link danger"
-            hx-delete="/app/recipes/{{ r.id }}"
-            hx-confirm="Delete this recipe?">
-      {{ icon("trash", 14) }} Delete this recipe
-    </button>
-  </div>
+  {% set may_edit = can(request, "library.edit") %}
+  {% set may_delete = can(request, "library.delete") %}
+  {% if may_edit or may_delete %}
+    <div class="recipe-footer">
+      {% if may_edit %}
+        <a href="/app/recipes/{{ r.id }}/edit" class="link muted">Edit recipe</a>
+      {% endif %}
+      {% if may_edit and may_delete %}<span class="muted">·</span>{% endif %}
+      {% if may_delete %}
+        <button class="link danger"
+                hx-delete="/app/recipes/{{ r.id }}"
+                hx-confirm="Delete this recipe?">
+          {{ icon("trash", 14) }} Delete this recipe
+        </button>
+      {% endif %}
+    </div>
+  {% endif %}
 </article>
 {% endblock %}

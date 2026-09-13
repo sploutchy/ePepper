@@ -1381,6 +1381,35 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   color: var(--muted);
   opacity: 0.6;
 }
+/* Sign out is a POST, so it sits in a <form> rather than being another
+   adjacent .masthead-link — the `·` separator rule above can't reach it.
+   A plain left margin carries the same rhythm without a dot that would
+   dangle when a viewer's nav has no links in front of it. The chip is
+   spaced the same way: a separator drawn with ::before would land inside
+   its border box. */
+.masthead-nav .masthead-logout {
+  display: inline-flex;
+  margin: 0 0 0 14px;
+  padding: 0;
+}
+.masthead-nav .role-chip { margin-left: 14px; }
+.masthead-nav > .role-chip:first-child,
+.masthead-nav > .masthead-logout:first-child { margin-left: 0; }
+/* Access-level chip. Shown only for non-admin codes, so the default
+   masthead is unchanged. Same quiet register as .card-badge: uppercase
+   tracked Inter, hairline border, muted ink — it labels, never shouts. */
+.role-chip {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 2px 6px;
+  line-height: 1;
+}
 /* ----------  Library tiers  ----------
    Magazine-contents-page tiering: a small-caps date eyebrow with a
    hairline above each time bucket. The lead row that used to promote
