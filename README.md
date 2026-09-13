@@ -51,6 +51,11 @@ on their anniversary.
 - **Two control surfaces.** A PWA-installable web app at `/app/` and a
   Telegram bot — pick whichever fits the moment. Both can add recipes
   (URL or image), search the repertoire, and push to the display.
+- **Access levels.** Extra access codes, each granting a named subset of
+  the app's functions — hand out a read-only code for the repertoire and
+  keep adding, editing, deleting and the panel controls to yourself. The
+  buttons a code can't use aren't rendered, and the routes behind them
+  refuse it. Off by default: `API_KEY` alone behaves as it always has.
 - **Repertoire.** Saved recipes persist in SQLite with FTS5 full-text
   search over title + ingredients + tags, sorted most-recently-cooked
   first. Filter by source (a website, a named cookbook) or tag,
@@ -238,6 +243,7 @@ and the daily timer touch the network. See [On-device page cache](#on-device-pag
 |---|---|
 | `TELEGRAM_BOT_TOKEN` | From [@BotFather](https://t.me/BotFather). **Required** — server won't start without it. |
 | `API_KEY` | Shared secret for ESP32 ↔ server auth, and the web-UI login. **Required** — server refuses to start if unset or empty. Generate one as shown in the install steps above. |
+| `ACCESS_CODES` | *Optional.* Extra web access codes, each granting a subset of the app's functions — `;`-separated `label:code:grants` entries, e.g. `guests:<code>:viewer`. Unset = `API_KEY` is the only credential and can do everything (the previous behaviour). See [Authorization](#authorization-access-codes). |
 | `ALLOWED_USERS` | Comma-separated Telegram user IDs allowed to talk to the bot. Empty **denies all** (safer default — an unconfigured bot is closed, not open). Set to at least your own user id to use the bot. |
 | `API_PORT` | Server port (default: `8080`). |
 | `PHOTO_MAX_MB` | *Optional, default `8`.* Maximum size in MB for web photo uploads on `/app/add`. Larger uploads are rejected with a clear error before they hit the LLM. |
@@ -258,13 +264,16 @@ and the daily timer touch the network. See [On-device page cache](#on-device-pag
 The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
 + HTMX partials, no build step, ~50 KB JS bundled locally.
 
-- **Sign in** with the same `API_KEY` the device uses. The login sets an
+- **Sign in** with the `API_KEY` the device uses, or with any access code
+  configured via `ACCESS_CODES` (see [Authorization](#authorization-access-codes)
+  — a code can be limited to just browsing the repertoire). The login sets an
   `epepper_auth` cookie (`HttpOnly`, `Secure`, `SameSite=Lax`) whose value
-  is an HMAC of the API key — not the key itself, so a leaked cookie can't
-  be replayed as the device Bearer token. There's no server-side session
-  store: the cookie validates by recomputation, so rotating `API_KEY` logs
-  everyone out. The cookie lasts 30 days. `Secure` means you must serve
-  `/app/` over HTTPS or the login won't stick.
+  names the signed-in principal and is signed with the API key — it never
+  carries the code itself, so a leaked cookie can't be replayed as a login
+  or as the device Bearer token. There's no server-side session store: the
+  cookie validates by recomputation, so rotating `API_KEY` logs everyone
+  out. The cookie lasts 30 days. `Secure` means you must serve `/app/` over
+  HTTPS or the login won't stick.
 - **Pages:**
   - `/app/` — repertoire list (search, source + tag filters,
     infinite scroll, on-display badge).
@@ -272,6 +281,9 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   - `/app/recipes/<id>` — recipe detail (tags, push, delete).
   - `/app/status` — live panel preview, panel state, repertoire
     stats + last backup, device readings.
+
+  Pages an access code doesn't carry the permission for are hidden from
+  the masthead and refused by the server.
 - **Dark mode.** Follows OS preference automatically; a `☀/☾`
   toggle in the header overrides and persists in `localStorage`.
   Mobile browser chrome (URL bar, status bar) flips with the page
@@ -281,9 +293,85 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   request hits the network, so the repertoire is never stale (and the
   app needs connectivity to load).
 
-The login cookie also unlocks `/version`, `/image`, etc. for the
-browser, so you can debug the device by opening those URLs after
-signing in.
+The login cookie also unlocks `/image` for the browser (subject to the
+access level below), so you can debug the panel render by opening that
+URL after signing in.
+
+### Authorization (access codes)
+
+By default there is one credential: `API_KEY`, which is both the device's
+Bearer token and a web login that can do everything. `ACCESS_CODES` adds
+further codes, each carrying only the functions you grant it — so you can
+hand someone the repertoire without handing them the delete button.
+
+`API_KEY` is unchanged by any of this: it stays the device token and an
+implicit `admin` web login. With `ACCESS_CODES` unset, nothing about the
+app's behaviour differs from before.
+
+**Configuring codes.** Entries separated by `;`, each `label:code:grants`:
+
+```sh
+# One guest code, read-only library:
+ACCESS_CODES=guests:zoZ7k2h9Qm4Vt1sY:viewer
+
+# Two codes, the second with an explicit permission list:
+ACCESS_CODES=guests:zoZ7k2h9Qm4Vt1sY:viewer;kitchen:Ba4dRn8xLe2WqPju:library.view|display.push
+```
+
+- `label` — 1–32 chars of `a-z`, `0-9`, `_`, `-`. Identifies the code in
+  logs and in the app's masthead chip; `admin` is reserved.
+- `code` — the access code itself, at least 12 characters. Generate one
+  the same way as `API_KEY`. It must differ from `API_KEY` and from every
+  other code.
+- `grants` — a role name, or a `|`-separated list of permissions.
+
+Anything malformed — an unknown permission, a short code, a duplicate
+label — stops the server at startup with a message naming the entry. A
+typo that quietly grants nothing is worse than a container that refuses
+to boot.
+
+**Roles** are shorthands for the sets people usually want:
+
+| Permission | What it unlocks | `viewer` | `editor` | `admin` |
+|---|---|:--:|:--:|:--:|
+| `library.view` | Browse, search and filter the repertoire; read a recipe | ✅ | ✅ | ✅ |
+| `status.view` | The status page, device readings, and the panel preview | — | ✅ | ✅ |
+| `display.push` | Push a recipe to the panel | — | ✅ | ✅ |
+| `display.control` | Clear the panel | — | ✅ | ✅ |
+| `library.add` | Add recipes from a link or a photo | — | ✅ | ✅ |
+| `library.edit` | Edit recipe content and tags | — | ✅ | ✅ |
+| `library.delete` | Delete recipes | — | ✅ | ✅ |
+| `device.admin` | `/app/flash` — USB recovery flashing | — | — | ✅ |
+
+`admin` is not grantable: full access is `API_KEY`, and there is exactly
+one way to have it.
+
+**What a restricted code sees.** Functions it can't use are absent, not
+greyed out — no Add/Status tabs, no push/edit/delete buttons, tags render
+as plain filter links. The routes behind them return 403 regardless, so
+hiding is cosmetic and the enforcement is server-side. Typing a URL
+directly gets a short "not available on this access code" page rather
+than a bounce to the login form.
+
+**⚠️ `device.admin` is equivalent to admin.** `/app/flash` serves the
+merged firmware image, which has your WiFi password and the raw `API_KEY`
+baked into it (ESP Web Tools can only fetch with browser credentials —
+see `server/api/server.py`). Anyone holding `device.admin` can read
+`API_KEY` out of that binary. It's in no role but `admin` for that reason;
+don't add it to one.
+
+**Rotation.** Changing one entry's code signs out only its holder;
+removing the entry signs them out; rotating `API_KEY` signs out everyone,
+including access-code holders, because every session cookie is signed with
+it. There's still no server-side session store — cookies validate by
+recomputation.
+
+**Signing out.** The masthead carries a *Sign out* link that drops the
+session cookie. A non-admin code also shows a small chip naming its access
+level, so it's obvious which code a browser is signed in with.
+
+Access codes govern the web app only. The Telegram bot has its own
+authorization (`ALLOWED_USERS`) and is unaffected.
 
 ### Recipe repertoire (SQLite)
 
@@ -426,9 +514,12 @@ sanity-check what the container actually sees.
 All endpoints require one of:
 
 - `Authorization: Bearer <API_KEY>` header (the firmware uses this).
-- `epepper_auth` session cookie set by the `/app/login` flow (the
-  browser path — convenient for poking at `/version` / `/image` after
-  signing in).
+- `epepper_auth` session cookie set by the `/app/login` flow — but only
+  on `/image`, and only from a session carrying `status.view` (see
+  [Authorization](#authorization-access-codes)). It's the one device
+  endpoint a browser can reach, because the status page previews it with
+  an `<img>` tag that can't attach a Bearer header. Every other endpoint
+  here is Bearer-only, i.e. admin-only.
 
 The previous `?key=<API_KEY>` query-param fallback was removed: uvicorn
 records the full path+query in its access log, so any request that used

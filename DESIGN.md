@@ -223,7 +223,10 @@ treatment as the Tomorrow card so they read with identical weight.
 
 The wordmark fills the top at `clamp(48px, 6vw, 72px)`. Directly under
 it sits the access-code field with the merged paste/submit button
-(`.input-action-btn`) inline. **No tagline above the form, no hint
+(`.input-action-btn`) inline. The field is unchanged now that several
+codes can sign in at different access levels — "Access code" was always
+the right name for it, and which code you hold is the server's business,
+not the form's. **No tagline above the form, no hint
 below it.** The placeholder ("Access code") names the field; the
 wordmark establishes which app you're signing into.
 
@@ -240,6 +243,37 @@ appears when `error` is truthy.
 ---
 
 ## Component patterns
+
+### Access levels — hide, don't disable
+
+A function the signed-in access code can't use is **absent from the
+page**, never greyed out. A disabled Delete button tells a guest what
+they're missing and invites a click that fails; the editorial language
+has no vocabulary for "present but inert" anyway. This matches what the
+system already does with the Clear button on the status page — it
+simply isn't there when the panel is idle.
+
+So: no Add/Status entries in the masthead, no push/edit/delete on the
+recipe page, tags render as plain filter pills without the popover. If
+you find yourself adding `disabled` to express a permission, that's the
+wrong instinct.
+
+The **role chip** (`.role-chip`) sits at the end of the masthead nav and
+names the current access level — uppercase tracked Inter at 10 px,
+`--muted` ink, hairline border, same quiet register as `.card-badge`. It
+appears **only for non-admin codes**, so the default masthead is exactly
+what it was before access levels existed.
+
+**Sign out** is the last masthead entry. It's a POST (so it sits in a
+`<form>`, which the `·` separator rule can't reach) and is spaced with a
+plain left margin instead — a dot before it would dangle when a viewer's
+nav has no links in front of it.
+
+The **403 page** reuses the `.empty` state: a page title, one muted
+sentence naming what the code can't do, and a link back to the
+repertoire. It's reached by typing a URL or by a tab left open across a
+permission change — the buttons being absent is how anyone actually
+learns what their code does, so this page stays plain.
 
 ### Toast / confirmation
 

@@ -47,6 +47,7 @@ _CONFIG_KEYS = (
     "API_HOST",
     "API_PORT",
     "API_KEY",
+    "ACCESS_CODES",
     "WEB_URL",
     "PHOTO_MAX_MB",
     "DATA_DIR",
@@ -64,6 +65,18 @@ _CONFIG_KEYS = (
 def _render_config_value(key: str, value) -> str:
     if key in _REDACTED_KEYS:
         return _redact("" if value is None else str(value))
+    if key == "ACCESS_CODES":
+        # Labels and grants in the clear, codes redacted: seeing who may do
+        # what is half the point of reaching for --print-config.
+        if not value:
+            return "***none*** (API_KEY is the only credential)"
+        if isinstance(value, str):
+            # Raw-env fallback below: config failed to import, so this is
+            # the unparsed string — which is all code, so none of it prints.
+            return "***set*** (unparsed — config is invalid)"
+        return ", ".join(
+            f"{p.label}({p.grants})={_redact(p.code)}" for p in value
+        )
     if value is None:
         return "***unset***"
     rendered = str(value)
