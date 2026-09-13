@@ -29,7 +29,7 @@
   </header>
 
   <main>
-    <article class="recipe">
+    <article class="recipe recipe--shared">
       <h1>{{ r.title }}</h1>
       {% set total_time = r.recipe.total_time %}
       {% set servings = fmt_servings(r.recipe.servings) %}
@@ -56,8 +56,6 @@
       {% endif %}
 
       {% include "_recipe_body.html" %}
-
-      <p class="share-footer muted">Shared from a private ePepper repertoire.</p>
     </article>
   </main>
 </body>

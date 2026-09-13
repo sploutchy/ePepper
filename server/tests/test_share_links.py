@@ -140,13 +140,23 @@ def test_minting_a_link_for_a_missing_recipe_404s(client, test_db):
     assert client.post("/app/recipes/9999/share").status_code == 404
 
 
-def test_the_copy_panel_states_the_expiry_and_that_it_cannot_be_withdrawn(
-    client, test_db,
-):
-    """The one thing a person needs to know before sending it."""
+def test_the_copy_panel_states_the_expiry(client, test_db):
+    """The one thing a person needs to know before sending it — in
+    wall-clock terms, since `humanize_date` only phrases the past."""
     resp = client.post(f"/app/recipes/{_recipe()}/share")
     assert "tomorrow at" in resp.text
-    assert "can't be withdrawn" in resp.text
+
+
+def test_the_copy_button_has_a_visible_icon(client, test_db):
+    """Regression: the button first shipped reusing the login screen's
+    .state-paste markup, which app.css hides until input-action.js sets
+    data-state. This button has one state and never sets it, so the icon
+    was hidden in every browser."""
+    html = client.post(f"/app/recipes/{_recipe()}/share").text
+    button = html.split("data-share-copy", 1)[1].split("</button>", 1)[0]
+    assert "<svg" in button
+    assert "state-paste" not in button
+    assert "state-submit" not in button
 
 
 def test_the_token_is_never_logged(client, test_db, caplog):

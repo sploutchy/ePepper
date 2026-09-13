@@ -1353,7 +1353,7 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
    bounded block rather than a card: it's a passage of the page that just
    appeared, not a separate object floating above it. */
 .share-link {
-  margin: 18px 0 0;
+  margin: 18px 0 36px;
   padding: 16px 0 0;
   border-top: 1px solid var(--border);
 }
@@ -1376,15 +1376,11 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   color: var(--accent);
 }
 
-/* Footer line on the public share page — the one bit of chrome that says
-   where the recipe came from without implying there's an app to open. */
-.share-footer {
-  margin: 48px 0 0;
-  padding-top: 16px;
-  border-top: 1px solid var(--border);
-  font-size: 12px;
-  letter-spacing: 0.04em;
-}
+/* The share page has no tags row and no actions block between the meta
+   line and the recipe body, so the INGREDIENTS rule landed almost on top
+   of "from <source>". Restore the separation those blocks provide on the
+   signed-in page, scoped so it can't double up there. */
+.recipe--shared .recipe-body { margin-top: 40px; }
 
 /* ----------  htmx indicator helpers ---------- */
 .htmx-indicator { opacity: 0; }

@@ -1,3 +1,4 @@
+{% from "_icons.html" import icon %}
 {# Minted share link. Swapped into #share-link on the recipe page.
 
    The URL is shown in full in a readonly field rather than hidden behind
@@ -6,19 +7,20 @@
    context, or the user denies it), because you can select the text. #}
 <div class="share-link" role="group" aria-label="Share link">
   <p class="share-link-note muted">
-    Anyone with this link can read this recipe until {{ expires }}. It
-    can't be withdrawn before then — it just stops working.
+    Anyone with this link can read this recipe until {{ expires }}.
   </p>
   <div class="input-action">
     <input type="text" id="share-url" class="share-url" readonly
            value="{{ url }}" aria-label="Share link"
            onfocus="this.select()">
+    {# Plain icon, NOT the .state-paste/.state-submit pair the login and
+       Add screens use: those are hidden by default and revealed by
+       input-action.js setting data-state, which this button — having
+       only one state — never sets. Reusing that markup here left the
+       button empty in every browser. #}
     <button type="button" class="input-action-btn" data-share-copy
             aria-label="Copy link">
-      <svg class="state-paste" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-        <rect x="8" y="2" width="8" height="4" rx="1"/>
-        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
-      </svg>
+      {{ icon("copy", 20) }}
     </button>
   </div>
   <p class="share-link-done muted" aria-live="polite" hidden>Copied.</p>
