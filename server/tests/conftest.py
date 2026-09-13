@@ -35,13 +35,19 @@ def test_db(tmp_path, monkeypatch):
     return db
 
 
+# The session cookie is Secure, so a client on http:// would accept it and
+# then never send it back. https matches the real deployment (Secure means
+# /app/ has to be served over TLS anyway) and lets login/logout round-trip.
+_BASE_URL = "https://testserver"
+
+
 @pytest.fixture
 def client(test_db):
-    """Authenticated TestClient for the /app web routes."""
+    """Authenticated TestClient for the /app web routes — admin (API_KEY)."""
     from api.server import app
     from api.web import COOKIE_NAME, session_cookie_value
 
-    c = TestClient(app)
+    c = TestClient(app, base_url=_BASE_URL)
     c.cookies.set(COOKIE_NAME, session_cookie_value())
     return c
 
@@ -51,4 +57,38 @@ def anon_client(test_db):
     """Unauthenticated TestClient — for auth-gate tests."""
     from api.server import app
 
-    return TestClient(app)
+    return TestClient(app, base_url=_BASE_URL)
+
+
+@pytest.fixture
+def make_client(test_db, monkeypatch):
+    """Factory for a TestClient signed in as a non-admin access code.
+
+    Installs the principal into `config.PRINCIPALS` (which `api/web.py`
+    reads at request time, not import time) and sets the matching cookie.
+
+        client = make_client(grants="viewer")
+        client = make_client(grants="library.view|display.push")
+    """
+    def _make(label="guests", grants="viewer", code="test-access-code-9876"):
+        import authz
+        import config
+        from api.server import app
+        from api.web import COOKIE_NAME, session_cookie_value
+
+        principal = authz.parse_access_codes(f"{label}:{code}:{grants}")[0]
+        monkeypatch.setattr(
+            config, "PRINCIPALS",
+            [authz.admin_principal(config.API_KEY), principal],
+        )
+        c = TestClient(app, base_url=_BASE_URL)
+        c.cookies.set(COOKIE_NAME, session_cookie_value(principal))
+        return c
+
+    return _make
+
+
+@pytest.fixture
+def viewer_client(make_client):
+    """The requested read-only code: the repertoire and nothing else."""
+    return make_client(grants="viewer")

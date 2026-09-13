@@ -1,19 +1,26 @@
 """Web UI for browsing, searching, and managing the recipe library.
 
 Server-rendered HTML + HTMX partials. Cookie-based auth: login checks the
-shared API_KEY and sets a stateless cookie carrying an HMAC of the key (not
-the key itself), httpOnly + Secure + SameSite=Lax. There's no server-side
-session store — the cookie validates by recomputation, so rotating API_KEY
-logs everyone out. Routes live under /app/ to keep the device-facing
-endpoints clean.
+submitted access code against every configured principal (API_KEY is the
+implicit `admin` one) and sets a stateless cookie naming that principal —
+`v2.<label>.<hmac>`, httpOnly + Secure + SameSite=Lax. The cookie never
+carries the code itself, and there's no server-side session store: it
+validates by recomputation, so rotating API_KEY logs everyone out and
+changing one access code logs out only its holder. See `authz.py` for the
+cookie derivation and the permission vocabulary.
+
+Every route declares the permission it needs in its decorator —
+`dependencies=[Depends(requires(authz.LIBRARY_EDIT))]` — rather than
+checking inside the handler. That's what lets
+tests/test_route_permission_coverage.py walk the router and fail a route
+that forgot to decide, which is the realistic way this goes wrong.
+
+Routes live under /app/ to keep the device-facing endpoints clean.
 """
 
 import asyncio
-import hashlib
-import hmac
 import logging
 import re
-import secrets
 import sqlite3
 import time
 from html import escape
@@ -21,11 +28,13 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 from markupsafe import Markup
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, Response
 from fastapi.templating import Jinja2Templates
 
+import authz
 import backup
+import config
 import device_telemetry
 from display import state as display_state
 import library
@@ -76,40 +85,146 @@ templates = Jinja2Templates(directory=str(_WEB_DIR / "templates"))
 # hang onto stale app.css/htmx.min.js indefinitely — to fetch fresh copies.
 templates.env.globals["asset_v"] = str(int(time.time()))
 
+# Sentinel so a cookie that resolves to nobody isn't re-resolved on every
+# `can()` call in a template.
+_UNRESOLVED = object()
 
-def session_cookie_value() -> str:
-    """Stateless auth-cookie value derived from the API key.
+# Marker for routes reachable signed-out (the login form, and sign-out).
+# Not a permission — `requires()` would reject it as one.
+PUBLIC = "public"
 
-    An HMAC of a fixed label keyed by API_KEY — never the key itself, so a
-    cookie leak can't be replayed as the device Bearer token (which is the
-    raw API_KEY). No DB row: validate by recomputing and constant-time
-    comparing. Rotating API_KEY invalidates every outstanding cookie.
+
+def session_cookie_value(principal: authz.Principal | None = None) -> str:
+    """Stateless auth-cookie value for `principal` (default: admin).
+
+    The value names the principal and is signed with API_KEY; it never
+    carries the access code itself, so a cookie leak can't be replayed as a
+    login or — for admin — as the device Bearer token. No DB row: validate
+    by recomputing and constant-time comparing.
     """
-    return hmac.new(
-        API_KEY.encode("utf-8"), b"epepper-web-session", hashlib.sha256
-    ).hexdigest()
+    if principal is None:
+        principal = authz.admin_principal(API_KEY)
+    return authz.session_value(API_KEY, principal)
 
 
-def cookie_is_valid(cookie: str) -> bool:
-    """Constant-time check that `cookie` matches the derived session value."""
-    return bool(cookie) and hmac.compare_digest(cookie, session_cookie_value())
+def principal_for_cookie(cookie: str) -> authz.Principal | None:
+    """The principal a cookie value authenticates, or None."""
+    return authz.resolve_cookie(API_KEY, config.PRINCIPALS, cookie)
 
 
-def _is_authed(request: Request) -> bool:
-    return cookie_is_valid(request.cookies.get(COOKIE_NAME, ""))
+def _principal(request: Request) -> authz.Principal | None:
+    """Resolve (and memoize on the request) the signed-in principal."""
+    cached = getattr(request.state, "principal", _UNRESOLVED)
+    if cached is not _UNRESOLVED:
+        return cached
+    principal = principal_for_cookie(request.cookies.get(COOKIE_NAME, ""))
+    request.state.principal = principal
+    return principal
 
 
-def _require_auth(request: Request) -> None:
-    """Redirect to /app/login for unauthed requests.
+class PermissionDenied(Exception):
+    """Signed in, but this access code doesn't carry the permission.
+
+    Deliberately not a redirect to /app/login: bouncing a signed-in guest to
+    the login form reads as "your code stopped working". Rendered as a 403
+    page (or an HTMX toast) by `permission_denied_handler`, which
+    api/server.py registers on the app.
+    """
+
+    def __init__(self, request: Request, permission: str):
+        self.request = request
+        self.permission = permission
+        super().__init__(permission)
+
+
+def _unauthenticated(request: Request) -> HTTPException:
+    """Send an unauthed request to the login page.
 
     HTMX requests get HX-Redirect so the swap target isn't replaced with the
     login page; full-page navs get a 303.
     """
-    if _is_authed(request):
-        return
     if request.headers.get("HX-Request") == "true":
-        raise HTTPException(401, headers={"HX-Redirect": "/app/login"})
-    raise HTTPException(303, headers={"Location": "/app/login"})
+        return HTTPException(401, headers={"HX-Redirect": "/app/login"})
+    return HTTPException(303, headers={"Location": "/app/login"})
+
+
+def requires(permission: str):
+    """Route dependency: authenticate, then check one permission.
+
+    Used as `dependencies=[Depends(requires(authz.LIBRARY_VIEW))]` on the
+    decorator rather than called in the handler body, so the permission is
+    introspectable — see the coverage test.
+    """
+    if permission not in authz.PERMISSIONS:
+        raise ValueError(f"unknown permission: {permission!r}")
+
+    async def guard(request: Request) -> authz.Principal:
+        principal = _principal(request)
+        if principal is None:
+            raise _unauthenticated(request)
+        if not principal.can(permission):
+            raise PermissionDenied(request, permission)
+        return principal
+
+    guard.epepper_permission = permission
+    return guard
+
+
+def public():
+    """Route dependency for the signed-out routes. Checks nothing; exists so
+    every route carries an explicit, introspectable decision."""
+
+    async def guard(request: Request) -> None:
+        return None
+
+    guard.epepper_permission = PUBLIC
+    return guard
+
+
+def _can(request: Request, permission: str) -> bool:
+    """`{% if can(request, "library.edit") %}` — registered as a Jinja global.
+
+    A global taking the request, rather than a context key, because the
+    partials are rendered with minimal contexts (_tags.html, _status_body.html,
+    _toast.html); threading a new key through every route is exactly the kind
+    of thing one forgets on the eleventh route.
+    """
+    principal = _principal(request)
+    return principal is not None and principal.can(permission)
+
+
+def _access_label(request: Request) -> str | None:
+    """Short name for the masthead chip, or None for admin/signed-out.
+
+    The role name where there is one, else the code's label — a code with a
+    hand-written permission list would otherwise print its whole matrix
+    across the masthead. None for admin keeps the default experience
+    pixel-identical to before.
+    """
+    principal = _principal(request)
+    if principal is None or principal.is_admin:
+        return None
+    return principal.role or principal.label
+
+
+async def permission_denied_handler(request: Request, exc: Exception):
+    """Render PermissionDenied as a 403 page, or a toast for HTMX.
+
+    Registered on the app by api/server.py. A stale tab that posts after a
+    permission change gets a readable sentence rather than a silent failure.
+    """
+    what = authz.PERMISSIONS.get(getattr(exc, "permission", ""), "that")
+    message = f"Your access code can't {what}."
+    if request.headers.get("HX-Request") == "true":
+        return templates.TemplateResponse(
+            request, "_toast.html", {"message": message}, status_code=403,
+        )
+    return templates.TemplateResponse(
+        request,
+        "403.html",
+        {**_context_globals(request), "message": message},
+        status_code=403,
+    )
 
 
 def _fmt_saved(ts: int | None) -> str:
@@ -225,42 +340,67 @@ def _context_globals(request: Request) -> dict:
     }
 
 
+# Template gating. Globals rather than context keys: the partials are
+# rendered with minimal contexts, and threading a new key through every
+# route is exactly the kind of thing one forgets on the eleventh route.
+templates.env.globals["can"] = _can
+templates.env.globals["access_label"] = _access_label
+
+
 router = APIRouter(prefix="/app", tags=["web"])
 
 
 # --- Auth -------------------------------------------------------------------
 
 
-@router.get("/login", response_class=HTMLResponse)
+@router.get(
+    "/login", response_class=HTMLResponse, dependencies=[Depends(public())],
+)
 async def login_page(request: Request, error: str | None = None):
-    if _is_authed(request):
+    if _principal(request) is not None:
         return RedirectResponse("/app/", status_code=303)
     return templates.TemplateResponse(
         request, "login.html", {"error": error},
     )
 
 
-@router.post("/login")
+@router.post("/login", dependencies=[Depends(public())])
 async def login_submit(request: Request, api_key: str = Form(...)):
-    # Compare as bytes — compare_digest raises TypeError on non-ASCII str
-    # input, which would surface as a 500 instead of a failed login (same
-    # fix as _check_api_key in api/server.py).
-    if not secrets.compare_digest(api_key.encode("utf-8"), API_KEY.encode("utf-8")):
-        # Flat-rate the failure path so hammering the form with key
+    # `api_key` keeps its field name for compatibility with saved password
+    # managers — the form has always been labelled "Access code", which
+    # turns out to have been the right name all along.
+    #
+    # authz.authenticate compares as bytes (compare_digest raises TypeError
+    # on non-ASCII str input, which would surface as a 500 instead of a
+    # failed login) and walks every principal without an early exit.
+    principal = authz.authenticate(config.PRINCIPALS, api_key)
+    if principal is None:
+        # Flat-rate the failure path so hammering the form with code
         # guesses costs at least a second per attempt.
         await asyncio.sleep(1)
         return RedirectResponse("/app/login?error=1", status_code=303)
-    # Cookie carries an HMAC of the API key (not the key itself), so a cookie
-    # leak doesn't hand over the device Bearer credential.
+    # Cookie names the principal and is signed with API_KEY — never the code
+    # itself, so a cookie leak doesn't hand over a credential.
     resp = RedirectResponse("/app/", status_code=303)
     resp.set_cookie(
         COOKIE_NAME,
-        session_cookie_value(),
+        session_cookie_value(principal),
         max_age=COOKIE_MAX_AGE,
         httponly=True,
         secure=True,
         samesite="lax",
     )
+    log.info("Web login: principal=%s (%s)", principal.label, principal.grants)
+    return resp
+
+
+@router.post("/logout", dependencies=[Depends(public())])
+async def logout(request: Request):
+    """Drop the session cookie. Public and idempotent — signing out twice,
+    or without a session, is not an error worth a page."""
+    resp = RedirectResponse("/app/login", status_code=303)
+    # Attributes must match set_cookie's or the browser keeps the original.
+    resp.delete_cookie(COOKIE_NAME, httponly=True, secure=True, samesite="lax")
     return resp
 
 
@@ -401,7 +541,11 @@ def _list_context(
     }
 
 
-@router.get("/", response_class=HTMLResponse)
+@router.get(
+    "/",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_VIEW))],
+)
 async def index(
     request: Request,
     q: str = "",
@@ -409,7 +553,6 @@ async def index(
     source: str | None = None,
     tag: str | None = None,
 ):
-    _require_auth(request)
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
     ctx = _context_globals(request)
@@ -417,7 +560,11 @@ async def index(
     return templates.TemplateResponse(request, "index.html", ctx)
 
 
-@router.get("/_search", response_class=HTMLResponse)
+@router.get(
+    "/_search",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_VIEW))],
+)
 async def search_partial(
     request: Request,
     q: str = "",
@@ -434,7 +581,6 @@ async def search_partial(
     paginated stream doesn't double-print the heading on a tier that
     spans multiple pages.
     """
-    _require_auth(request)
     source = _sanitize_source(source)
     tag = _sanitize_tag(tag)
     ctx = _list_context(
@@ -503,13 +649,20 @@ def _add_error(request: Request, message: str) -> HTMLResponse:
     )
 
 
-@router.get("/add", response_class=HTMLResponse)
+@router.get(
+    "/add",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_ADD))],
+)
 async def add_page(request: Request):
-    _require_auth(request)
     return templates.TemplateResponse(request, "add.html", _context_globals(request))
 
 
-@router.post("/add/url", response_class=HTMLResponse)
+@router.post(
+    "/add/url",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_ADD))],
+)
 async def add_url(request: Request, url: str = Form(...)):
     """URL paste — adds the recipe to the repertoire, without pushing to the panel.
 
@@ -518,7 +671,6 @@ async def add_url(request: Request, url: str = Form(...)):
     what actually sends a recipe to the panel — so `last_displayed_at`
     only moves when the user really wants the recipe shown.
     """
-    _require_auth(request)
     url = url.strip()
     if not (url.startswith("http://") or url.startswith("https://")):
         return _add_error(request, "Not an `http(s)://` URL.")
@@ -539,7 +691,11 @@ async def add_url(request: Request, url: str = Form(...)):
     return _hx_redirect(f"/app/recipes/{result['recipe_id']}")
 
 
-@router.post("/add/file", response_class=HTMLResponse)
+@router.post(
+    "/add/file",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_ADD))],
+)
 async def add_file(request: Request, file: UploadFile = File(...)):
     """Single upload endpoint — OCR a recipe photo into the library.
 
@@ -548,7 +704,6 @@ async def add_file(request: Request, file: UploadFile = File(...)):
     The panel is not touched — Display on the detail page is the
     explicit "push to panel" action.
     """
-    _require_auth(request)
     ct = (file.content_type or "").lower()
     name = (file.filename or "").lower()
     is_image = ct.startswith("image/") or name.endswith(
@@ -644,26 +799,35 @@ def _status_ctx(request: Request) -> dict:
     }
 
 
-@router.get("/status", response_class=HTMLResponse)
+@router.get(
+    "/status",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.STATUS_VIEW))],
+)
 async def status_page(request: Request):
-    _require_auth(request)
     ctx = _context_globals(request)
     ctx.update(_status_ctx(request))
     return templates.TemplateResponse(request, "status.html", ctx)
 
 
-@router.get("/_status", response_class=HTMLResponse)
+@router.get(
+    "/_status",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.STATUS_VIEW))],
+)
 async def status_partial(request: Request):
     """HTMX partial — re-rendered every 30s by the status page to keep the
     live device readings + display preview fresh without a full reload."""
-    _require_auth(request)
     return templates.TemplateResponse(request, "_status_body.html", _status_ctx(request))
 
 
-@router.post("/display/clear", response_class=HTMLResponse)
+@router.post(
+    "/display/clear",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.DISPLAY_CONTROL))],
+)
 async def web_display_clear(request: Request):
     """Clear the display from the status page — same effect as the bot's /clear."""
-    _require_auth(request)
     display_state.clear()
     log.info("Web cleared display")
     return _hx_redirect("/app/status?cleared=1")
@@ -672,9 +836,12 @@ async def web_display_clear(request: Request):
 # --- Recipe detail ---------------------------------------------------------
 
 
-@router.get("/recipes/{recipe_id}", response_class=HTMLResponse)
+@router.get(
+    "/recipes/{recipe_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_VIEW))],
+)
 async def recipe_detail(request: Request, recipe_id: int):
-    _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
@@ -683,9 +850,12 @@ async def recipe_detail(request: Request, recipe_id: int):
     return templates.TemplateResponse(request, "recipe.html", ctx)
 
 
-@router.post("/recipes/{recipe_id}/tags", response_class=HTMLResponse)
+@router.post(
+    "/recipes/{recipe_id}/tags",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_EDIT))],
+)
 async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="")):
-    _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
@@ -709,9 +879,12 @@ async def tags_save(request: Request, recipe_id: int, tags: str = Form(default="
 # for the SSH-patch this replaces.
 
 
-@router.get("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
+@router.get(
+    "/recipes/{recipe_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_EDIT))],
+)
 async def recipe_edit_page(request: Request, recipe_id: int):
-    _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
@@ -727,7 +900,11 @@ async def recipe_edit_page(request: Request, recipe_id: int):
     return templates.TemplateResponse(request, "edit.html", ctx)
 
 
-@router.post("/recipes/{recipe_id}/edit", response_class=HTMLResponse)
+@router.post(
+    "/recipes/{recipe_id}/edit",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_EDIT))],
+)
 async def recipe_edit_save(
     request: Request,
     recipe_id: int,
@@ -744,7 +921,6 @@ async def recipe_edit_save(
     instructions: str = Form(default=""),
     cookbook_name: str = Form(default=""),
 ):
-    _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
@@ -784,9 +960,12 @@ async def recipe_edit_save(
 # --- Push to display -------------------------------------------------------
 
 
-@router.post("/recipes/{recipe_id}/push", response_class=HTMLResponse)
+@router.post(
+    "/recipes/{recipe_id}/push",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.DISPLAY_PUSH))],
+)
 async def push_recipe(request: Request, recipe_id: int):
-    _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
@@ -806,11 +985,14 @@ async def push_recipe(request: Request, recipe_id: int):
 # --- Delete -----------------------------------------------------------------
 
 
-@router.delete("/recipes/{recipe_id}", response_class=HTMLResponse)
+@router.delete(
+    "/recipes/{recipe_id}",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.LIBRARY_DELETE))],
+)
 async def delete_recipe(request: Request, recipe_id: int):
     """Soft-delete a recipe (set `deleted_at`; the row stays recoverable
     from a backup)."""
-    _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
@@ -832,9 +1014,12 @@ _FIRMWARE_DIR = Path("/app/firmware")
 _FLASH_FILES = {"manifest.json", "epepper-merged.bin"}
 
 
-@router.get("/flash", response_class=HTMLResponse)
+@router.get(
+    "/flash",
+    response_class=HTMLResponse,
+    dependencies=[Depends(requires(authz.DEVICE_ADMIN))],
+)
 async def flash_page(request: Request):
-    _require_auth(request)
     manifest_present = (_FIRMWARE_DIR / "manifest.json").exists()
     return templates.TemplateResponse(
         request,
@@ -843,9 +1028,8 @@ async def flash_page(request: Request):
     )
 
 
-@router.get("/flash/{filename}")
+@router.get("/flash/{filename}", dependencies=[Depends(requires(authz.DEVICE_ADMIN))])
 async def flash_file(request: Request, filename: str):
-    _require_auth(request)
     if filename not in _FLASH_FILES:
         raise HTTPException(404)
     path = _FIRMWARE_DIR / filename

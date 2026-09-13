@@ -1,20 +1,22 @@
 """FastAPI server — serves images to the ESP32 display.
 
 Auth (SEC-NEW-2): _check_api_key accepts the browser session cookie as an
-alternative to the Bearer token ONLY when a route opts in via
-allow_cookie=True. Just /image does so, because the status page renders the
-live display preview with `<img src="/image?v=...">` (see
-web/templates/_status_body.html:56): that <img> tag carries the session
-cookie but cannot easily attach a Bearer header. Every other DEVICE endpoint
-(e.g. /firmware/download) is Bearer-only.
+alternative to the Bearer token ONLY when a route opts in by naming the
+permission that cookie must carry. Just /image does so — it asks for
+`status.view` — because the status page renders the live display preview
+with `<img src="/image?v=...">` (see web/templates/_status_body.html:56):
+that <img> tag carries the session cookie but cannot easily attach a Bearer
+header. Every other DEVICE endpoint (e.g. /firmware/download) is Bearer-only,
+i.e. admin-only.
 
-Note the boundary honestly: the browser session is NOT credential-free —
-/app/flash/epepper-merged.bin (api/web.py) deliberately serves the merged
-firmware image, which carries the baked WiFi password + API key, behind the
-same cookie, because ESP Web Tools can only fetch with browser credentials.
-A stolen session cookie is therefore equivalent to the API key until
-API_KEY is rotated; the cookie/Bearer split protects against accidental
-key leakage (logs, referers), not against a fully compromised session.
+Note the boundary honestly: a browser session holding `device.admin` is NOT
+credential-free — /app/flash/epepper-merged.bin (api/web.py) deliberately
+serves the merged firmware image, which carries the baked WiFi password +
+API key, behind that cookie, because ESP Web Tools can only fetch with
+browser credentials. Such a session is therefore equivalent to the API key
+until API_KEY is rotated; the cookie/Bearer split protects against accidental
+key leakage (logs, referers), not against a fully compromised admin session.
+This is why `device.admin` is in no role but admin's — see authz.py.
 """
 
 import asyncio
@@ -27,10 +29,16 @@ from fastapi import FastAPI, Query, Request, Response
 from fastapi.responses import FileResponse, JSONResponse, PlainTextResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
+import authz
 import device_telemetry
 from display import state as display_state
 import library
-from api.web import cookie_is_valid, router as web_router
+from api.web import (
+    PermissionDenied,
+    permission_denied_handler,
+    principal_for_cookie,
+    router as web_router,
+)
 from display.image import get_image_bmp
 from config import API_KEY, DEVICE_WAKE_HOUR_LOCAL, TZ
 from scheduler import seconds_until_next_local_hour
@@ -41,18 +49,23 @@ app = FastAPI(title="ePepper", version="0.1.0")
 _WEB_DIR = Path(__file__).resolve().parent.parent / "web"
 app.mount("/app/static", StaticFiles(directory=str(_WEB_DIR / "static")), name="static")
 app.include_router(web_router)
+# Signed in, but the access code doesn't carry the permission — rendered as
+# a 403 page (or an HTMX toast) instead of a JSON error. See api/web.py.
+app.add_exception_handler(PermissionDenied, permission_denied_handler)
 
 
-def _check_api_key(request: Request, allow_cookie: bool = False) -> bool:
+def _check_api_key(request: Request, cookie_permission: str | None = None) -> bool:
     """Validate auth from the Authorization header, optionally also from a
     /app/ session cookie.
 
-    The Bearer token (== raw API key) is always accepted. The browser
-    session cookie is accepted ONLY when `allow_cookie=True` (SEC-NEW-2):
-    just /image opts in, for the status-page `<img src="/image">` preview
-    that can't attach a Bearer header. Every other device endpoint stays
+    The Bearer token (== raw API key) is always accepted, and is admin. The
+    browser session cookie is accepted ONLY when the route names the
+    permission it must carry (SEC-NEW-2): just /image opts in, asking for
+    `status.view`, for the status-page `<img src="/image">` preview that
+    can't attach a Bearer header. Every other device endpoint stays
     Bearer-only. (The merged firmware image is still reachable with a
-    session cookie via /app/flash — see the module docstring for why.)
+    `device.admin` session cookie via /app/flash — see the module docstring
+    for why.)
 
     The query-param fallback was dropped — uvicorn's access log records the
     full path+query, so passing the key in `?key=` leaked it on every request.
@@ -65,10 +78,14 @@ def _check_api_key(request: Request, allow_cookie: bool = False) -> bool:
         auth[7:].encode("utf-8"), API_KEY.encode("utf-8"),
     ):
         return True
-    # Browser path: the /app/ auth cookie (an HMAC of the API key, minted by
-    # /app/login). Only honored on cookie-allowed routes (/image).
-    if allow_cookie and cookie_is_valid(request.cookies.get("epepper_auth", "")):
-        return True
+    # Browser path: the /app/ auth cookie minted by /app/login. Only honored
+    # on cookie-allowed routes (/image), and only when the principal behind
+    # the cookie holds the permission that route asked for — a viewer's
+    # session doesn't unlock the panel render.
+    if cookie_permission is not None:
+        principal = principal_for_cookie(request.cookies.get("epepper_auth", ""))
+        if principal is not None and principal.can(cookie_permission):
+            return True
     return False
 
 
@@ -118,11 +135,11 @@ async def image(request: Request, page: int = Query(None, ge=1)):
 
     If no page param is given, serves the current active page from state.
     """
-    # allow_cookie=True: the status page previews this via
+    # cookie_permission: the status page previews this via
     # `<img src="/image">`, which carries the session cookie but no Bearer
     # header (SEC-NEW-2). This is the only device endpoint that accepts the
-    # cookie.
-    if not _check_api_key(request, allow_cookie=True):
+    # cookie, and only from a principal that may see the status page.
+    if not _check_api_key(request, cookie_permission=authz.STATUS_VIEW):
         return JSONResponse(status_code=401, content={"error": "unauthorized"})
 
     if page is None:

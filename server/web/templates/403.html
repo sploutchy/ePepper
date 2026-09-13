@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% block title %}Not available · ePepper{% endblock %}
+
+{% block content %}
+{# Reached by typing a URL, or by a tab left open across a permission
+   change — the buttons for anything gated are simply absent from the page,
+   so this is the edge case, not the primary way anyone learns about it. #}
+<div class="page-header">
+  <h1>Not available</h1>
+</div>
+<p class="muted empty">{{ message }}</p>
+{# Only offer the way back if this code can actually take it — a code
+   granted, say, status.view alone would otherwise be handed a link
+   straight to another 403. #}
+{% if can(request, "library.view") %}
+  <p class="empty"><a href="/app/">Back to the repertoire</a></p>
+{% endif %}
+{% endblock %}
