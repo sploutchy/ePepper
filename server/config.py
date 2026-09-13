@@ -3,6 +3,8 @@
 import os
 from zoneinfo import ZoneInfo
 
+import authz
+
 # Telegram
 TELEGRAM_BOT_TOKEN: str = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
 if not TELEGRAM_BOT_TOKEN:
@@ -28,6 +30,27 @@ if not API_KEY:
         "Generate one with: "
         "python3 -c \"import secrets; print(secrets.token_urlsafe(32))\""
     )
+
+# Access levels (optional). ACCESS_CODES defines additional web access
+# codes, each granting a named subset of the app's functions — entries
+# separated by `;`, each `label:code:grants`, where grants is a role name
+# (viewer / editor) or a `|`-separated permission list:
+#
+#   ACCESS_CODES=guests:zoZ7k2h9Qm4Vt1sY:viewer
+#
+# API_KEY is unaffected: it stays the device Bearer token and an implicit
+# `admin` principal on the web. Unset = exactly the previous behaviour,
+# one credential that can do everything.
+try:
+    ACCESS_CODES: list[authz.Principal] = authz.parse_access_codes(
+        os.environ.get("ACCESS_CODES", ""), reserved_codes=(API_KEY,),
+    )
+except ValueError as exc:
+    raise RuntimeError(f"ACCESS_CODES is malformed — {exc}") from exc
+
+# Every principal that can hold a web session, admin first. The login form
+# and the cookie validator both walk this list.
+PRINCIPALS: list[authz.Principal] = [authz.admin_principal(API_KEY), *ACCESS_CODES]
 
 # Public web app URL (optional). When set, the bot's /start and /help
 # include a clickable link to the web repertoire; otherwise the path is
