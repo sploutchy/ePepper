@@ -1348,6 +1348,44 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   .add-error code { background: rgba(255, 255, 255, 0.08); }
 }
 
+/* ----------  Share link  ----------
+   Appears under the recipe actions once a link is minted. A hairline-
+   bounded block rather than a card: it's a passage of the page that just
+   appeared, not a separate object floating above it. */
+.share-link {
+  margin: 18px 0 0;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+.share-link-note {
+  margin: 0 0 10px;
+  font-size: 13px;
+  max-width: 56ch;
+}
+.share-link .input-action { max-width: 520px; }
+/* The URL is the content here, so it gets mono and is allowed to be long;
+   the field scrolls rather than the page. */
+.share-url {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  text-overflow: ellipsis;
+}
+.share-link-done {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--accent);
+}
+
+/* Footer line on the public share page — the one bit of chrome that says
+   where the recipe came from without implying there's an app to open. */
+.share-footer {
+  margin: 48px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+}
+
 /* ----------  htmx indicator helpers ---------- */
 .htmx-indicator { opacity: 0; }
 .htmx-request .htmx-indicator { opacity: 1; transition: opacity .2s ease-in; }

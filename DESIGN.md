@@ -241,6 +241,44 @@ appears when `error` is truthy.
 
 ## Component patterns
 
+### Share link panel
+
+Minting a share link opens a **hairline-topped passage under the recipe
+actions**, not a toast and not a modal. A toast is for something that
+already happened and needs no response; a share link has to be read and
+copied, so it stays put until the page is left.
+
+The URL is shown **in full, in mono**, in a readonly field with the
+merged copy button (`.input-action`) — the same affordance as the login
+and Add screens. Never a bare "Copied!" with the link hidden: you should
+see exactly what you are about to send someone.
+
+The note above it states the expiry in wall-clock terms ("tomorrow at
+18:40", never "in 24 hours") and says plainly that the link can't be
+withdrawn early. That's a real limitation of an unrevocable token, and
+the moment it matters is the moment before you send it.
+
+*Share* itself is a **muted** link-button next to the accent *Push to
+display*. Pushing to the panel is what the page is for; sending the
+recipe to someone is the occasional errand, and the hierarchy should say
+so.
+
+### Shared recipe page
+
+The public share page (`/app/s/<token>`) is the **wordmark and the
+recipe, nothing else** — no nav, no sign-in prompt, no install banner,
+and the wordmark is not a link. A visitor was sent one recipe; every
+piece of chrome that hints at an app they can't open is noise at best
+and an invitation to go poking at best.
+
+It reuses the same `_recipe_body.html` partial as the signed-in page, so
+a shared recipe is typeset exactly like a private one — the editorial
+treatment is the product, and a stripped-down "public version" of it
+would read as an afterthought.
+
+One line of footer, `.share-footer`, says where it came from. It names
+no host and links nowhere.
+
 ### Toast / confirmation
 
 Inline editorial banner, **not a floating modal pill**. Same accent-

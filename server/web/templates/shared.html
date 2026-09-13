@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  {# The share URL is a credential. Without this it would travel to
+     fonts.googleapis.com in the Referer of the font request below — and to
+     anywhere else this page ever links out to. #}
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="theme-color" content="#FBFAF7" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">
+  {# No manifest and no icons: this is one page someone was sent, not an
+     app to install. #}
+  <title>{{ r.title }}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght,SOFT@0,9..144,400..700,50;1,9..144,400..700,50&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/app/static/app.css?v={{ asset_v }}">
+</head>
+<body>
+  {# Wordmark only — no nav, no sign-out, nothing that hints at an app the
+     visitor can't open. It isn't a link for the same reason. #}
+  <header class="topbar">
+    <div class="topbar-inner">
+      <span class="brand"><span class="brand-e">e</span>Pepper</span>
+    </div>
+  </header>
+
+  <main>
+    <article class="recipe">
+      <h1>{{ r.title }}</h1>
+      {% set total_time = r.recipe.total_time %}
+      {% set servings = fmt_servings(r.recipe.servings) %}
+      {% if total_time or servings %}
+        <p class="recipe-facts">
+          {% if total_time %}<span class="nb">{{ total_time }} min</span>{% endif %}
+          {% if servings %}<span class="nb">{{ servings }}</span>{% endif %}
+        </p>
+      {% endif %}
+      {# Provenance only. "saved 3 weeks ago" / "cooked yesterday" are facts
+         about someone's kitchen, not about the recipe, and they don't
+         travel with it. #}
+      {% set src = source_name(r.url) %}
+      {% if src %}
+        <p class="muted recipe-meta">
+          <span class="nb">from
+            {% if r.url.startswith("http") -%}
+              <a href="{{ r.url }}" target="_blank" rel="noopener noreferrer">{{ src }}</a>
+            {%- else -%}
+              {{ src }}
+            {%- endif -%}
+          </span>
+        </p>
+      {% endif %}
+
+      {% include "_recipe_body.html" %}
+
+      <p class="share-footer muted">Shared from a private ePepper repertoire.</p>
+    </article>
+  </main>
+</body>
+</html>

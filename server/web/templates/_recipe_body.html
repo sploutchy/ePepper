@@ -1,0 +1,45 @@
+{# Two-column recipe body: ingredients in a sticky aside, instructions in
+   the main column. The grid collapses to a single column at <= 900px (see
+   the .recipe-body responsive rules) and the sidebar's sticky behaviour is
+   dropped.
+
+   Shared by the signed-in recipe page and the public share page, so a
+   recipe's content renders from one template rather than two that drift
+   apart. Expects `r` plus the `ingredients` / `instruction_groups`
+   helpers. Nothing in here is personal or permission-dependent — that's
+   what makes it safe to hand to an anonymous visitor. #}
+<div class="recipe-body">
+  {% set ings = ingredients(r.recipe) %}
+  {% if ings %}
+    <aside class="recipe-sidebar">
+      <h2>Ingredients</h2>
+      <ul class="ingredients">
+        {% for i in ings %}<li>{{ i }}</li>{% endfor %}
+      </ul>
+    </aside>
+  {% endif %}
+
+  <section class="recipe-main">
+    {% set groups = instruction_groups(r.recipe) %}
+    {% if groups %}
+      <h2>Instructions</h2>
+      {% for g in groups %}
+        {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
+        {% if g.steps %}
+          {% if g.steps|length == 1 %}
+            {# Single-step sections render as a plain paragraph: the
+               italic-Fraunces step numeral exists to mark a *sequence*,
+               and a solitary "01" stamped next to one instruction
+               reads as label, not flourish. The `<h3>` already carries
+               the section identity. #}
+            <p class="step-solo">{{ g.steps[0] }}</p>
+          {% else %}
+            <ol class="steps">
+              {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
+            </ol>
+          {% endif %}
+        {% endif %}
+      {% endfor %}
+    {% endif %}
+  </section>
+</div>

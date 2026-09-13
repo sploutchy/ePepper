@@ -1,0 +1,48 @@
+{# Minted share link. Swapped into #share-link on the recipe page.
+
+   The URL is shown in full in a readonly field rather than hidden behind
+   a bare "Copied!" — you can see exactly what you're about to send, and
+   the field still works when the clipboard API isn't available (insecure
+   context, or the user denies it), because you can select the text. #}
+<div class="share-link" role="group" aria-label="Share link">
+  <p class="share-link-note muted">
+    Anyone with this link can read this recipe until {{ expires }}. It
+    can't be withdrawn before then — it just stops working.
+  </p>
+  <div class="input-action">
+    <input type="text" id="share-url" class="share-url" readonly
+           value="{{ url }}" aria-label="Share link"
+           onfocus="this.select()">
+    <button type="button" class="input-action-btn" data-share-copy
+            aria-label="Copy link">
+      <svg class="state-paste" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <rect x="8" y="2" width="8" height="4" rx="1"/>
+        <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+      </svg>
+    </button>
+  </div>
+  <p class="share-link-done muted" aria-live="polite" hidden>Copied.</p>
+</div>
+<script>
+(function () {
+  var root = document.querySelector('.share-link');
+  if (!root) return;
+  var input = root.querySelector('.share-url');
+  var button = root.querySelector('[data-share-copy]');
+  var done = root.querySelector('.share-link-done');
+
+  button.addEventListener('click', function () {
+    function fallback() {
+      // No clipboard API (or it was refused): select the text so the copy
+      // is one keystroke away rather than a dead end.
+      input.focus();
+      input.select();
+    }
+    if (!navigator.clipboard) return fallback();
+    navigator.clipboard.writeText(input.value).then(function () {
+      done.hidden = false;
+      setTimeout(function () { done.hidden = true; }, 2000);
+    }, fallback);
+  });
+})();
+</script>

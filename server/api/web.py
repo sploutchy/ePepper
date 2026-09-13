@@ -29,7 +29,8 @@ import backup
 import device_telemetry
 from display import state as display_state
 import library
-from config import API_KEY, PHOTO_MAX_MB, TZ
+import sharing
+from config import API_KEY, PHOTO_MAX_MB, TZ, WEB_URL
 
 # Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
 # without the user having to convert them first. Best-effort: a local dev
@@ -820,6 +821,122 @@ async def delete_recipe(request: Request, recipe_id: int):
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"
     return resp
+
+
+# --- Share links ------------------------------------------------------------
+#
+# A signed, 24-hour, read-only URL for one recipe — for sending someone the
+# tarte recipe without giving them the app. The token carries its own claims
+# and is verified by recomputation (see sharing.py); nothing is stored, so
+# minting one is just a button.
+#
+# The link puts a credential in a URL, which this project deliberately moved
+# away from when it dropped the `?key=` fallback. The difference in kind is
+# what makes it acceptable here — a share token opens exactly one recipe,
+# read-only, for a day, where API_KEY opens everything including the firmware
+# image — and the difference is defended rather than assumed:
+#
+#   * the token is never a session: /app/s/<token> renders a standalone page
+#     and sets no cookie, so it can't be walked back into the app;
+#   * the rendered page sends `Referrer-Policy: no-referrer`, or the URL
+#     would leak to Google Fonts in the Referer of every share page opened;
+#   * `X-Robots-Tag: noindex` keeps a forwarded link out of search results;
+#   * main.py filters the token out of uvicorn's access log, which is the
+#     specific leak the `?key=` removal was about.
+
+
+def _fmt_expiry(ts: int) -> str:
+    """Wall-clock phrasing for a share link's expiry.
+
+    `humanize_date` is for past stamps and folds anything in the future to
+    "just now", so it can't be reused here. A share link is always about a
+    day out, which makes "tomorrow at 18:40" both shorter and more useful
+    than a date — and it stays correct across a DST boundary, where the
+    hour genuinely does shift.
+    """
+    from datetime import datetime, timedelta
+    when = datetime.fromtimestamp(ts, TZ)
+    today = datetime.now(TZ).date()
+    day = {
+        today: "today",
+        today + timedelta(days=1): "tomorrow",
+    }.get(when.date(), when.strftime("%a %d %b"))
+    return f"{day} at {when.strftime('%H:%M')}"
+
+
+def _absolute_url(request: Request, path: str) -> str:
+    """Absolute URL for a link that has to survive being pasted elsewhere.
+
+    Prefers WEB_URL (already configured for the bot's links) so the link
+    carries the public hostname even when the app is reached through a
+    proxy; falls back to the request's own base URL.
+    """
+    base = WEB_URL or str(request.base_url).rstrip("/")
+    return f"{base}{path}"
+
+
+@router.post("/recipes/{recipe_id}/share", response_class=HTMLResponse)
+async def share_recipe(request: Request, recipe_id: int):
+    """Mint a share link and hand it back as a copyable field."""
+    _require_auth(request)
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        raise HTTPException(404)
+    token = sharing.mint(API_KEY, recipe_id)
+    # The id, never the token: a link in the container log is a working
+    # credential, which is the whole thing we're avoiding.
+    log.info("Share link minted: id=%d title=%r", recipe_id, row["title"])
+    return templates.TemplateResponse(
+        request,
+        "_share_link.html",
+        {
+            "url": _absolute_url(request, f"/app/s/{token}"),
+            "expires": _fmt_expiry(sharing.expires_at(API_KEY, token)),
+        },
+    )
+
+
+@router.get("/s/{token}", response_class=HTMLResponse)
+async def shared_recipe(request: Request, token: str):
+    """Render a shared recipe. Deliberately unauthenticated — the token is
+    the credential, and it opens this one recipe and nothing else."""
+    try:
+        recipe_id = sharing.read(API_KEY, token)
+    except sharing.ShareTokenExpired:
+        # 410 rather than 404: the link was real, it's just over. The page
+        # says so, because "not found" would read as "you mistyped it".
+        return templates.TemplateResponse(
+            request, "share_expired.html", {}, status_code=410,
+        )
+    except sharing.ShareTokenInvalid:
+        raise HTTPException(404)
+
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        # Deleted since the link was sent — same page as an expired link,
+        # which is also the honest answer: there's nothing here any more.
+        return templates.TemplateResponse(
+            request, "share_expired.html", {}, status_code=410,
+        )
+
+    response = templates.TemplateResponse(
+        request,
+        "shared.html",
+        {
+            "request": request,
+            "r": row,
+            "fmt_servings": _fmt_servings,
+            "ingredients": _ingredients,
+            "instruction_groups": _instruction_groups,
+            "source_name": source_name,
+        },
+    )
+    # See the note above: without no-referrer the share URL travels to
+    # fonts.googleapis.com in the Referer header of this very page.
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # --- Flash device (OTA recovery) --------------------------------------------

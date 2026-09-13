@@ -57,47 +57,20 @@
             hx-swap="innerHTML">
       {{ icon("monitor", 14) }} Push to display
     </button>
+    {# Share stays muted: pushing to the panel is what this page is for,
+       and sending the recipe to someone is the occasional errand. The
+       minted link lands in the panel below rather than a toast — you need
+       to read and copy it, not watch it fade. #}
+    <button class="link muted"
+            hx-post="/app/recipes/{{ r.id }}/share"
+            hx-target="#share-link"
+            hx-swap="innerHTML">
+      {{ icon("link", 14) }} Share
+    </button>
   </div>
+  <div id="share-link"></div>
 
-  {# Magazine-style two-column body on desktop: ingredients pin into a
-     sticky left aside, instructions flow in the main column.
-     The grid collapses to a single column at ≤ 900px (see .recipe-body
-     responsive rules) and the sidebar's sticky behaviour is dropped. #}
-  <div class="recipe-body">
-    {% set ings = ingredients(r.recipe) %}
-    {% if ings %}
-      <aside class="recipe-sidebar">
-        <h2>Ingredients</h2>
-        <ul class="ingredients">
-          {% for i in ings %}<li>{{ i }}</li>{% endfor %}
-        </ul>
-      </aside>
-    {% endif %}
-
-    <section class="recipe-main">
-      {% set groups = instruction_groups(r.recipe) %}
-      {% if groups %}
-        <h2>Instructions</h2>
-        {% for g in groups %}
-          {% if g.heading %}<h3>{{ g.heading }}</h3>{% endif %}
-          {% if g.steps %}
-            {% if g.steps|length == 1 %}
-              {# Single-step sections render as a plain paragraph: the
-                 italic-Fraunces step numeral exists to mark a *sequence*,
-                 and a solitary "01" stamped next to one instruction
-                 reads as label, not flourish. The `<h3>` already carries
-                 the section identity. #}
-              <p class="step-solo">{{ g.steps[0] }}</p>
-            {% else %}
-              <ol class="steps">
-                {% for s in g.steps %}<li>{{ s }}</li>{% endfor %}
-              </ol>
-            {% endif %}
-          {% endif %}
-        {% endfor %}
-      {% endif %}
-    </section>
-  </div>
+  {% include "_recipe_body.html" %}
 
   {# Delete sits at the very bottom, styled as a quiet link so it's reachable
      but never competes with Display for the user's attention. The earlier

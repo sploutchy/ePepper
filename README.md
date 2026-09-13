@@ -75,6 +75,9 @@ on their anniversary.
   when the repertoire has changed since the previous upload. Quiet days
   produce no message; busy days produce one. Unlimited versioned
   history at no storage cost.
+- **Share links.** A *Share* button on any recipe mints a signed,
+  read-only URL that anyone can open — no account, no access to the
+  rest of the repertoire — and that stops working after 24 hours.
 - **Dark mode.** Follows the OS preference automatically (with a
   manual toggle in the header), including matching mobile browser
   chrome.
@@ -198,13 +201,55 @@ no `source_name`.
 
 ### Editing recipes
 
-From the web app's recipe page: edit tags, push to the display, or
-delete.
+From the web app's recipe page: edit tags, push to the display, share,
+or delete.
 
 Deletes are soft (the row is hidden via `deleted_at` with no UI
 restore). If you genuinely need a deleted recipe back, pull it from
 the most recent Telegram backup snapshot or clear `deleted_at` in
 SQL.
+
+### Sharing a recipe
+
+*Share* on the recipe page mints a link like
+`https://<your-host>/app/s/v1.168.1789388694.uaTOSPTKVnoWxBGgex79kQ`
+and shows it in a field you can copy. Send it to whoever asked for the
+recipe: it opens a single standalone page with the title, timing,
+ingredients, instructions and the original source — and nothing else.
+No sign-in, no navigation into the app, no cookie, and no way to reach
+any other recipe.
+
+**Links last 24 hours and cannot be withdrawn early.** The link carries
+its own claims (which recipe, until when) plus an HMAC over them, keyed
+by `API_KEY`; the server stores nothing and verifies by recomputing the
+signature. That's what makes minting one a button press rather than a
+config change — but with no stored record there's nothing to revoke, so
+the lifetime *is* the revocation. Rotating `API_KEY` invalidates every
+outstanding link at once, though it also signs out every browser, so
+it's a blunt instrument.
+
+What the shared page deliberately leaves out: when *you* saved or last
+cooked the recipe (facts about your kitchen, not the recipe) and its
+tags (your filing, and the links would go nowhere for a visitor).
+
+The link is a credential in a URL, which is the shape this project
+otherwise avoids — see the `?key=` note under
+[API endpoints](#api-endpoints). It's acceptable here because a share
+token opens one recipe, read-only, for a day, where `API_KEY` opens
+everything including the firmware image. The difference is defended
+rather than assumed:
+
+- the shared page sends `Referrer-Policy: no-referrer` (without it the
+  URL would travel to Google in the `Referer` of the page's own font
+  request),
+- it sends `X-Robots-Tag: noindex` so a forwarded link can't turn up in
+  search results,
+- and the server redacts the token from uvicorn's access log, which is
+  the specific leak that got `?key=` removed.
+
+An expired link says so (HTTP 410) rather than 404ing, so the recipient
+knows to ask for a fresh one instead of re-checking the URL. A link to a
+deleted recipe says the same thing.
 
 ### Cycling pages on the device
 
@@ -269,7 +314,10 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   - `/app/` — repertoire list (search, source + tag filters,
     infinite scroll, on-display badge).
   - `/app/add` — URL paste or recipe-photo upload.
-  - `/app/recipes/<id>` — recipe detail (tags, push, delete).
+  - `/app/recipes/<id>` — recipe detail (tags, push, share, delete).
+  - `/app/s/<token>` — a shared recipe. The one page that needs no
+    session; the token is the credential. See
+    [Sharing a recipe](#sharing-a-recipe).
   - `/app/status` — live panel preview, panel state, repertoire
     stats + last backup, device readings.
 - **Dark mode.** Follows OS preference automatically; a `☀/☾`

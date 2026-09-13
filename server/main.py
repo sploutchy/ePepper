@@ -7,6 +7,7 @@ import argparse
 import asyncio
 import logging
 import os
+import re
 import sys
 
 import uvicorn
@@ -24,6 +25,35 @@ logging.basicConfig(
 # python-telegram-bot embeds the bot token in URLs; httpx logs full URLs at INFO.
 # Bump httpx to WARNING so the token never lands in container logs.
 logging.getLogger("httpx").setLevel(logging.WARNING)
+
+
+# A share link carries its token in the path (see sharing.py), and uvicorn's
+# access log records the full path — which would park working credentials in
+# the container logs. That is precisely the leak that got the `?key=` query
+# param removed, so the same standard applies here: redact before it lands.
+_SHARE_PATH_RE = re.compile(r"(/app/s/)[^\s?\"]+")
+
+
+class _RedactShareTokens(logging.Filter):
+    """Rewrite share tokens out of uvicorn's access-log line.
+
+    uvicorn passes the request line through `record.args` as
+    (client, method, path, http_version, status); we rewrite the path in
+    place. Written defensively — a logging filter that raises would take
+    out the request it was trying to describe.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        if isinstance(args, tuple) and len(args) > 2 and isinstance(args[2], str):
+            redacted = _SHARE_PATH_RE.sub(r"\1<redacted>", args[2])
+            if redacted != args[2]:
+                record.args = args[:2] + (redacted,) + args[3:]
+        return True
+
+
+logging.getLogger("uvicorn.access").addFilter(_RedactShareTokens())
+
 log = logging.getLogger("epepper")
 
 # Env-derived config keys whose values are token-shaped and must be
