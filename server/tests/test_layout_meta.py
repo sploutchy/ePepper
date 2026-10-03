@@ -55,3 +55,9 @@ def test_meta_line_falls_back_to_raw_servings(monkeypatch):
 def test_meta_line_absent_without_time_or_servings(monkeypatch):
     # Nothing to say: the first tracked draw is the section label.
     assert _meta_line({}, monkeypatch) == "INGRÉDIENTS"
+
+
+def test_meta_line_shows_the_batch_multiplier(monkeypatch):
+    # A recipe scaled without a serving count says so on the panel — the
+    # amounts no longer match the printed page.
+    assert _meta_line({"total_time": 40, "scale": "×2"}, monkeypatch) == "40 MIN  ·  ×2"

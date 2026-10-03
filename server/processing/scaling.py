@@ -1,6 +1,6 @@
 """Scale a recipe's ingredient quantities to a different serving count.
 
-Shared by the web recipe page (the servings slider) and the panel push,
+Shared by the web recipe page (the servings / batch slider) and the panel push,
 so the numbers a cook reads on the phone are the numbers the e-ink
 display shows.
 
@@ -48,6 +48,11 @@ _COMMA_LANGS = {"de", "fr", "it"}
 
 MIN_SERVINGS = 1
 MAX_SERVINGS = 24
+
+# Batch slider for recipes without a serving count: ×½ … ×4 in halves.
+MIN_MULTIPLIER = 0.5
+MAX_MULTIPLIER = 4.0
+MULTIPLIER_STEP = 0.5
 
 
 def base_servings(raw) -> int | None:
@@ -135,27 +140,79 @@ def scale_ingredient(text: str, factor: Fraction, lang: str = "en") -> str:
     return m.group("pre") + "".join(parts) + text[m.end():]
 
 
-def scale_recipe(recipe: dict, servings: int | None) -> dict:
-    """Return `recipe` rescaled to `servings`, or `recipe` itself when
-    there's nothing to do (no target, no base count, or same count).
+def scale_recipe(
+    recipe: dict, servings: int | None = None, multiplier: float | None = None,
+) -> dict:
+    """Return `recipe` rescaled, or `recipe` itself when there's nothing
+    to do. The input is never mutated.
 
-    The result is a shallow copy with new `ingredients` and a bare
-    numeric `servings`, so every downstream formatter ("Serves 8",
-    "8 PORTIONEN") renders the new count. The input is never mutated.
+    Two knobs, one per kind of recipe:
+
+      * `servings` — for recipes whose servings carry a count. The result
+        gets a bare numeric `servings`, so every downstream formatter
+        ("Serves 8", "8 PORTIONEN") renders the new count.
+      * `multiplier` — for recipes *without* a count ("une grande
+        poêle", or nothing at all), where there's no serving number to
+        aim at but doubling the batch still makes sense. The result keeps
+        its `servings` text and gains a `scale` label ("×2") the panel
+        shows on its meta line.
+
+    Each knob is ignored on the other kind of recipe, so a stale value
+    can never scale a recipe twice or by the wrong yardstick.
     """
-    if not servings:
-        return recipe
     base = base_servings(recipe.get("servings"))
-    if base is None or servings == base:
-        return recipe
-    factor = Fraction(servings, base)
+    if base is not None:
+        if not servings or servings == base:
+            return recipe
+        factor = Fraction(servings, base)
+    else:
+        if not multiplier or multiplier == 1:
+            return recipe
+        factor = Fraction(multiplier).limit_denominator(4)
     lang = recipe.get("lang") or "en"
     out = dict(recipe)
     out["ingredients"] = [
         scale_ingredient(str(i), factor, lang) for i in recipe.get("ingredients") or [] if i
     ]
-    out["servings"] = str(servings)
+    if base is not None:
+        out["servings"] = str(servings)
+    else:
+        out["scale"] = format_multiplier(multiplier)
     return out
+
+
+def format_multiplier(multiplier: float) -> str:
+    """The batch label: "×2", "×1½", "×½". Halves as a glyph, matching
+    the ingredient lines' kitchen fractions and the slider's readout."""
+    whole, half = divmod(Fraction(multiplier).limit_denominator(2), 1)
+    digits = str(int(whole)) if whole or not half else ""
+    return f"×{digits}{'½' if half else ''}"
+
+
+def effective_scale(
+    recipe: dict, servings: int | None, multiplier: float | None,
+) -> tuple[int | None, float | None]:
+    """The (servings, multiplier) pair that actually applies to `recipe`:
+    at most one is set, and both are None when the recipe would render as
+    written. Lets the display state compare and persist a canonical value
+    rather than whatever a caller happened to pass."""
+    if scale_recipe(recipe, servings, multiplier) is recipe:
+        return None, None
+    if base_servings(recipe.get("servings")) is not None:
+        return servings, None
+    return None, multiplier
+
+
+def clamp_multiplier(raw) -> float | None:
+    """Coerce a form/query value to a batch multiplier on the slider's
+    grid (×½ to ×4 in halves), or None."""
+    try:
+        m = float(raw)
+    except (TypeError, ValueError):
+        return None
+    if not MIN_MULTIPLIER <= m <= MAX_MULTIPLIER or (m * 2) % 1:
+        return None
+    return m
 
 
 def clamp_servings(raw) -> int | None:

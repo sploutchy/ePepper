@@ -195,6 +195,14 @@ the same numbers. With the slider present the static `Serves N` fact
 under the title is dropped — it would contradict the slider. The
 share page has no slider.
 
+A recipe whose servings *don't* carry a number (`une grande poêle`, or
+nothing) gets the same row as a **Batch** slider instead: `BATCH ──●──
+×1½`, ×½ to ×4 in halves, tick at ×1. The readout uses the same `½`
+glyph as the scaled ingredient lines. The count-less servings text
+stays on the facts line, since nothing contradicts it, and the panel's
+meta line gains the multiplier (`90 MIN · ×1½`) so the cook knows the
+amounts aren't the printed ones.
+
 Mobile collapses the two-column to one, the ingredients section
 becomes a top block, instructions flow below, the back chip tightens.
 

@@ -9,11 +9,11 @@
    helpers. Nothing in here is personal or permission-dependent — that's
    what makes it safe to hand to an anonymous visitor.
 
-   `scaler` (signed-in page only) adds the servings slider above the
+   `scaler` (signed-in page only) adds the Serves / Batch slider above the
    ingredient list; it's left undefined on the share page, whose visitor
    can't reach the /_ingredients endpoint the slider talks to. #}
 <div class="recipe-body">
-  {% set ings = ingredients(r.recipe, scaler.value if scaler else None) %}
+  {% set ings = ingredients(r.recipe, scaler.servings, scaler.multiplier) if scaler else ingredients(r.recipe) %}
   {% if ings %}
     <aside class="recipe-sidebar">
       <h2>Ingredients</h2>
@@ -21,23 +21,25 @@
         {# Lives in the sticky sidebar so it stays in reach while you read
            the list it changes. Each move re-renders the list server-side
            (one scaling implementation, shared with the panel push); the
-           count beside the track updates instantly via the inline handler
-           so the slider never feels laggy while the request is in flight.
-           The datalist puts a tick at the count the recipe was written
-           for — the way back to "as written". #}
+           readout beside the track updates instantly via the inline
+           handler so the slider never feels laggy while the request is in
+           flight. The datalist puts a tick at "as written" — the recipe's
+           own count on a Serves slider, ×1 on a Batch slider (recipes
+           with no serving count; see `_scaler`). #}
         <div class="servings-scale">
-          <label for="servings-range" class="servings-scale-label">Serves</label>
-          <input type="range" id="servings-range" name="servings"
-                 min="1" max="{{ scaler.max }}" step="1" value="{{ scaler.value }}"
-                 list="servings-base"
+          <label for="scale-range" class="servings-scale-label">{{ scaler.label }}</label>
+          <input type="range" id="scale-range" name="{{ scaler.name }}"
+                 min="{{ scaler.min }}" max="{{ scaler.max }}" step="{{ scaler.step }}"
+                 value="{{ scaler.value }}"
+                 list="scale-base"
                  hx-get="/app/recipes/{{ r.id }}/_ingredients"
                  hx-trigger="input changed delay:120ms"
                  hx-target="#ingredients-list"
                  hx-swap="outerHTML"
                  hx-sync="this:replace"
-                 oninput="this.nextElementSibling.value = this.value">
-          <output for="servings-range" class="servings-scale-value">{{ scaler.value }}</output>
-          <datalist id="servings-base"><option value="{{ scaler.base }}"></option></datalist>
+                 oninput="{{ scaler.readout_js }}">
+          <output for="scale-range" class="servings-scale-value">{{ scaler.readout }}</output>
+          <datalist id="scale-base"><option value="{{ scaler.base }}"></option></datalist>
         </div>
       {% endif %}
       {% include "_ingredients.html" %}

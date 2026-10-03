@@ -16,7 +16,7 @@ from typing import Any, Callable
 
 from PIL import Image
 
-from processing.scaling import scale_recipe
+from processing.scaling import effective_scale, scale_recipe
 from rendering.layout import render_recipe
 from status_helpers import source_name
 
@@ -64,6 +64,7 @@ _state: dict[str, Any] = {
     "recipe_id": None,      # library row id when the active recipe is saved; None for unsaved or non-recipe
     "url": None,            # source URL of the active recipe (used to identify it across save flows)
     "servings": None,       # serving count the recipe was scaled to; None = as written
+    "multiplier": None,     # batch multiplier for recipes without a count; None = as written
 }
 
 # Page images: {page_number: PIL.Image}
@@ -71,7 +72,7 @@ _pages: dict[int, Image.Image] = {}
 
 # Cached render inputs so push_recipe_to_display callers don't have to
 # resupply them on small mutations.
-_recipe_inputs: dict[str, Any] = {"recipe": None, "url": None, "servings": None}
+_recipe_inputs: dict[str, Any] = {"recipe": None, "url": None, "servings": None, "multiplier": None}
 
 # Set to a library row id when set_recipe installs a saved recipe; the
 # /image handler consumes it on the first device fetch to bump
@@ -86,6 +87,7 @@ def set_recipe(
     url: str | None = None,
     *,
     servings: int | None = None,
+    multiplier: float | None = None,
     count_display: bool = True,
 ) -> None:
     """Render and install a recipe as the active display content.
@@ -99,17 +101,18 @@ def set_recipe(
     (BUG-2), where re-arming the bump would reset last_displayed_at for
     a recipe nobody re-cooked, corrupting the anniversary scheduler.
 
-    `servings` rescales the ingredient quantities at render time (see
-    `processing.scaling`); `recipe` itself stays the as-written original
-    so the cached inputs never compound one scaling onto another. A
-    count equal to the recipe's own (or one it can't be scaled against)
-    is normalised to None."""
-    if scale_recipe(recipe, servings) is recipe:
-        servings = None
+    `servings` / `multiplier` rescale the ingredient quantities at render
+    time (see `processing.scaling`); `recipe` itself stays the as-written
+    original so the cached inputs never compound one scaling onto
+    another. Both are normalised through `effective_scale`, so a no-op
+    value (the recipe's own count, ×1, the wrong knob for this recipe)
+    is stored as None."""
+    servings, multiplier = effective_scale(recipe, servings, multiplier)
     inputs = {
         "recipe": recipe,
         "url": url,
         "servings": servings,
+        "multiplier": multiplier,
     }
     # Render first (may raise — exception propagates to the caller). The
     # commit below only runs on success, so a failure leaves the previous
@@ -137,6 +140,7 @@ def set_recipe(
         recipe_id=recipe_id,
         url=url,
         servings=servings,
+        multiplier=multiplier,
     )
     _notify_changed()
 
@@ -148,7 +152,7 @@ def _render_pages(inputs: dict) -> dict[int, Image.Image]:
     recipe = inputs["recipe"]
     if recipe is None:
         return {}
-    recipe = scale_recipe(recipe, inputs.get("servings"))
+    recipe = scale_recipe(recipe, inputs.get("servings"), inputs.get("multiplier"))
     # Pull the source name off the URL the same way the web + bot do, so
     # the panel header matches what those surfaces show.
     source = source_name(inputs.get("url"))
@@ -166,7 +170,7 @@ def clear() -> None:
     """Clear the display (idle state)."""
     global _pending_displayed_bump
     _pages.clear()
-    _recipe_inputs.update({"recipe": None, "url": None, "servings": None})
+    _recipe_inputs.update({"recipe": None, "url": None, "servings": None, "multiplier": None})
     _pending_displayed_bump = None
     _state.update({
         "hash": hashlib.md5(b"idle").hexdigest()[:8],
@@ -179,6 +183,7 @@ def clear() -> None:
         "recipe_id": None,
         "url": None,
         "servings": None,
+        "multiplier": None,
     })
     _notify_changed()
 
@@ -215,6 +220,7 @@ def _update_state(
     recipe_id: int | None = None,
     url: str | None = None,
     servings: int | None = None,
+    multiplier: float | None = None,
 ) -> None:
     _state["type"] = content_type
     _state["title"] = title
@@ -227,9 +233,11 @@ def _update_state(
     _state["recipe_id"] = recipe_id
     _state["url"] = url
     _state["servings"] = servings
+    _state["multiplier"] = multiplier
     log.info(
-        "Display updated: type=%s title=%s pages=%d lang=%s recipe_id=%s url=%s servings=%s",
-        content_type, title, total_pages, lang, recipe_id, url, servings,
+        "Display updated: type=%s title=%s pages=%d lang=%s recipe_id=%s url=%s "
+        "servings=%s multiplier=%s",
+        content_type, title, total_pages, lang, recipe_id, url, servings, multiplier,
     )
 
 

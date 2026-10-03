@@ -45,7 +45,10 @@ from processing.recipes import (
     IngestError, ingest_recipe, normalize_recipe_for_render, servings_count, slug,
     validate_llm_recipe,
 )
-from processing.scaling import base_servings, clamp_servings, scale_recipe, slider_max
+from processing.scaling import (
+    MAX_MULTIPLIER, MIN_MULTIPLIER, MULTIPLIER_STEP, base_servings, clamp_multiplier,
+    clamp_servings, format_multiplier, scale_recipe, slider_max,
+)
 from status_helpers import (
     battery_pct,
     get_firmware_server_version,
@@ -137,10 +140,12 @@ def _fmt_servings(raw) -> str | None:
     return f"Serves {count}" if count else s
 
 
-def _ingredients(recipe: dict, servings: int | None = None) -> list[str]:
-    """Ingredient lines for display, quantities scaled to `servings` when
-    given (see `processing.scaling`)."""
-    ings = scale_recipe(recipe, servings).get("ingredients") or []
+def _ingredients(
+    recipe: dict, servings: int | None = None, multiplier: float | None = None,
+) -> list[str]:
+    """Ingredient lines for display, quantities scaled to `servings` /
+    by `multiplier` when given (see `processing.scaling`)."""
+    ings = scale_recipe(recipe, servings, multiplier).get("ingredients") or []
     return [str(i) for i in ings if i]
 
 
@@ -187,24 +192,50 @@ def _instruction_groups(recipe: dict) -> list[dict]:
 # starting with "## " becomes a heading, everything else a step.
 
 
-def _servings_scaler(row: dict, servings: int | None = None) -> dict | None:
-    """Slider settings for the recipe page, or None when the recipe has no
-    serving count to scale against (the template then omits the slider).
+# Inline readout updaters for the slider's <output>, so the number moves
+# with the thumb while the list request is in flight. The batch one
+# mirrors `format_multiplier` (halves as "½").
+_SERVINGS_READOUT_JS = "this.nextElementSibling.value = this.value"
+_BATCH_READOUT_JS = (
+    "var v = +this.value; "
+    "this.nextElementSibling.value = '×' + (v >= 1 ? v | 0 : '') + (v % 1 ? '½' : '')"
+)
 
-    The starting position is, in order: an explicit `servings`, the count
-    this recipe is currently scaled to on the panel (so the page agrees
-    with the display you're cooking from), else the recipe's own count.
+
+def _scaler(row: dict) -> dict | None:
+    """Slider settings for the recipe page, or None when there's nothing
+    to scale (no ingredients — the template then omits the slider).
+
+    A recipe whose servings carry a count gets a *Serves* slider over
+    serving counts; any other recipe gets a *Batch* slider over
+    multipliers (×½ … ×4), since doubling a recipe makes sense whether or
+    not it says how many it feeds. Either starts where the panel is when
+    this recipe is on it (so the page agrees with the display you're
+    cooking from), else at the recipe as written.
     """
-    base = base_servings(row["recipe"].get("servings"))
-    if base is None:
+    recipe = row["recipe"]
+    if not _ingredients(recipe):
         return None
-    if servings is None:
-        state = display_state.get()
-        if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
-            servings = state.get("servings")
-    value = servings or base
-    top = max(slider_max(base), value)
-    return {"base": base, "value": value, "max": top}
+    state = display_state.get()
+    on_panel = state.get("type") == "recipe" and state.get("recipe_id") == row["id"]
+    base = base_servings(recipe.get("servings"))
+    if base is not None:
+        value = (on_panel and state.get("servings")) or base
+        return {
+            "name": "servings", "label": "Serves",
+            "min": 1, "max": max(slider_max(base), value), "step": 1,
+            "base": base, "value": value, "readout": value,
+            "readout_js": _SERVINGS_READOUT_JS,
+            "servings": value, "multiplier": None,
+        }
+    value = (on_panel and state.get("multiplier")) or 1
+    return {
+        "name": "multiplier", "label": "Batch",
+        "min": MIN_MULTIPLIER, "max": MAX_MULTIPLIER, "step": MULTIPLIER_STEP,
+        "base": 1, "value": f"{value:g}", "readout": format_multiplier(value),
+        "readout_js": _BATCH_READOUT_JS,
+        "servings": None, "multiplier": value,
+    }
 
 
 def _ingredients_textarea(recipe: dict) -> str:
@@ -706,22 +737,27 @@ async def recipe_detail(request: Request, recipe_id: int):
     ctx.update({
         "r": row,
         "all_tags": library.list_tags(),
-        "scaler": _servings_scaler(row),
+        "scaler": _scaler(row),
     })
     return templates.TemplateResponse(request, "recipe.html", ctx)
 
 
 @router.get("/recipes/{recipe_id}/_ingredients", response_class=HTMLResponse)
-async def recipe_ingredients_partial(request: Request, recipe_id: int, servings: str = ""):
-    """The ingredient list rescaled to `servings` — the servings slider's
-    swap target. An out-of-range or junk value renders as written."""
+async def recipe_ingredients_partial(
+    request: Request, recipe_id: int, servings: str = "", multiplier: str = "",
+):
+    """The ingredient list rescaled to `servings` / by `multiplier` — the
+    slider's swap target. An out-of-range or junk value renders as
+    written."""
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
     return templates.TemplateResponse(
         request, "_ingredients.html",
-        {"ings": _ingredients(row["recipe"], clamp_servings(servings))},
+        {"ings": _ingredients(
+            row["recipe"], clamp_servings(servings), clamp_multiplier(multiplier),
+        )},
     )
 
 
@@ -827,20 +863,27 @@ async def recipe_edit_save(
 
 
 @router.post("/recipes/{recipe_id}/push", response_class=HTMLResponse)
-async def push_recipe(request: Request, recipe_id: int, servings: str = Form(default="")):
+async def push_recipe(
+    request: Request,
+    recipe_id: int,
+    servings: str = Form(default=""),
+    multiplier: str = Form(default=""),
+):
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    if not push_recipe_to_display(row, servings=clamp_servings(servings)):
+    if not push_recipe_to_display(
+        row, servings=clamp_servings(servings), multiplier=clamp_multiplier(multiplier),
+    ):
         return templates.TemplateResponse(
             request, "_toast.html",
             {"message": "Couldn't render that recipe to the display."},
             status_code=500,
         )
     log.info(
-        "Web push to display: id=%d title=%r servings=%r",
-        row["id"], row["title"], servings or None,
+        "Web push to display: id=%d title=%r servings=%r multiplier=%r",
+        row["id"], row["title"], servings or None, multiplier or None,
     )
     return templates.TemplateResponse(
         request, "_toast.html",

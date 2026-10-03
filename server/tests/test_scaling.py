@@ -11,7 +11,8 @@ from display import persistence as display_persistence
 from display import state as display_state
 from display.push import push_recipe_to_display
 from processing.scaling import (
-    base_servings, clamp_servings, scale_ingredient, scale_recipe, slider_max,
+    base_servings, clamp_multiplier, clamp_servings, effective_scale, format_multiplier,
+    scale_ingredient, scale_recipe, slider_max,
 )
 
 
@@ -91,13 +92,50 @@ def test_scale_recipe():
     assert scale_recipe({"servings": None, "ingredients": ["1 Ei"]}, 8)["ingredients"] == ["1 Ei"]
 
 
+def test_scale_recipe_by_multiplier():
+    recipe = {"servings": "une grande poêle", "lang": "fr", "ingredients": ["300 g riz", "Sel"]}
+    scaled = scale_recipe(recipe, multiplier=1.5)
+    assert scaled["ingredients"] == ["450 g riz", "Sel"]
+    assert scaled["servings"] == "une grande poêle"
+    assert scaled["scale"] == "×1½"
+    assert scale_recipe(recipe, multiplier=1) is recipe
+    assert scale_recipe({"ingredients": ["2 Eier"]}, multiplier=0.5)["ingredients"] == ["1 Eier"]
+
+
+def test_each_knob_only_scales_its_kind_of_recipe():
+    counted = {"servings": "4", "ingredients": ["200 g Mehl"]}
+    uncounted = {"servings": None, "ingredients": ["200 g Mehl"]}
+    assert scale_recipe(counted, multiplier=2) is counted
+    assert scale_recipe(uncounted, servings=8) is uncounted
+    assert effective_scale(counted, 8, 2.0) == (8, None)
+    assert effective_scale(uncounted, 8, 2.0) == (None, 2.0)
+    assert effective_scale(uncounted, None, 1.0) == (None, None)
+
+
+def test_format_multiplier():
+    assert format_multiplier(2) == "×2"
+    assert format_multiplier(1.5) == "×1½"
+    assert format_multiplier(0.5) == "×½"
+    assert format_multiplier(4.0) == "×4"
+
+
+def test_clamp_multiplier():
+    assert clamp_multiplier("1.5") == 1.5
+    assert clamp_multiplier("4") == 4.0
+    assert clamp_multiplier("0.25") is None   # off the half-step grid
+    assert clamp_multiplier("5") is None
+    assert clamp_multiplier("0") is None
+    assert clamp_multiplier("nan") is None
+    assert clamp_multiplier("") is None
+
+
 # --- web --------------------------------------------------------------------
 
 
-def _saved(servings="4"):
+def _saved(servings="4", ingredients=("500 g Zopfmehl", "1 Ei", "Salz")):
     rid = library.upsert_recipe("https://example.ch/zopf", {
         "title": "Zopf",
-        "ingredients": ["500 g Zopfmehl", "1 Ei", "Salz"],
+        "ingredients": list(ingredients),
         "instructions": [{"type": "step", "text": "Backen."}],
         "total_time": 60,
         "servings": servings,
@@ -122,18 +160,31 @@ def fake_render(monkeypatch):
     display_state.clear()
 
 
-def test_recipe_page_shows_slider(client):
+def test_recipe_page_shows_servings_slider(client):
     rid = _saved()
     html = client.get(f"/app/recipes/{rid}").text
-    assert 'id="servings-range"' in html
+    assert 'name="servings"' in html and ">Serves<" in html
     assert 'value="4"' in html
-    assert 'hx-include="#servings-range"' in html
+    assert 'hx-include="#scale-range"' in html
+    # The count lives on the slider; the static fact line drops it.
+    assert "Serves 4" not in html
 
 
-def test_no_slider_without_a_servings_count(client):
-    rid = _saved(servings=None)
+def test_recipe_without_a_count_gets_a_batch_slider(client):
+    rid = _saved(servings="une grande poêle")
     html = client.get(f"/app/recipes/{rid}").text
-    assert 'id="servings-range"' not in html
+    assert 'name="multiplier"' in html and ">Batch<" in html
+    assert 'min="0.5"' in html and 'max="4.0"' in html and 'value="1"' in html
+    assert "×1" in html
+    assert 'hx-include="#scale-range"' in html
+    # Count-less servings text stays on the facts line.
+    assert "une grande poêle" in html
+
+
+def test_no_slider_without_ingredients(client):
+    rid = _saved(ingredients=())
+    html = client.get(f"/app/recipes/{rid}").text
+    assert 'id="scale-range"' not in html
     assert "hx-include" not in html
 
 
@@ -149,12 +200,18 @@ def test_ingredients_partial_ignores_junk(client):
     assert "500 g Zopfmehl" in html
 
 
+def test_ingredients_partial_scales_by_multiplier(client):
+    rid = _saved(servings=None)
+    html = client.get(f"/app/recipes/{rid}/_ingredients?multiplier=1.5").text
+    assert "750 g Zopfmehl" in html and "1½ Ei" in html
+
+
 def test_share_page_has_no_slider(client):
     rid = _saved()
     link = client.post(f"/app/recipes/{rid}/share").text
     token = link.split("/app/s/")[1].split('"')[0].split("<")[0]
     html = client.get(f"/app/s/{token}").text
-    assert "Zopf" in html and 'id="servings-range"' not in html
+    assert "Zopf" in html and 'id="scale-range"' not in html
 
 
 def test_push_scales_the_panel(client, fake_render):
@@ -196,3 +253,22 @@ def test_scaled_panel_survives_a_restart(test_db, fake_render, monkeypatch):
     display_persistence.restore_on_startup()
     assert display_state.get()["servings"] == 6
     assert fake_render[-1]["ingredients"][0] == "750 g Zopfmehl"
+
+
+def test_push_by_multiplier(client, fake_render, monkeypatch):
+    monkeypatch.setattr(display_state, "_change_listener", display_persistence.persist_current)
+    rid = _saved(servings=None)
+    assert client.post(f"/app/recipes/{rid}/push", data={"multiplier": "2"}).status_code == 200
+    assert fake_render[-1]["ingredients"][0] == "1000 g Zopfmehl"
+    assert fake_render[-1]["scale"] == "×2"
+    assert display_state.get()["multiplier"] == 2.0
+    assert library.get_panel_state()["multiplier"] == 2.0
+    # The page then opens at the panel's multiplier.
+    html = client.get(f"/app/recipes/{rid}").text
+    assert 'value="2"' in html and "×2" in html
+
+    monkeypatch.setattr(display_state, "_change_listener", None)
+    display_state.clear()
+    display_persistence.restore_on_startup()
+    assert display_state.get()["multiplier"] == 2.0
+    assert fake_render[-1]["scale"] == "×2"

@@ -13,9 +13,10 @@
      "where it came from". Both fields are frequently null, so each segment
      is conditional and the whole line is dropped when neither exists. #}
   {% set total_time = r.recipe.total_time %}
-  {# With the servings slider on the page, the count lives there — a
-     static "Serves 4" up here would contradict it the moment it moves. #}
-  {% set servings = None if scaler else fmt_servings(r.recipe.servings) %}
+  {# With a Serves slider on the page, the count lives there — a static
+     "Serves 4" up here would contradict it the moment it moves. A Batch
+     slider leaves the (count-less) servings text alone. #}
+  {% set servings = None if scaler and scaler.name == "servings" else fmt_servings(r.recipe.servings) %}
   {% if total_time or servings %}
     <p class="recipe-facts">
       {% if total_time %}<span class="nb">{{ total_time }} min</span>{% endif %}
@@ -53,11 +54,11 @@
     {# Same link-style treatment as "Delete this recipe" in the footer —
        quiet, no filled chrome. Push isn't destructive so we colour with
        --accent (paprika) instead of --danger. #}
-    {# hx-include sends the slider's current count along, so the panel
+    {# hx-include sends the slider's current scale along, so the panel
        shows the quantities you're looking at. #}
     <button class="link accent"
             hx-post="/app/recipes/{{ r.id }}/push"
-            {% if scaler %}hx-include="#servings-range"{% endif %}
+            {% if scaler %}hx-include="#scale-range"{% endif %}
             hx-target="#toast"
             hx-swap="innerHTML">
       {{ icon("monitor", 14) }} Push to display

@@ -15,7 +15,7 @@ Persistence policy (BUG-5 invariant — DO NOT change without a paired
 test):
 
   - SAVED recipe active (`_state.type == "recipe"` AND `recipe_id is
-    not None`)  → mirror (recipe_id, page, servings) onto the singleton row.
+    not None`)  → mirror (recipe_id, page, servings, multiplier) onto the singleton row.
   - Explicitly idle (`_state.type == "idle"`)            → delete the row.
   - Unsaved push (`_state.type == "recipe"` AND `recipe_id is None`)
                                                           → LEAVE the
@@ -50,7 +50,10 @@ def persist_current() -> None:
             # so we always store page 1 rather than the last browser
             # preview page, which would otherwise make a restart re-render
             # the panel on whatever page the browser happened to land on.
-            library.set_panel_state(recipe_id, 1, servings=state.get("servings"))
+            library.set_panel_state(
+                recipe_id, 1,
+                servings=state.get("servings"), multiplier=state.get("multiplier"),
+            )
         elif state.get("type") == "idle":
             library.clear_panel_state()
         # else: unsaved recipe push — leave the previously persisted
@@ -96,6 +99,7 @@ def restore_on_startup() -> None:
             recipe_id=row["id"],
             url=row["url"],
             servings=persisted.get("servings"),
+            multiplier=persisted.get("multiplier"),
             count_display=False,
         )
         state = display_state.get()
