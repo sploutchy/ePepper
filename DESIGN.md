@@ -180,6 +180,19 @@ small-caps coda at the very foot of the recipe; that buried the most
 important verb on the page, so it's back to its placement under the
 title.)
 
+**Servings slider.** When the recipe's servings carry a number, a
+`SERVES ──●── 4` row sits between the `INGREDIENTS` label and the
+list, inside the sticky sidebar so it stays in reach while you read
+the list it changes. Label in the h2's tracked small caps, the live
+count in Fraunces; the native range thumb is tinted paprika via
+`accent-color` (it's an action, like Push). A tick marks the count the
+recipe was written for. Moving it rescales only the *leading* quantity
+of each ingredient line, server-side (`processing/scaling.py`), and
+`Push to display` sends the current count along so the panel shows
+the same numbers. With the slider present the static `Serves N` fact
+under the title is dropped — it would contradict the slider. The
+share page has no slider.
+
 Mobile collapses the two-column to one, the ingredients section
 becomes a top block, instructions flow below, the back chip tightens.
 

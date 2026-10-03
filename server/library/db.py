@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS display_panel (
     id        INTEGER PRIMARY KEY CHECK (id = 1),
     recipe_id INTEGER NOT NULL,
     page      INTEGER NOT NULL DEFAULT 1,
+    servings  INTEGER,  -- scaled serving count; NULL = as written
     FOREIGN KEY (recipe_id) REFERENCES recipes(id) ON DELETE CASCADE
 );
 
@@ -825,27 +826,32 @@ def search(query: str, limit: int = 5, offset: int = 0) -> list[dict]:
 def get_panel_state() -> dict | None:
     """Return what's currently meant to be on the e-ink panel, or None.
 
-    Returns `{"recipe_id": int, "page": int}` when a saved recipe is
-    flagged as the active panel content, else None (panel is meant to
-    be idle, or only an unsaved push was active and didn't get
-    persisted). The caller (display_persistence.restore_on_startup)
-    re-derives the rest from `recipe_id` via get_recipe.
+    Returns `{"recipe_id": int, "page": int, "servings": int | None}` when
+    a saved recipe is flagged as the active panel content, else None
+    (panel is meant to be idle, or only an unsaved push was active and
+    didn't get persisted). `servings` is the count the recipe was scaled
+    to on push, None when shown as written. The caller
+    (display_persistence.restore_on_startup) re-derives the rest from
+    `recipe_id` via get_recipe.
     """
     with _db() as conn:
         row = conn.execute(
-            "SELECT recipe_id, page FROM display_panel WHERE id = 1"
+            "SELECT recipe_id, page, servings FROM display_panel WHERE id = 1"
         ).fetchone()
-    return {"recipe_id": row["recipe_id"], "page": row["page"]} if row else None
+    if not row:
+        return None
+    return {"recipe_id": row["recipe_id"], "page": row["page"], "servings": row["servings"]}
 
 
-def set_panel_state(recipe_id: int, page: int = 1) -> None:
-    """Persist the active panel recipe + page. Singleton row, UPSERT semantics."""
+def set_panel_state(recipe_id: int, page: int = 1, servings: int | None = None) -> None:
+    """Persist the active panel recipe + page (+ scaled servings).
+    Singleton row, UPSERT semantics."""
     with _db() as conn:
         conn.execute(
-            "INSERT INTO display_panel (id, recipe_id, page) VALUES (1, ?, ?) "
+            "INSERT INTO display_panel (id, recipe_id, page, servings) VALUES (1, ?, ?, ?) "
             "ON CONFLICT(id) DO UPDATE SET recipe_id = excluded.recipe_id, "
-            "page = excluded.page",
-            (recipe_id, page),
+            "page = excluded.page, servings = excluded.servings",
+            (recipe_id, page, servings),
         )
 
 

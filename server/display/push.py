@@ -7,12 +7,14 @@ can render to the display without importing the telegram bot module.
 import logging
 
 from display import state as display_state
+from processing.scaling import scale_recipe
 
 log = logging.getLogger(__name__)
 
 
-def push_recipe_to_display(row: dict) -> bool:
-    """Render the recipe in `row` and push it to the panel.
+def push_recipe_to_display(row: dict, servings: int | None = None) -> bool:
+    """Render the recipe in `row` and push it to the panel, its ingredient
+    quantities scaled to `servings` when given (None = as written).
     Returns True on success, False if rendering raised — the
     previous display content is preserved in the failure case (atomic commit
     inside `display_state.set_recipe`).
@@ -23,15 +25,21 @@ def push_recipe_to_display(row: dict) -> bool:
     when the server installed it.
 
     Skip-if-active optimization: if `row` is already the live display
-    content (same recipe_id), short-circuit with a True return — the
-    device would otherwise wake and burn a full e-ink refresh for no
+    content (same recipe_id at the same serving count), short-circuit
+    with a True return — the device would otherwise wake and burn a full e-ink refresh for no
     visible change. No new bump is armed in that case, so the
     "recently shown" sort doesn't move on a no-op push. Used to live
     only in the scheduler; lifting it here means every caller (web push,
     bot search-tap, scheduler) gets the same idle-saving behavior.
     """
     state = display_state.get()
-    if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
+    if scale_recipe(row["recipe"], servings) is row["recipe"]:
+        servings = None
+    if (
+        state.get("type") == "recipe"
+        and state.get("recipe_id") == row["id"]
+        and state.get("servings") == servings
+    ):
         log.info(
             "Recipe id=%s already on display; skipping push", row["id"],
         )
@@ -41,6 +49,7 @@ def push_recipe_to_display(row: dict) -> bool:
             row["recipe"],
             recipe_id=row["id"],
             url=row["url"],
+            servings=servings,
         )
     except Exception:
         log.exception("Failed to render recipe id=%s to display", row.get("id"))
