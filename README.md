@@ -199,10 +199,18 @@ for en/de/fr/it), followed by total time and servings on the meta
 line. The source is omitted entirely for OCR'd photos that yielded
 no `source_name`.
 
+The web recipe page has a **Serves** slider (shown when the recipe's
+servings contain a number). Moving it rescales the leading quantity of
+each ingredient line — `200 g` → `400 g`, `½ TL` → `1 TL`, `2-3` →
+`4-6` — and pushing to the display sends the panel the same scaled
+amounts and serving count. Numbers later in a line (the `400 g` in
+`1 Dose (400 g) Tomaten`) and lines without a leading number are left
+as written. Bot and scheduler pushes always show the recipe as written.
+
 ### Editing recipes
 
-From the web app's recipe page: edit tags, push to the display, share,
-or delete.
+From the web app's recipe page: edit tags, scale the servings, push to
+the display, share, or delete.
 
 Deletes are soft (the row is hidden via `deleted_at` with no UI
 restore). If you genuinely need a deleted recipe back, pull it from
@@ -314,7 +322,8 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   - `/app/` — repertoire list (search, source + tag filters,
     infinite scroll, on-display badge).
   - `/app/add` — URL paste or recipe-photo upload.
-  - `/app/recipes/<id>` — recipe detail (tags, push, share, delete).
+  - `/app/recipes/<id>` — recipe detail (tags, servings slider, push,
+    share, delete).
   - `/app/s/<token>` — a shared recipe. The one page that needs no
     session; the token is the credential. See
     [Sharing a recipe](#sharing-a-recipe).
@@ -346,7 +355,7 @@ Schema:
 
 - `recipes(id, url, title, parsed_json, lang, saved_at, created_at, deleted_at, source, last_displayed_at, translated_keywords, tags)` — `translated_keywords` is the LLM-produced FR/DE search blob (NULL = pending, `""` = tried & gave up); `tags` is a comma-separated lowercase list (NULL = none).
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, tags, translated). The `translated` column carries the LLM FR/DE keywords so a recipe stored in one language is searchable from the other.
-- `display_panel(id, recipe_id, page)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it.
+- `display_panel(id, recipe_id, page, servings)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it. `servings` is the count it was scaled to on push (NULL = as written).
 - `schema_version(version, applied_at)` — which migrations have been applied (see Migrations below).
 - `meta(key, value)` — free-form bootstrap flags (e.g. `fts_rebuilt`).
 

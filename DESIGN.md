@@ -184,7 +184,9 @@ title.)
 `SERVES ──●── 4` row sits between the `INGREDIENTS` label and the
 list, inside the sticky sidebar so it stays in reach while you read
 the list it changes. Label in the h2's tracked small caps, the live
-count in Fraunces; the native range thumb is tinted paprika via
+count in Inter at the ingredient list's size (a form-control readout,
+not a display role — Fraunces stays reserved for the roles in the
+typography table); the native range thumb is tinted paprika via
 `accent-color` (it's an action, like Push). A tick marks the count the
 recipe was written for. Moving it rescales only the *leading* quantity
 of each ingredient line, server-side (`processing/scaling.py`), and
