@@ -1514,9 +1514,11 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
 
 /* Servings slider — sits between the INGREDIENTS label and the list in
    the sticky sidebar. Label in the same tracked small caps as the h2
-   above it, the live count in Fraunces so the number reads as the
-   recipe's, not the control's. accent-color paints the native thumb and
-   fill paprika: the slider is an action, like Push. */
+   above it; the live count is a form-control readout, so it's Inter
+   (Fraunces is reserved for titles and step numerals — see DESIGN.md),
+   at the ingredient list's size with tabular figures so 9 → 10 doesn't
+   shove the track. accent-color paints the native thumb and fill
+   paprika: the slider is an action, like Push. */
 .servings-scale {
   display: flex;
   align-items: center;
@@ -1542,8 +1544,8 @@ button.link.danger:hover { background: var(--danger-soft); color: var(--danger);
   cursor: pointer;
 }
 .servings-scale-value {
-  font-family: var(--font-display);
-  font-size: 22px;
+  font-family: var(--font-body);
+  font-size: 15px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   min-width: 2ch;
