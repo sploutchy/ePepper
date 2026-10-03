@@ -1,0 +1,6 @@
+{# The ingredient list on its own, so the servings slider can re-fetch
+   just this (GET /app/recipes/<id>/_ingredients) and swap it in place
+   without re-rendering the instructions. Expects `ings`. #}
+<ul class="ingredients" id="ingredients-list">
+  {% for i in ings %}<li>{{ i }}</li>{% endfor %}
+</ul>

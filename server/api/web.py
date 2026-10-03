@@ -45,6 +45,7 @@ from processing.recipes import (
     IngestError, ingest_recipe, normalize_recipe_for_render, servings_count, slug,
     validate_llm_recipe,
 )
+from processing.scaling import base_servings, clamp_servings, scale_recipe, slider_max
 from status_helpers import (
     battery_pct,
     get_firmware_server_version,
@@ -136,8 +137,10 @@ def _fmt_servings(raw) -> str | None:
     return f"Serves {count}" if count else s
 
 
-def _ingredients(recipe: dict) -> list[str]:
-    ings = recipe.get("ingredients") or []
+def _ingredients(recipe: dict, servings: int | None = None) -> list[str]:
+    """Ingredient lines for display, quantities scaled to `servings` when
+    given (see `processing.scaling`)."""
+    ings = scale_recipe(recipe, servings).get("ingredients") or []
     return [str(i) for i in ings if i]
 
 
@@ -182,6 +185,26 @@ def _instruction_groups(recipe: dict) -> list[dict]:
 # already newline-splits a raw string. Instructions need a heading
 # convention since a bare string input has no way to mark one: a line
 # starting with "## " becomes a heading, everything else a step.
+
+
+def _servings_scaler(row: dict, servings: int | None = None) -> dict | None:
+    """Slider settings for the recipe page, or None when the recipe has no
+    serving count to scale against (the template then omits the slider).
+
+    The starting position is, in order: an explicit `servings`, the count
+    this recipe is currently scaled to on the panel (so the page agrees
+    with the display you're cooking from), else the recipe's own count.
+    """
+    base = base_servings(row["recipe"].get("servings"))
+    if base is None:
+        return None
+    if servings is None:
+        state = display_state.get()
+        if state.get("type") == "recipe" and state.get("recipe_id") == row["id"]:
+            servings = state.get("servings")
+    value = servings or base
+    top = max(slider_max(base), value)
+    return {"base": base, "value": value, "max": top}
 
 
 def _ingredients_textarea(recipe: dict) -> str:
@@ -680,8 +703,26 @@ async def recipe_detail(request: Request, recipe_id: int):
     if row is None:
         raise HTTPException(404)
     ctx = _context_globals(request)
-    ctx.update({"r": row, "all_tags": library.list_tags()})
+    ctx.update({
+        "r": row,
+        "all_tags": library.list_tags(),
+        "scaler": _servings_scaler(row),
+    })
     return templates.TemplateResponse(request, "recipe.html", ctx)
+
+
+@router.get("/recipes/{recipe_id}/_ingredients", response_class=HTMLResponse)
+async def recipe_ingredients_partial(request: Request, recipe_id: int, servings: str = ""):
+    """The ingredient list rescaled to `servings` — the servings slider's
+    swap target. An out-of-range or junk value renders as written."""
+    _require_auth(request)
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(
+        request, "_ingredients.html",
+        {"ings": _ingredients(row["recipe"], clamp_servings(servings))},
+    )
 
 
 @router.post("/recipes/{recipe_id}/tags", response_class=HTMLResponse)
@@ -786,18 +827,21 @@ async def recipe_edit_save(
 
 
 @router.post("/recipes/{recipe_id}/push", response_class=HTMLResponse)
-async def push_recipe(request: Request, recipe_id: int):
+async def push_recipe(request: Request, recipe_id: int, servings: str = Form(default="")):
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    if not push_recipe_to_display(row):
+    if not push_recipe_to_display(row, servings=clamp_servings(servings)):
         return templates.TemplateResponse(
             request, "_toast.html",
             {"message": "Couldn't render that recipe to the display."},
             status_code=500,
         )
-    log.info("Web push to display: id=%d title=%r", row["id"], row["title"])
+    log.info(
+        "Web push to display: id=%d title=%r servings=%r",
+        row["id"], row["title"], servings or None,
+    )
     return templates.TemplateResponse(
         request, "_toast.html",
         {"message": f"Pushed “{row['title']}” to the display."},
