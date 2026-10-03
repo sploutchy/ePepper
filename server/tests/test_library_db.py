@@ -79,8 +79,14 @@ def test_panel_state_roundtrip():
     rid = library.upsert_recipe(url, _recipe("Panelgericht"))
     library.save_recipe(rid)
     library.set_panel_state(rid, 2)
-    assert library.get_panel_state() == {"recipe_id": rid, "page": 2, "servings": None}
+    assert library.get_panel_state() == {
+        "recipe_id": rid, "page": 2, "servings": None, "multiplier": None,
+    }
     library.set_panel_state(rid, 1, servings=6)
-    assert library.get_panel_state() == {"recipe_id": rid, "page": 1, "servings": 6}
+    assert library.get_panel_state() == {
+        "recipe_id": rid, "page": 1, "servings": 6, "multiplier": None,
+    }
+    library.set_panel_state(rid, 1, multiplier=1.5)
+    assert library.get_panel_state()["multiplier"] == 1.5
     library.clear_panel_state()
     assert library.get_panel_state() is None

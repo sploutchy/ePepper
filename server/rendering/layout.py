@@ -398,7 +398,8 @@ def render_recipe(
         y += font_source.size + 4
     y += 4
 
-    # Meta — tracked uppercase. Carries time + servings; if neither, line
+    # Meta — tracked uppercase. Carries time + servings (+ a batch
+    # multiplier when scaled without a count); if none, line
     # collapses to empty but the vertical space is preserved for rhythm.
     meta_parts: list[str] = []
     if recipe.get("total_time"):
@@ -414,6 +415,10 @@ def render_recipe(
             meta_parts.append(f"{servings_num} {label}")
         else:
             meta_parts.append(servings_raw.upper())
+    # Batch label ("×2") from processing.scaling for a recipe without a
+    # serving count — the cook needs to know the amounts aren't as printed.
+    if recipe.get("scale"):
+        meta_parts.append(str(recipe["scale"]))
     if meta_parts:
         _tracked(draw, (MARGIN, y), "  ·  ".join(meta_parts), font_meta)
     y += font_meta.size + 6
