@@ -114,7 +114,7 @@ FONT_SERIF_BOLD: str = os.path.join(FONT_DIR, "DejaVuSerif-Bold.ttf")
 FONT_SERIF_BOLD_ITALIC: str = os.path.join(FONT_DIR, "DejaVuSerif-BoldItalic.ttf")
 
 # Layout
-MARGIN: int = 20  # left / right
+MARGIN: int = 10  # left / right
 # Top clears the 10-px button glyphs drawn at y=2..11 above the title
 # (accented capitals reach ~1 px below the title's y); bottom only needs
 # to keep text off the bezel edge.
