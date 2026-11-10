@@ -344,20 +344,11 @@ def render_recipe(
             groups.append([i])
             i += 1
 
-    instr_pages: list[list[int]] = []
-    current_page = []
-    used_h = 0
-    for g in groups:
-        gh = sum(_block_h(all_blocks[k]) for k in g)
-        if used_h + gh > available_h and current_page:
-            instr_pages.append(current_page)
-            current_page = list(g)
-            used_h = gh
-        else:
-            current_page.extend(g)
-            used_h += gh
-    if current_page:
-        instr_pages.append(current_page)
+    # Each page is a list of (block_idx, line_start, line_end) slices.
+    # Steps may break across pages at a line boundary so a long step
+    # doesn't push itself wholesale onto the next page and leave a tall
+    # blank band at the bottom of the column. Headings never split.
+    instr_pages = _paginate_instructions(all_blocks, groups, available_h, _block_h)
 
     base_pages = max(len(ingr_pages), len(instr_pages), 1)
     total_pages = base_pages
@@ -455,7 +446,7 @@ def render_recipe(
     y_right = col_body_top
     if instr_pages and (repeat_instr or page <= len(instr_pages)):
         instr_src = 0 if repeat_instr else page - 1
-        for block_idx in instr_pages[instr_src]:
+        for block_idx, start, end in instr_pages[instr_src]:
             block = all_blocks[block_idx]
             if block["type"] == "heading":
                 y_right += 4
@@ -465,7 +456,7 @@ def render_recipe(
                     draw.line([(col_right_x, rule_y), (DISPLAY_WIDTH - MARGIN, rule_y)], fill=0, width=1)
                     y_right = rule_y + 6
                 continue
-            for wline in block["lines"]:
+            for wline in block["lines"][start:end]:
                 if y_right + block["line_h"] > DISPLAY_HEIGHT - MARGIN:
                     break
                 draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
@@ -476,6 +467,74 @@ def render_recipe(
     _draw_button_glyphs(draw, page, total_pages)
 
     return img, total_pages
+
+
+# Minimum lines of a split step left on either side of a page break —
+# avoids a lone orphan/widow line that reads as a stray fragment.
+_MIN_SPLIT_LINES = 2
+
+
+def _paginate_instructions(all_blocks, groups, available_h, block_h):
+    """Pack instruction groups into pages of (block_idx, start, end) slices.
+
+    A group is a run of headings optionally followed by one step; the
+    headings stay glued to the first slice of that step. A step that
+    doesn't fit in the remaining room is split at a line boundary when at
+    least `_MIN_SPLIT_LINES` land on each side; otherwise it moves to the
+    next page whole. A step taller than an empty page is always split.
+    """
+    pages: list[list[tuple[int, int, int]]] = []
+    cur: list[tuple[int, int, int]] = []
+    used = 0
+
+    def flush():
+        nonlocal cur, used
+        if cur:
+            pages.append(cur)
+        cur, used = [], 0
+
+    for g in groups:
+        heads = [k for k in g if all_blocks[k]["type"] == "heading"]
+        steps = [k for k in g if all_blocks[k]["type"] != "heading"]
+        head_h = sum(block_h(all_blocks[k]) for k in heads)
+
+        if not steps:
+            if used + head_h > available_h and cur:
+                flush()
+            cur.extend((k, 0, len(all_blocks[k]["lines"])) for k in heads)
+            used += head_h
+            continue
+
+        step = steps[0]
+        lines = all_blocks[step]["lines"]
+        lh = all_blocks[step]["line_h"]
+        start = 0
+        while start < len(lines):
+            prefix = head_h if start == 0 else 0
+            remaining = len(lines) - start
+            room = available_h - used - prefix
+            if remaining * lh <= room:
+                take = remaining
+            else:
+                fit = max(0, room // lh)
+                take = min(fit, remaining - _MIN_SPLIT_LINES)
+                if take < _MIN_SPLIT_LINES:
+                    if cur:
+                        flush()
+                        continue
+                    # Empty page and still too tall: split as late as fits.
+                    take = max(1, min(fit, remaining))
+            if start == 0:
+                cur.extend((k, 0, len(all_blocks[k]["lines"])) for k in heads)
+            cur.append((step, start, start + take))
+            start += take
+            if start < len(lines):
+                flush()
+            else:
+                used += prefix + take * lh + 6
+
+    flush()
+    return pages
 
 
 def _wrap_to_width(text: str, font, max_w: int) -> list[str]:
