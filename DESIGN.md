@@ -180,6 +180,29 @@ small-caps coda at the very foot of the recipe; that buried the most
 important verb on the page, so it's back to its placement under the
 title.)
 
+**Servings slider.** When the recipe's servings carry a number, a
+`SERVES ──●── 4` row sits between the `INGREDIENTS` label and the
+list, inside the sticky sidebar so it stays in reach while you read
+the list it changes. Label in the h2's tracked small caps, the live
+count in Inter at the ingredient list's size (a form-control readout,
+not a display role — Fraunces stays reserved for the roles in the
+typography table); the native range thumb is tinted paprika via
+`accent-color` (it's an action, like Push). A tick marks the count the
+recipe was written for. Moving it rescales only the *leading* quantity
+of each ingredient line, server-side (`processing/scaling.py`), and
+`Push to display` sends the current count along so the panel shows
+the same numbers. With the slider present the static `Serves N` fact
+under the title is dropped — it would contradict the slider. The
+share page has no slider.
+
+A recipe whose servings *don't* carry a number (`une grande poêle`, or
+nothing) gets the same row as a **Batch** slider instead: `BATCH ──●──
+×1½`, ×½ to ×4 in halves, tick at ×1. The readout uses the same `½`
+glyph as the scaled ingredient lines. The count-less servings text
+stays on the facts line, since nothing contradicts it, and the panel's
+meta line gains the multiplier (`90 MIN · ×1½`) so the cook knows the
+amounts aren't the printed ones.
+
 Mobile collapses the two-column to one, the ingredients section
 becomes a top block, instructions flow below, the back chip tightens.
 
@@ -240,6 +263,44 @@ appears when `error` is truthy.
 ---
 
 ## Component patterns
+
+### Share link panel
+
+Minting a share link opens a **hairline-topped passage under the recipe
+actions**, not a toast and not a modal. A toast is for something that
+already happened and needs no response; a share link has to be read and
+copied, so it stays put until the page is left.
+
+The URL is shown **in full, in mono**, in a readonly field with the
+merged copy button (`.input-action`) — the same affordance as the login
+and Add screens. Never a bare "Copied!" with the link hidden: you should
+see exactly what you are about to send someone.
+
+The note above it states the expiry in wall-clock terms ("tomorrow at
+18:40", never "in 24 hours") and says plainly that the link can't be
+withdrawn early. That's a real limitation of an unrevocable token, and
+the moment it matters is the moment before you send it.
+
+*Share* itself is a **muted** link-button next to the accent *Push to
+display*. Pushing to the panel is what the page is for; sending the
+recipe to someone is the occasional errand, and the hierarchy should say
+so.
+
+### Shared recipe page
+
+The public share page (`/app/s/<token>`) is the **wordmark and the
+recipe, nothing else** — no nav, no sign-in prompt, no install banner,
+and the wordmark is not a link. A visitor was sent one recipe; every
+piece of chrome that hints at an app they can't open is noise at best
+and an invitation to go poking at best.
+
+It reuses the same `_recipe_body.html` partial as the signed-in page, so
+a shared recipe is typeset exactly like a private one — the editorial
+treatment is the product, and a stripped-down "public version" of it
+would read as an afterthought.
+
+One line of footer, `.share-footer`, says where it came from. It names
+no host and links nowhere.
 
 ### Toast / confirmation
 

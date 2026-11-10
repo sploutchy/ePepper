@@ -7,8 +7,11 @@
  *   KEY2 (GPIO5)  — Previous page
  *
  * Wake sources:
- *   - Timer: DAILY_REFRESH_INTERVAL_S — pull whatever ambient content the
- *     server has scheduled (e.g. an anniversary recipe).
+ *   - Timer: the server-scheduled daily wake (next_wake_in_s, DEVICE_WAKE_HOUR_LOCAL
+ *     on the server) — pull whatever ambient content the server has
+ *     scheduled (e.g. an anniversary recipe). Kept as an absolute RTC time
+ *     so button wakes don't push it back; DAILY_REFRESH_INTERVAL_S is
+ *     the fallback when no schedule is known.
  *   - Any of the 3 buttons via ext1 (active-low)
  *
  * Per wake:
@@ -41,6 +44,7 @@
 #include <Wire.h>
 #include <FS.h>
 #include <LittleFS.h>
+#include <sys/time.h>
 #include "TFT_eSPI.h"
 #include "config.h"
 
@@ -80,6 +84,7 @@ float readBatteryVoltage();
 void goToSleep(uint64_t seconds);
 WakeAction detectWakeAction();
 uint64_t computeSleepSeconds();
+int64_t nowUs();
 
 // ---- RTC-persistent state (survives deep sleep, lost on power loss) ----
 // cachedHash is the content_hash of the recipe currently sitting in
@@ -106,12 +111,16 @@ bool fsReady = false;
 // on success).
 char pendingContentHash[16] = "";
 
-// Seconds the server told us to sleep on this wake cycle (from
-// /version → next_wake_in_s). -1 = not yet known; the sleep helper
-// falls back to DAILY_REFRESH_INTERVAL_S in that case. Transient so
-// a stale value from a previous wake (taken minutes/hours ago) can't
-// land us at the wrong time after a network blip.
-int32_t nextWakeInS = -1;
+// Absolute time (µs on the gettimeofday clock, which the RTC keeps
+// running through deep sleep) of the next scheduled timer wake, derived
+// from /version → next_wake_in_s. RTC-persistent so a button wake that
+// never talks to the server (an offline page turn) sleeps until the
+// SAME target instead of restarting a flat 24 h countdown — before
+// this, turning a page at 19:00 skipped the next 06:00 wake entirely
+// and the timer fired at 19:00 the following day. 0 = no schedule
+// known (power loss, or a timer wake already consumed it); the sleep
+// helper falls back to DAILY_REFRESH_INTERVAL_S then.
+RTC_DATA_ATTR int64_t scheduledWakeUs = 0;
 
 // Set when a wake that needed the server couldn't reach it at all (WiFi
 // join failed, TCP connect failed). computeSleepSeconds then retries in
@@ -158,6 +167,11 @@ void setup() {
     }
 
     WakeAction action = detectWakeAction();
+
+    // A timer wake (or a cold boot) consumes the schedule: whatever this
+    // wake learns from /version sets the next one. Without this, a timer
+    // wake whose poll fails would see a just-expired target and spin.
+    if (action == WAKE_TIMER) scheduledWakeUs = 0;
 
     // Refresh is the only button with a long-press gesture (force full
     // redraw); paging is short-press only. Sample the refresh GPIO to tell
@@ -531,9 +545,14 @@ bool pollServer() {
     const char* contentHash = doc["content_hash"];
     if (!contentHash) contentHash = doc["hash"];
     totalPages = doc["total_pages"] | 1;
-    // Server tells us when to next wake. Missing on old servers → -1
-    // → fallback to DAILY_REFRESH_INTERVAL_S in computeSleepSeconds.
-    nextWakeInS = doc["next_wake_in_s"] | -1;
+    // Server tells us when to next wake. Anchor it to the RTC clock now,
+    // before the page downloads, so the wake lands on the server's target
+    // rather than that plus the download time. Missing on old servers or
+    // out of range → keep the previous schedule (or the 24 h fallback).
+    int32_t nextWakeInS = doc["next_wake_in_s"] | -1;
+    if (nextWakeInS >= (int32_t)MIN_SLEEP_S && nextWakeInS <= (int32_t)MAX_SLEEP_S) {
+        scheduledWakeUs = nowUs() + (int64_t)nextWakeInS * 1000000LL;
+    }
 
     // Stage the hash; cacheAllPages() promotes it to cachedHash only after a
     // full successful rebuild so a failed download can't validate a stale cache.
@@ -902,18 +921,34 @@ bool waitForLongPress(int btnPin, int thresholdMs) {
 
 // ---- Sleep ----
 
-// Pick the sleep duration: server-provided next_wake_in_s when present
-// and sane, otherwise the 24-h fallback — shortened to RETRY_SLEEP_S when
-// this wake needed the server and couldn't reach it, so a single blip
-// doesn't cost a full day of stale content. The bounds are a sanity check
-// against a clock-skewed server (e.g. a value of 1 s would burn the
-// battery; a value of 30 days would silently kill the device).
+int64_t nowUs() {
+    struct timeval tv;
+    gettimeofday(&tv, nullptr);
+    return (int64_t)tv.tv_sec * 1000000LL + tv.tv_usec;
+}
+
+// Pick the sleep duration: time left until the scheduled wake (from the
+// server's next_wake_in_s, possibly learned on an earlier wake), otherwise
+// the 24-h fallback — and never longer than RETRY_SLEEP_S when this wake
+// needed the server and couldn't reach it, so a single blip doesn't cost
+// a full day of stale content. The MAX_SLEEP_S bound is a sanity check
+// (a value of 30 days would silently kill the device). A target less
+// than MIN_SLEEP_S away (a button press seconds before 06:00) still
+// wakes, just MIN_SLEEP_S later, rather than skipping a whole day.
 uint64_t computeSleepSeconds() {
-    if (nextWakeInS < (int32_t)MIN_SLEEP_S || nextWakeInS > (int32_t)MAX_SLEEP_S) {
-        return serverUnreachable ? (uint64_t)RETRY_SLEEP_S
-                                 : (uint64_t)DAILY_REFRESH_INTERVAL_S;
+    uint64_t seconds = DAILY_REFRESH_INTERVAL_S;
+    if (scheduledWakeUs != 0) {
+        int64_t remainingS = (scheduledWakeUs - nowUs()) / 1000000LL;
+        if (remainingS < (int64_t)MIN_SLEEP_S) {
+            seconds = MIN_SLEEP_S;
+        } else if (remainingS <= (int64_t)MAX_SLEEP_S) {
+            seconds = (uint64_t)remainingS;
+        }
     }
-    return (uint64_t)nextWakeInS;
+    if (serverUnreachable && seconds > (uint64_t)RETRY_SLEEP_S) {
+        seconds = RETRY_SLEEP_S;
+    }
+    return seconds;
 }
 
 
