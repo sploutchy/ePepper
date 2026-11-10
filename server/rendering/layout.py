@@ -26,6 +26,7 @@ column repeat heuristic + the L10n table are also preserved — only the
 visual treatment moves.
 """
 
+import json
 import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
@@ -166,169 +167,82 @@ def _tracked_width(text: str, font, tracking: int = _TRACK_PX) -> int:
     return max(0, total - tracking)
 
 
-def render_recipe(
-    recipe: dict,
-    page: int = 1,
-    source: str | None = None,
-) -> tuple[Image.Image, int]:
-    """Render a recipe dict to a 1-bit image for e-ink display.
+# Bounds and step of the ingredients-column width search. The configured
+# INGREDIENTS_WIDTH_RATIO stays the preferred split: among candidates
+# that tie on page count and ingredient wrapping, the closest one wins,
+# so most recipes keep the familiar layout.
+_RATIO_MIN = 0.22
+_RATIO_MAX = 0.50
+_RATIO_STEP = 0.02
 
-    Args:
-        recipe: dict with title, total_time, servings, ingredients, instructions
-        page: 1-based page number
-        source: optional humanized source name ("Fooby", "BBC", …) drawn
-            in the meta font just below the title.
 
-    Returns:
-        (image, total_pages)
-    """
-    # Load fonts. The DejaVu Serif Bold Italic variant only ships with the
+def _load_fonts() -> dict:
+    # The DejaVu Serif Bold Italic variant only ships with the
     # `fonts-dejavu` apt package (not -core); the Dockerfile installs the
     # full package. The OSError fallback keeps the renderer alive if it
     # ever runs in an environment that's missing fonts entirely.
     try:
-        font_title = ImageFont.truetype(FONT_SERIF_BOLD, 28)
-        font_source = ImageFont.truetype(FONT_REGULAR, 13)
-        font_folio = ImageFont.truetype(FONT_SERIF_BOLD_ITALIC, 22)
-        font_meta = ImageFont.truetype(FONT_BOLD, 11)
-        font_section = ImageFont.truetype(FONT_BOLD, 11)
-        font_heading = ImageFont.truetype(FONT_SERIF_BOLD_ITALIC, 16)
-        font_body = ImageFont.truetype(FONT_REGULAR, 14)
+        return {
+            "title": ImageFont.truetype(FONT_SERIF_BOLD, 28),
+            "source": ImageFont.truetype(FONT_REGULAR, 13),
+            "folio": ImageFont.truetype(FONT_SERIF_BOLD_ITALIC, 22),
+            "meta": ImageFont.truetype(FONT_BOLD, 11),
+            "section": ImageFont.truetype(FONT_BOLD, 11),
+            "heading": ImageFont.truetype(FONT_SERIF_BOLD_ITALIC, 16),
+            "body": ImageFont.truetype(FONT_REGULAR, 14),
+        }
     except OSError:
-        font_title = ImageFont.load_default()
-        font_source = font_meta = font_section = font_heading = font_body = font_folio = font_title
+        f = ImageFont.load_default()
+        return {k: f for k in ("title", "source", "folio", "meta", "section", "heading", "body")}
 
-    # Defense in depth: legacy `parsed_json` rows persisted before the
-    # upsert path started normalizing on write still need the dedupe
-    # pass. New rows come in already canonical, so this is a no-op for
-    # the modern path.
-    recipe = normalize_recipe_for_render(recipe)
 
-    lang = recipe.get("lang", "en")
-    strings = _L10N.get(lang, _L10N["en"])
+def _font_size(font) -> int:
+    return getattr(font, "size", 11)
 
-    # --- Compute header height (title + source + meta + divider) ---
-    title = recipe.get("title", "Untitled Recipe")
-    title_lines = textwrap.wrap(title, width=40)
 
-    # Inline the source onto the last title line when it fits, otherwise
-    # bump it to its own line below.
-    source_inline = False
-    if source and title_lines:
-        try:
-            last_w = font_title.getlength(title_lines[-1])
-            src_w = font_source.getlength(f"  {strings['from']} {source}")
-            usable = DISPLAY_WIDTH - 2 * MARGIN
-            source_inline = last_w + src_w <= usable
-        except AttributeError:
-            source_inline = False
+def _instruction_items(recipe: dict) -> list[dict]:
+    """Width-independent instruction list: headings + step text with the
+    "N." prefix already applied.
 
-    title_line_h = font_title.size + 4
-    header_h = MARGIN_TOP + len(title_lines) * title_line_h + 4
-    if source and not source_inline:
-        header_h += font_source.size + 4
-    # Meta line — always reserved (carries no info on its own but holds
-    # vertical rhythm; the hung folio sits to the right of the title).
-    header_h += font_meta.size + 6
-    header_h += 4 + 10  # space + divider line + space
-
-    # --- Layout columns ---
-    col_left_w = int((DISPLAY_WIDTH - 2 * MARGIN - COLUMN_GAP) * INGREDIENTS_WIDTH_RATIO)
-    col_right_x = MARGIN + col_left_w + COLUMN_GAP
-    col_right_w = DISPLAY_WIDTH - col_right_x - MARGIN
-    col_top = header_h
-
-    # Characters per column — rough heuristic for textwrap fallback. The
-    # final wrapping below the section label uses width-measured wrapping
-    # via _wrap_to_width.
-    line_h = font_body.size + 4
-    heading_line_h = font_heading.size + 4
-    # Section label sits as a tracked small-cap; reserve its height +
-    # bottom space. Smaller than the previous bold-sans h2 — gives the
-    # columns ~30 px more vertical room.
-    section_h = font_section.size + 12
-    footer_reserve = 0
-    available_h = DISPLAY_HEIGHT - col_top - MARGIN_BOTTOM - section_h - footer_reserve
-
-    # --- Pre-wrap ingredients into line groups (measured width) ---
-    ingredients = recipe.get("ingredients", [])
-    ingr_groups: list[list[str]] = [
-        _wrap_to_width(f"·  {item}", font_body, col_left_w) for item in ingredients
+    Sub-headings restart the step counter (matches the web app).
+    Single-step sections drop the "N." prefix and render as plain body
+    text — mirrors the web's .step-solo treatment: a section of one has
+    no sequence to mark.
+    """
+    # normalize_recipe_for_render has already canonicalized the list; the
+    # bare-string coercion is left for paranoia.
+    instructions = [
+        {"type": "step", "text": it} if isinstance(it, str) else it
+        for it in recipe.get("instructions", [])
     ]
-
-    # Paginate ingredients
-    ingr_pages: list[list[int]] = []
-    current_page: list[int] = []
-    used_h = 0
-    for idx, lines in enumerate(ingr_groups):
-        block_h = len(lines) * line_h
-        if used_h + block_h > available_h and current_page:
-            ingr_pages.append(current_page)
-            current_page = [idx]
-            used_h = block_h
-        else:
-            current_page.append(idx)
-            used_h += block_h
-    if current_page:
-        ingr_pages.append(current_page)
-
-    # --- Pre-wrap instructions into blocks ---
-    # normalize_recipe_for_render above has already canonicalized the
-    # instruction list (typed dicts, dedup'd headings); the only fixup
-    # left here is the legacy "bare string step" case which the
-    # normalizer also coerces — left for paranoia.
-    raw_instructions = recipe.get("instructions", [])
-    instructions: list[dict] = []
-    for item in raw_instructions:
-        if isinstance(item, str):
-            instructions.append({"type": "step", "text": item})
-        else:
-            instructions.append(item)
-
-    all_blocks: list[dict] = []
-    # Sub-headings restart the step counter (matches the web app and the
-    # rendering proposal D in /tmp/eink-proposals/render_D.py).
-    #
-    # Single-step sections drop the "N." prefix and render as plain
-    # body text — mirrors the web's .step-solo treatment. The inline
-    # numeral marks a sequence; a section of one doesn't have one
-    # to mark, so the prefix would just be visual noise next to a
-    # solitary instruction.
-    section_step_counts: list[int] = [0] * len(instructions)
-    current_section_indices: list[int] = []
+    section_step_counts = [0] * len(instructions)
+    current: list[int] = []
     for idx, item in enumerate(instructions):
         if item["type"] == "heading":
-            n = len(current_section_indices)
-            for i in current_section_indices:
-                section_step_counts[i] = n
-            current_section_indices = []
+            for i in current:
+                section_step_counts[i] = len(current)
+            current = []
         else:
-            current_section_indices.append(idx)
-    n = len(current_section_indices)
-    for i in current_section_indices:
-        section_step_counts[i] = n
+            current.append(idx)
+    for i in current:
+        section_step_counts[i] = len(current)
 
+    items: list[dict] = []
     step_num = 0
     for idx, item in enumerate(instructions):
         if item["type"] == "heading":
             step_num = 0
-            wrapped = _wrap_to_width(item["text"], font_heading, col_right_w)
-            all_blocks.append({"type": "heading", "lines": wrapped, "font": font_heading, "line_h": heading_line_h})
+            items.append({"type": "heading", "text": item["text"]})
         else:
             step_num += 1
-            if section_step_counts[idx] == 1:
-                text = item["text"]
-            else:
-                text = f"{step_num}. {item['text']}"
-            wrapped = _wrap_to_width(text, font_body, col_right_w)
-            all_blocks.append({"type": "step", "lines": wrapped, "font": font_body, "line_h": line_h})
+            text = item["text"] if section_step_counts[idx] == 1 else f"{step_num}. {item['text']}"
+            items.append({"type": "step", "text": text})
+    return items
 
-    # Paginate instructions. Bundle each heading with the first non-heading
-    # block that follows it so a heading + first step land on the same page.
-    def _block_h(b: dict) -> int:
-        extra = 14 if b["type"] == "heading" else 6  # heading gets a rule + breathing room
-        return len(b["lines"]) * b["line_h"] + extra
 
+def _instruction_groups(all_blocks: list[dict]) -> list[list[int]]:
+    """Bundle each heading run with the first step that follows it so a
+    heading + first step land on the same page."""
     groups: list[list[int]] = []
     i = 0
     while i < len(all_blocks):
@@ -345,15 +259,199 @@ def render_recipe(
         else:
             groups.append([i])
             i += 1
+    return groups
 
-    # Each page is a list of (block_idx, line_start, line_end) slices.
-    # Steps may break across pages at a line boundary so a long step
-    # doesn't push itself wholesale onto the next page and leave a tall
-    # blank band at the bottom of the column. Headings never split.
-    instr_pages = _paginate_instructions(all_blocks, groups, available_h, _block_h)
 
-    base_pages = max(len(ingr_pages), len(instr_pages), 1)
-    total_pages = base_pages
+def _instr_block_h(b: dict) -> int:
+    extra = 14 if b["type"] == "heading" else 6  # heading gets a rule + breathing room
+    return len(b["lines"]) * b["line_h"] + extra
+
+
+def _paginate_ingredients(ingr_groups: list[list[str]], line_h: int, available_h) -> list[list[int]]:
+    """Pack whole ingredients into pages. A single ingredient never splits
+    — a quantity on one page and its item on the next would mislead."""
+    avail = available_h if callable(available_h) else (lambda _i: available_h)
+    pages: list[list[int]] = []
+    cur: list[int] = []
+    used = 0
+    for idx, lines in enumerate(ingr_groups):
+        block_h = len(lines) * line_h
+        if used + block_h > avail(len(pages)) and cur:
+            pages.append(cur)
+            cur, used = [idx], block_h
+        else:
+            cur.append(idx)
+            used += block_h
+    if cur:
+        pages.append(cur)
+    return pages
+
+
+def _plan_columns(ratio: float, ingredients: list[str], items: list[dict], fonts: dict, available_h) -> dict:
+    """Wrap + paginate both columns for one ingredients-column ratio."""
+    font_body, font_heading = fonts["body"], fonts["heading"]
+    line_h = _font_size(font_body) + 4
+    heading_line_h = _font_size(font_heading) + 4
+
+    col_left_w = int((DISPLAY_WIDTH - 2 * MARGIN - COLUMN_GAP) * ratio)
+    col_right_x = MARGIN + col_left_w + COLUMN_GAP
+    col_right_w = DISPLAY_WIDTH - col_right_x - MARGIN
+
+    ingr_groups = [_wrap_to_width(f"·  {item}", font_body, col_left_w) for item in ingredients]
+    ingr_pages = _paginate_ingredients(ingr_groups, line_h, available_h)
+
+    all_blocks: list[dict] = []
+    for it in items:
+        if it["type"] == "heading":
+            all_blocks.append({"type": "heading", "lines": _wrap_to_width(it["text"], font_heading, col_right_w),
+                               "font": font_heading, "line_h": heading_line_h})
+        else:
+            all_blocks.append({"type": "step", "lines": _wrap_to_width(it["text"], font_body, col_right_w),
+                               "font": font_body, "line_h": line_h})
+    instr_pages = _paginate_instructions(all_blocks, _instruction_groups(all_blocks), available_h, _instr_block_h)
+
+    return {
+        "ratio": ratio,
+        "col_left_w": col_left_w,
+        "col_right_x": col_right_x,
+        "line_h": line_h,
+        "ingr_groups": ingr_groups,
+        "ingr_pages": ingr_pages,
+        "all_blocks": all_blocks,
+        "instr_pages": instr_pages,
+        "total_pages": max(len(ingr_pages), len(instr_pages), 1),
+        "ingr_wraps": sum(len(g) - 1 for g in ingr_groups),
+    }
+
+
+def _choose_columns(ingredients: list[str], items: list[dict], fonts: dict, available_h) -> dict:
+    """Search the ingredients-column width for the best layout.
+
+    Ranked by: fewest pages, then fewest wrapped ingredient lines (a
+    "200 g / finely chopped" break reads worse than a wrapped sentence),
+    then closeness to the configured INGREDIENTS_WIDTH_RATIO.
+    """
+    n = int(round((_RATIO_MAX - _RATIO_MIN) / _RATIO_STEP))
+    ratios = {round(_RATIO_MIN + i * _RATIO_STEP, 4) for i in range(n + 1)}
+    ratios.add(INGREDIENTS_WIDTH_RATIO)
+    best, best_key = None, None
+    for r in sorted(ratios):
+        plan = _plan_columns(r, ingredients, items, fonts, available_h)
+        key = (plan["total_pages"], plan["ingr_wraps"], abs(r - INGREDIENTS_WIDTH_RATIO))
+        if best_key is None or key < best_key:
+            best, best_key = plan, key
+    return best
+
+
+# The width search wraps + paginates the recipe ~16 times; every page of
+# a recipe is rendered separately and would otherwise repeat it. Keyed on
+# the width-independent inputs, so a re-push or rescale misses.
+_PLAN_CACHE: dict[str, dict] = {}
+_PLAN_CACHE_MAX = 8
+
+
+def _cached_columns(ingredients: list[str], items: list[dict], fonts: dict,
+                    avail_first: int, avail_rest: int) -> dict:
+    key = json.dumps([ingredients, items, avail_first, avail_rest], ensure_ascii=False, default=str)
+    plan = _PLAN_CACHE.get(key)
+    if plan is None:
+        plan = _choose_columns(
+            ingredients, items, fonts,
+            lambda i: avail_first if i == 0 else avail_rest,
+        )
+        if len(_PLAN_CACHE) >= _PLAN_CACHE_MAX:
+            _PLAN_CACHE.pop(next(iter(_PLAN_CACHE)))
+        _PLAN_CACHE[key] = plan
+    return plan
+
+
+def _ellipsize(text: str, font, max_w: int) -> str:
+    if font.getlength(text) <= max_w:
+        return text
+    while text and font.getlength(text.rstrip() + "…") > max_w:
+        text = text[:-1]
+    return text.rstrip() + "…"
+
+
+def render_recipe(
+    recipe: dict,
+    page: int = 1,
+    source: str | None = None,
+) -> tuple[Image.Image, int]:
+    """Render a recipe dict to a 1-bit image for e-ink display.
+
+    Page 1 carries the full header (wrapped title, source, meta line);
+    pages 2+ get a compact one-line header (ellipsized title + folio) so
+    continuation pages have more room for the columns. The ingredients /
+    instructions split is chosen per recipe by `_choose_columns`.
+
+    Args:
+        recipe: dict with title, total_time, servings, ingredients, instructions
+        page: 1-based page number
+        source: optional humanized source name ("Fooby", "BBC", …) drawn
+            in the meta font just below the title.
+
+    Returns:
+        (image, total_pages)
+    """
+    fonts = _load_fonts()
+    font_title, font_source, font_folio = fonts["title"], fonts["source"], fonts["folio"]
+    font_meta, font_section, font_heading, font_body = fonts["meta"], fonts["section"], fonts["heading"], fonts["body"]
+
+    # Defense in depth: legacy `parsed_json` rows persisted before the
+    # upsert path started normalizing on write still need the dedupe
+    # pass. New rows come in already canonical, so this is a no-op for
+    # the modern path.
+    recipe = normalize_recipe_for_render(recipe)
+
+    lang = recipe.get("lang", "en")
+    strings = _L10N.get(lang, _L10N["en"])
+
+    # --- Header heights (full on page 1, compact on pages 2+) ---
+    title = recipe.get("title", "Untitled Recipe")
+    title_lines = textwrap.wrap(title, width=40)
+
+    # Inline the source onto the last title line when it fits, otherwise
+    # bump it to its own line below.
+    source_inline = False
+    if source and title_lines:
+        try:
+            last_w = font_title.getlength(title_lines[-1])
+            src_w = font_source.getlength(f"  {strings['from']} {source}")
+            usable = DISPLAY_WIDTH - 2 * MARGIN
+            source_inline = last_w + src_w <= usable
+        except AttributeError:
+            source_inline = False
+
+    title_line_h = _font_size(font_title) + 4
+    header_full_h = MARGIN_TOP + len(title_lines) * title_line_h + 4
+    if source and not source_inline:
+        header_full_h += _font_size(font_source) + 4
+    # Meta line — always reserved on page 1 (holds vertical rhythm even
+    # when empty; the hung folio sits to the right of the title).
+    header_full_h += _font_size(font_meta) + 6
+    header_full_h += 4 + 10  # space + divider line + space
+    # Compact: one title line, then straight to the rule.
+    header_compact_h = MARGIN_TOP + title_line_h + 4 + 10
+
+    # Section label sits as a tracked small-cap; reserve its height +
+    # bottom space.
+    section_h = _font_size(font_section) + 12
+    avail_first = DISPLAY_HEIGHT - header_full_h - MARGIN_BOTTOM - section_h
+    avail_rest = DISPLAY_HEIGHT - header_compact_h - MARGIN_BOTTOM - section_h
+
+    # --- Column split + pagination ---
+    plan = _cached_columns(
+        recipe.get("ingredients", []), _instruction_items(recipe), fonts, avail_first, avail_rest,
+    )
+    col_left_w = plan["col_left_w"]
+    col_right_x = plan["col_right_x"]
+    line_h = plan["line_h"]
+    ingr_groups = plan["ingr_groups"]
+    ingr_pages = plan["ingr_pages"]
+    all_blocks = plan["all_blocks"]
+    instr_pages = plan["instr_pages"]
+    total_pages = plan["total_pages"]
     page = max(1, min(page, total_pages))
 
     img = Image.new("1", (DISPLAY_WIDTH, DISPLAY_HEIGHT), 1)
@@ -362,66 +460,78 @@ def render_recipe(
     # Hung folio — page indicator drawn in italic-serif at the top-right,
     # baseline-aligned with the title. Only shown for multi-page recipes.
     folio_text = f"{page} / {total_pages}" if total_pages > 1 else ""
+    folio_w = int(font_folio.getlength(folio_text)) if folio_text else 0
 
-    # --- Recipe page: serif title + inline source + hung folio + meta + rule + 2 cols ---
+    def draw_folio(title_y: int) -> None:
+        if folio_text:
+            folio_y = title_y + (_font_size(font_title) - _font_size(font_folio)) - 2
+            draw.text((DISPLAY_WIDTH - MARGIN - folio_w, folio_y), folio_text, font=font_folio, fill=0)
+
     y = MARGIN_TOP
-    for i, line in enumerate(title_lines):
-        draw.text((MARGIN, y), line, font=font_title, fill=0)
-        is_last = i == len(title_lines) - 1
-        if is_last and source and source_inline:
-            last_w = font_title.getlength(line)
-            src_y = y + (font_title.size - font_source.size) - 2
-            draw.text(
-                (MARGIN + last_w + 8, src_y),
-                f"{strings['from']} {source}",
-                font=font_source, fill=0,
-            )
-        # Hung folio rides the top-right corner on the first title line.
-        if i == 0 and folio_text:
-            fw = int(font_folio.getlength(folio_text))
-            folio_y = y + (font_title.size - font_folio.size) - 2
-            draw.text(
-                (DISPLAY_WIDTH - MARGIN - fw, folio_y),
-                folio_text,
-                font=font_folio, fill=0,
-            )
-        y += title_line_h
-    if source and not source_inline:
-        draw.text((MARGIN, y), f"{strings['from']} {source}", font=font_source, fill=0)
-        y += font_source.size + 4
-    y += 4
+    if page == 1:
+        # --- Full header: serif title + inline source + hung folio + meta ---
+        for i, line in enumerate(title_lines):
+            draw.text((MARGIN, y), line, font=font_title, fill=0)
+            is_last = i == len(title_lines) - 1
+            if is_last and source and source_inline:
+                last_w = font_title.getlength(line)
+                src_y = y + (_font_size(font_title) - _font_size(font_source)) - 2
+                draw.text(
+                    (MARGIN + last_w + 8, src_y),
+                    f"{strings['from']} {source}",
+                    font=font_source, fill=0,
+                )
+            # Hung folio rides the top-right corner on the first title line.
+            if i == 0:
+                draw_folio(y)
+            y += title_line_h
+        if source and not source_inline:
+            draw.text((MARGIN, y), f"{strings['from']} {source}", font=font_source, fill=0)
+            y += _font_size(font_source) + 4
+        y += 4
 
-    # Meta — tracked uppercase. Carries time + servings (+ a batch
-    # multiplier when scaled without a count); if none, line
-    # collapses to empty but the vertical space is preserved for rhythm.
-    meta_parts: list[str] = []
-    if recipe.get("total_time"):
-        meta_parts.append(f"{recipe['total_time']} MIN")
-    if recipe.get("servings"):
-        servings_raw = str(recipe["servings"])
-        # Free-form prose ("6 personnes en accompagnement, ou pour 4 en
-        # plat principal") carries more than one number; the meta line has
-        # room for the leading count only.
-        servings_num = servings_count(servings_raw)
-        label = strings["servings"].upper()
-        if servings_num:
-            meta_parts.append(f"{servings_num} {label}")
-        else:
-            meta_parts.append(servings_raw.upper())
-    # Batch label ("×2") from processing.scaling for a recipe without a
-    # serving count — the cook needs to know the amounts aren't as printed.
-    if recipe.get("scale"):
-        meta_parts.append(str(recipe["scale"]))
-    if meta_parts:
-        _tracked(draw, (MARGIN, y), "  ·  ".join(meta_parts), font_meta)
-    y += font_meta.size + 6
+        # Meta — tracked uppercase. Carries time + servings (+ a batch
+        # multiplier when scaled without a count); if none, line
+        # collapses to empty but the vertical space is preserved for rhythm.
+        meta_parts: list[str] = []
+        if recipe.get("total_time"):
+            meta_parts.append(f"{recipe['total_time']} MIN")
+        if recipe.get("servings"):
+            servings_raw = str(recipe["servings"])
+            # Free-form prose ("6 personnes en accompagnement, ou pour 4 en
+            # plat principal") carries more than one number; the meta line has
+            # room for the leading count only.
+            servings_num = servings_count(servings_raw)
+            label = strings["servings"].upper()
+            if servings_num:
+                meta_parts.append(f"{servings_num} {label}")
+            else:
+                meta_parts.append(servings_raw.upper())
+        # Batch label ("×2") from processing.scaling for a recipe without a
+        # serving count — the cook needs to know the amounts aren't as printed.
+        if recipe.get("scale"):
+            meta_parts.append(str(recipe["scale"]))
+        if meta_parts:
+            _tracked(draw, (MARGIN, y), "  ·  ".join(meta_parts), font_meta)
+        y += _font_size(font_meta) + 6
+        col_top = header_full_h
+    else:
+        # --- Compact header: one ellipsized title line + hung folio ---
+        max_title_w = DISPLAY_WIDTH - 2 * MARGIN - (folio_w + 16 if folio_w else 0)
+        try:
+            compact_title = _ellipsize(" ".join(title.split()), font_title, max_title_w)
+        except AttributeError:
+            compact_title = title_lines[0] if title_lines else ""
+        draw.text((MARGIN, y), compact_title, font=font_title, fill=0)
+        draw_folio(y)
+        y += title_line_h
+        col_top = header_compact_h
 
     y += 4
     draw.line([(MARGIN, y), (DISPLAY_WIDTH - MARGIN, y)], fill=0, width=1)
-    y += 10
 
-    repeat_ingr = len(ingr_pages) == 1 and base_pages > 1
-    repeat_instr = len(instr_pages) == 1 and base_pages > 1
+    repeat_ingr = len(ingr_pages) == 1 and total_pages > 1
+    repeat_instr = len(instr_pages) == 1 and total_pages > 1
 
     # --- Section labels (tracked small-caps) ---
     _tracked(draw, (MARGIN, col_top), strings["ingredients"].upper(), font_section)
@@ -454,7 +564,7 @@ def render_recipe(
                 y_right += 4
                 if block["lines"]:
                     draw.text((col_right_x, y_right), block["lines"][0], font=font_heading, fill=0)
-                    rule_y = y_right + font_heading.size + 2
+                    rule_y = y_right + _font_size(font_heading) + 2
                     draw.line([(col_right_x, rule_y), (DISPLAY_WIDTH - MARGIN, rule_y)], fill=0, width=1)
                     y_right = rule_y + 6
                 continue
@@ -484,7 +594,11 @@ def _paginate_instructions(all_blocks, groups, available_h, block_h):
     doesn't fit in the remaining room is split at a line boundary when at
     least `_MIN_SPLIT_LINES` land on each side; otherwise it moves to the
     next page whole. A step taller than an empty page is always split.
+
+    `available_h` is a column height in px, or a callable mapping the
+    0-based page index to one (page 1 has a taller header than the rest).
     """
+    avail = available_h if callable(available_h) else (lambda _i: available_h)
     pages: list[list[tuple[int, int, int]]] = []
     cur: list[tuple[int, int, int]] = []
     used = 0
@@ -501,7 +615,7 @@ def _paginate_instructions(all_blocks, groups, available_h, block_h):
         head_h = sum(block_h(all_blocks[k]) for k in heads)
 
         if not steps:
-            if used + head_h > available_h and cur:
+            if used + head_h > avail(len(pages)) and cur:
                 flush()
             cur.extend((k, 0, len(all_blocks[k]["lines"])) for k in heads)
             used += head_h
@@ -514,7 +628,7 @@ def _paginate_instructions(all_blocks, groups, available_h, block_h):
         while start < len(lines):
             prefix = head_h if start == 0 else 0
             remaining = len(lines) - start
-            room = available_h - used - prefix
+            room = avail(len(pages)) - used - prefix
             if remaining * lh <= room:
                 take = remaining
             else:
