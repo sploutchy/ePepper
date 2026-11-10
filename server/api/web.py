@@ -29,7 +29,8 @@ import backup
 import device_telemetry
 from display import state as display_state
 import library
-from config import API_KEY, PHOTO_MAX_MB, TZ
+import sharing
+from config import API_KEY, PHOTO_MAX_MB, TZ, WEB_URL
 
 # Register the HEIF/HEIC opener with Pillow so iPhone .heic uploads decode
 # without the user having to convert them first. Best-effort: a local dev
@@ -41,7 +42,12 @@ except ImportError:
     pass
 from display.push import push_recipe_to_display
 from processing.recipes import (
-    IngestError, ingest_recipe, normalize_recipe_for_render, slug, validate_llm_recipe,
+    IngestError, ingest_recipe, normalize_recipe_for_render, servings_count, slug,
+    validate_llm_recipe,
+)
+from processing.scaling import (
+    MAX_MULTIPLIER, MIN_MULTIPLIER, MULTIPLIER_STEP, base_servings, clamp_multiplier,
+    clamp_servings, format_multiplier, scale_recipe, slider_max,
 )
 from status_helpers import (
     battery_pct,
@@ -120,7 +126,8 @@ def _fmt_servings(raw) -> str | None:
 
     `servings` is free-form across sources ("4", "4 servings", "Pour 4
     personnes", "4-6"). The web UI is English regardless of recipe
-    language, so we pull the first integer (or range) and prefix it with
+    language, so we pull the first integer (or range) — via the same
+    `servings_count` the panel renderer uses — and prefix it with
     "Serves"; when there's no number to anchor on we fall back to the raw
     string. None/empty yields None so the template can drop the line.
     """
@@ -129,14 +136,16 @@ def _fmt_servings(raw) -> str | None:
     s = str(raw).strip()
     if not s:
         return None
-    m = re.search(r"\d+(?:\s*[–-]\s*\d+)?", s)
-    if m:
-        return f"Serves {m.group(0).replace(' ', '')}"
-    return s
+    count = servings_count(s)
+    return f"Serves {count}" if count else s
 
 
-def _ingredients(recipe: dict) -> list[str]:
-    ings = recipe.get("ingredients") or []
+def _ingredients(
+    recipe: dict, servings: int | None = None, multiplier: float | None = None,
+) -> list[str]:
+    """Ingredient lines for display, quantities scaled to `servings` /
+    by `multiplier` when given (see `processing.scaling`)."""
+    ings = scale_recipe(recipe, servings, multiplier).get("ingredients") or []
     return [str(i) for i in ings if i]
 
 
@@ -181,6 +190,52 @@ def _instruction_groups(recipe: dict) -> list[dict]:
 # already newline-splits a raw string. Instructions need a heading
 # convention since a bare string input has no way to mark one: a line
 # starting with "## " becomes a heading, everything else a step.
+
+
+# Inline readout updaters for the slider's <output>, so the number moves
+# with the thumb while the list request is in flight. The batch one
+# mirrors `format_multiplier` (halves as "½").
+_SERVINGS_READOUT_JS = "this.nextElementSibling.value = this.value"
+_BATCH_READOUT_JS = (
+    "var v = +this.value; "
+    "this.nextElementSibling.value = '×' + (v >= 1 ? v | 0 : '') + (v % 1 ? '½' : '')"
+)
+
+
+def _scaler(row: dict) -> dict | None:
+    """Slider settings for the recipe page, or None when there's nothing
+    to scale (no ingredients — the template then omits the slider).
+
+    A recipe whose servings carry a count gets a *Serves* slider over
+    serving counts; any other recipe gets a *Batch* slider over
+    multipliers (×½ … ×4), since doubling a recipe makes sense whether or
+    not it says how many it feeds. Either starts where the panel is when
+    this recipe is on it (so the page agrees with the display you're
+    cooking from), else at the recipe as written.
+    """
+    recipe = row["recipe"]
+    if not _ingredients(recipe):
+        return None
+    state = display_state.get()
+    on_panel = state.get("type") == "recipe" and state.get("recipe_id") == row["id"]
+    base = base_servings(recipe.get("servings"))
+    if base is not None:
+        value = (on_panel and state.get("servings")) or base
+        return {
+            "name": "servings", "label": "Serves",
+            "min": 1, "max": max(slider_max(base), value), "step": 1,
+            "base": base, "value": value, "readout": value,
+            "readout_js": _SERVINGS_READOUT_JS,
+            "servings": value, "multiplier": None,
+        }
+    value = (on_panel and state.get("multiplier")) or 1
+    return {
+        "name": "multiplier", "label": "Batch",
+        "min": MIN_MULTIPLIER, "max": MAX_MULTIPLIER, "step": MULTIPLIER_STEP,
+        "base": 1, "value": f"{value:g}", "readout": format_multiplier(value),
+        "readout_js": _BATCH_READOUT_JS,
+        "servings": None, "multiplier": value,
+    }
 
 
 def _ingredients_textarea(recipe: dict) -> str:
@@ -679,8 +734,31 @@ async def recipe_detail(request: Request, recipe_id: int):
     if row is None:
         raise HTTPException(404)
     ctx = _context_globals(request)
-    ctx.update({"r": row, "all_tags": library.list_tags()})
+    ctx.update({
+        "r": row,
+        "all_tags": library.list_tags(),
+        "scaler": _scaler(row),
+    })
     return templates.TemplateResponse(request, "recipe.html", ctx)
+
+
+@router.get("/recipes/{recipe_id}/_ingredients", response_class=HTMLResponse)
+async def recipe_ingredients_partial(
+    request: Request, recipe_id: int, servings: str = "", multiplier: str = "",
+):
+    """The ingredient list rescaled to `servings` / by `multiplier` — the
+    slider's swap target. An out-of-range or junk value renders as
+    written."""
+    _require_auth(request)
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        raise HTTPException(404)
+    return templates.TemplateResponse(
+        request, "_ingredients.html",
+        {"ings": _ingredients(
+            row["recipe"], clamp_servings(servings), clamp_multiplier(multiplier),
+        )},
+    )
 
 
 @router.post("/recipes/{recipe_id}/tags", response_class=HTMLResponse)
@@ -785,18 +863,28 @@ async def recipe_edit_save(
 
 
 @router.post("/recipes/{recipe_id}/push", response_class=HTMLResponse)
-async def push_recipe(request: Request, recipe_id: int):
+async def push_recipe(
+    request: Request,
+    recipe_id: int,
+    servings: str = Form(default=""),
+    multiplier: str = Form(default=""),
+):
     _require_auth(request)
     row = library.get_recipe(recipe_id)
     if row is None:
         raise HTTPException(404)
-    if not push_recipe_to_display(row):
+    if not push_recipe_to_display(
+        row, servings=clamp_servings(servings), multiplier=clamp_multiplier(multiplier),
+    ):
         return templates.TemplateResponse(
             request, "_toast.html",
             {"message": "Couldn't render that recipe to the display."},
             status_code=500,
         )
-    log.info("Web push to display: id=%d title=%r", row["id"], row["title"])
+    log.info(
+        "Web push to display: id=%d title=%r servings=%r multiplier=%r",
+        row["id"], row["title"], servings or None, multiplier or None,
+    )
     return templates.TemplateResponse(
         request, "_toast.html",
         {"message": f"Pushed “{row['title']}” to the display."},
@@ -820,6 +908,122 @@ async def delete_recipe(request: Request, recipe_id: int):
     resp = Response(status_code=200)
     resp.headers["HX-Redirect"] = "/app/"
     return resp
+
+
+# --- Share links ------------------------------------------------------------
+#
+# A signed, 24-hour, read-only URL for one recipe — for sending someone the
+# tarte recipe without giving them the app. The token carries its own claims
+# and is verified by recomputation (see sharing.py); nothing is stored, so
+# minting one is just a button.
+#
+# The link puts a credential in a URL, which this project deliberately moved
+# away from when it dropped the `?key=` fallback. The difference in kind is
+# what makes it acceptable here — a share token opens exactly one recipe,
+# read-only, for a day, where API_KEY opens everything including the firmware
+# image — and the difference is defended rather than assumed:
+#
+#   * the token is never a session: /app/s/<token> renders a standalone page
+#     and sets no cookie, so it can't be walked back into the app;
+#   * the rendered page sends `Referrer-Policy: no-referrer`, or the URL
+#     would leak to Google Fonts in the Referer of every share page opened;
+#   * `X-Robots-Tag: noindex` keeps a forwarded link out of search results;
+#   * main.py filters the token out of uvicorn's access log, which is the
+#     specific leak the `?key=` removal was about.
+
+
+def _fmt_expiry(ts: int) -> str:
+    """Wall-clock phrasing for a share link's expiry.
+
+    `humanize_date` is for past stamps and folds anything in the future to
+    "just now", so it can't be reused here. A share link is always about a
+    day out, which makes "tomorrow at 18:40" both shorter and more useful
+    than a date — and it stays correct across a DST boundary, where the
+    hour genuinely does shift.
+    """
+    from datetime import datetime, timedelta
+    when = datetime.fromtimestamp(ts, TZ)
+    today = datetime.now(TZ).date()
+    day = {
+        today: "today",
+        today + timedelta(days=1): "tomorrow",
+    }.get(when.date(), when.strftime("%a %d %b"))
+    return f"{day} at {when.strftime('%H:%M')}"
+
+
+def _absolute_url(request: Request, path: str) -> str:
+    """Absolute URL for a link that has to survive being pasted elsewhere.
+
+    Prefers WEB_URL (already configured for the bot's links) so the link
+    carries the public hostname even when the app is reached through a
+    proxy; falls back to the request's own base URL.
+    """
+    base = WEB_URL or str(request.base_url).rstrip("/")
+    return f"{base}{path}"
+
+
+@router.post("/recipes/{recipe_id}/share", response_class=HTMLResponse)
+async def share_recipe(request: Request, recipe_id: int):
+    """Mint a share link and hand it back as a copyable field."""
+    _require_auth(request)
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        raise HTTPException(404)
+    token = sharing.mint(API_KEY, recipe_id)
+    # The id, never the token: a link in the container log is a working
+    # credential, which is the whole thing we're avoiding.
+    log.info("Share link minted: id=%d title=%r", recipe_id, row["title"])
+    return templates.TemplateResponse(
+        request,
+        "_share_link.html",
+        {
+            "url": _absolute_url(request, f"/app/s/{token}"),
+            "expires": _fmt_expiry(sharing.expires_at(API_KEY, token)),
+        },
+    )
+
+
+@router.get("/s/{token}", response_class=HTMLResponse)
+async def shared_recipe(request: Request, token: str):
+    """Render a shared recipe. Deliberately unauthenticated — the token is
+    the credential, and it opens this one recipe and nothing else."""
+    try:
+        recipe_id = sharing.read(API_KEY, token)
+    except sharing.ShareTokenExpired:
+        # 410 rather than 404: the link was real, it's just over. The page
+        # says so, because "not found" would read as "you mistyped it".
+        return templates.TemplateResponse(
+            request, "share_expired.html", {}, status_code=410,
+        )
+    except sharing.ShareTokenInvalid:
+        raise HTTPException(404)
+
+    row = library.get_recipe(recipe_id)
+    if row is None:
+        # Deleted since the link was sent — same page as an expired link,
+        # which is also the honest answer: there's nothing here any more.
+        return templates.TemplateResponse(
+            request, "share_expired.html", {}, status_code=410,
+        )
+
+    response = templates.TemplateResponse(
+        request,
+        "shared.html",
+        {
+            "request": request,
+            "r": row,
+            "fmt_servings": _fmt_servings,
+            "ingredients": _ingredients,
+            "instruction_groups": _instruction_groups,
+            "source_name": source_name,
+        },
+    )
+    # See the note above: without no-referrer the share URL travels to
+    # fonts.googleapis.com in the Referer header of this very page.
+    response.headers["Referrer-Policy"] = "no-referrer"
+    response.headers["X-Robots-Tag"] = "noindex, nofollow"
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 # --- Flash device (OTA recovery) --------------------------------------------

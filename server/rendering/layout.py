@@ -26,12 +26,11 @@ column repeat heuristic + the L10n table are also preserved — only the
 visual treatment moves.
 """
 
-import re
 import textwrap
 
 from PIL import Image, ImageDraw, ImageFont
 
-from processing.recipes import normalize_recipe_for_render
+from processing.recipes import normalize_recipe_for_render, servings_count
 from config import (
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
@@ -399,19 +398,27 @@ def render_recipe(
         y += font_source.size + 4
     y += 4
 
-    # Meta — tracked uppercase. Carries time + servings; if neither, line
+    # Meta — tracked uppercase. Carries time + servings (+ a batch
+    # multiplier when scaled without a count); if none, line
     # collapses to empty but the vertical space is preserved for rhythm.
     meta_parts: list[str] = []
     if recipe.get("total_time"):
         meta_parts.append(f"{recipe['total_time']} MIN")
     if recipe.get("servings"):
         servings_raw = str(recipe["servings"])
-        servings_num = re.sub(r"[^\d]", "", servings_raw)
+        # Free-form prose ("6 personnes en accompagnement, ou pour 4 en
+        # plat principal") carries more than one number; the meta line has
+        # room for the leading count only.
+        servings_num = servings_count(servings_raw)
         label = strings["servings"].upper()
         if servings_num:
             meta_parts.append(f"{servings_num} {label}")
         else:
             meta_parts.append(servings_raw.upper())
+    # Batch label ("×2") from processing.scaling for a recipe without a
+    # serving count — the cook needs to know the amounts aren't as printed.
+    if recipe.get("scale"):
+        meta_parts.append(str(recipe["scale"]))
     if meta_parts:
         _tracked(draw, (MARGIN, y), "  ·  ".join(meta_parts), font_meta)
     y += font_meta.size + 6

@@ -695,6 +695,29 @@ def normalize_recipe_for_render(recipe: dict) -> dict:
     return out
 
 
+_SERVINGS_COUNT_RE = re.compile(r"\d+(?:\s*[–-]\s*\d+)?")
+
+
+def servings_count(raw) -> str | None:
+    """Pull the serving *count* out of a free-form servings string.
+
+    `servings` arrives as prose from every source — "4", "4 servings",
+    "Pour 4 personnes", "4-6", and (from photo OCR) whole sentences like
+    "6 personnes en accompagnement, ou pour 4 en plat principal". Callers
+    that want to show a bare number need the *first* count in that string,
+    not every digit it contains: stripping non-digits glues "6" and "4"
+    into a nonsensical "64".
+
+    Returns the leading integer or range with inner spaces removed
+    ("4 - 6" -> "4-6"), or None when the string carries no digits at all
+    ("une grande poêle") so the caller can fall back to the raw text.
+    """
+    if not raw:
+        return None
+    m = _SERVINGS_COUNT_RE.search(str(raw))
+    return m.group(0).replace(" ", "") if m else None
+
+
 def _swissify(recipe: dict) -> dict:
     """Normalise German ß → ss across every text field.
 

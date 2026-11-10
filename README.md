@@ -75,6 +75,9 @@ on their anniversary.
   when the repertoire has changed since the previous upload. Quiet days
   produce no message; busy days produce one. Unlimited versioned
   history at no storage cost.
+- **Share links.** A *Share* button on any recipe mints a signed,
+  read-only URL that anyone can open — no account, no access to the
+  rest of the repertoire — and that stops working after 24 hours.
 - **Dark mode.** Follows the OS preference automatically (with a
   manual toggle in the header), including matching mobile browser
   chrome.
@@ -196,15 +199,68 @@ for en/de/fr/it), followed by total time and servings on the meta
 line. The source is omitted entirely for OCR'd photos that yielded
 no `source_name`.
 
+The web recipe page has a **Serves** slider when the recipe's servings
+contain a number. Moving it rescales the leading quantity of
+each ingredient line — `200 g` → `400 g`, `½ TL` → `1 TL`, `2-3` →
+`4-6` — and pushing to the display sends the panel the same scaled
+amounts and serving count. Numbers later in a line (the `400 g` in
+`1 Dose (400 g) Tomaten`) and lines without a leading number are left
+as written. Recipes whose servings have no number get a **Batch**
+slider instead (×½ to ×4 in halves); it scales the ingredients the same
+way and adds the multiplier to the panel's meta line (`90 MIN · ×2`).
+Bot and scheduler pushes always show the recipe as written.
+
 ### Editing recipes
 
-From the web app's recipe page: edit tags, push to the display, or
-delete.
+From the web app's recipe page: edit tags, scale the servings, push to
+the display, share, or delete.
 
 Deletes are soft (the row is hidden via `deleted_at` with no UI
 restore). If you genuinely need a deleted recipe back, pull it from
 the most recent Telegram backup snapshot or clear `deleted_at` in
 SQL.
+
+### Sharing a recipe
+
+*Share* on the recipe page mints a link like
+`https://<your-host>/app/s/v1.168.1789388694.uaTOSPTKVnoWxBGgex79kQ`
+and shows it in a field you can copy. Send it to whoever asked for the
+recipe: it opens a single standalone page with the title, timing,
+ingredients, instructions and the original source — and nothing else.
+No sign-in, no navigation into the app, no cookie, and no way to reach
+any other recipe.
+
+**Links last 24 hours and cannot be withdrawn early.** The link carries
+its own claims (which recipe, until when) plus an HMAC over them, keyed
+by `API_KEY`; the server stores nothing and verifies by recomputing the
+signature. That's what makes minting one a button press rather than a
+config change — but with no stored record there's nothing to revoke, so
+the lifetime *is* the revocation. Rotating `API_KEY` invalidates every
+outstanding link at once, though it also signs out every browser, so
+it's a blunt instrument.
+
+What the shared page deliberately leaves out: when *you* saved or last
+cooked the recipe (facts about your kitchen, not the recipe) and its
+tags (your filing, and the links would go nowhere for a visitor).
+
+The link is a credential in a URL, which is the shape this project
+otherwise avoids — see the `?key=` note under
+[API endpoints](#api-endpoints). It's acceptable here because a share
+token opens one recipe, read-only, for a day, where `API_KEY` opens
+everything including the firmware image. The difference is defended
+rather than assumed:
+
+- the shared page sends `Referrer-Policy: no-referrer` (without it the
+  URL would travel to Google in the `Referer` of the page's own font
+  request),
+- it sends `X-Robots-Tag: noindex` so a forwarded link can't turn up in
+  search results,
+- and the server redacts the token from uvicorn's access log, which is
+  the specific leak that got `?key=` removed.
+
+An expired link says so (HTTP 410) rather than 404ing, so the recipient
+knows to ask for a fresh one instead of re-checking the URL. A link to a
+deleted recipe says the same thing.
 
 ### Cycling pages on the device
 
@@ -269,7 +325,11 @@ The web UI lives at `https://<your-host>/app/`. Server-rendered HTML
   - `/app/` — repertoire list (search, source + tag filters,
     infinite scroll, on-display badge).
   - `/app/add` — URL paste or recipe-photo upload.
-  - `/app/recipes/<id>` — recipe detail (tags, push, delete).
+  - `/app/recipes/<id>` — recipe detail (tags, servings / batch slider, push,
+    share, delete).
+  - `/app/s/<token>` — a shared recipe. The one page that needs no
+    session; the token is the credential. See
+    [Sharing a recipe](#sharing-a-recipe).
   - `/app/status` — live panel preview, panel state, repertoire
     stats + last backup, device readings.
 - **Dark mode.** Follows OS preference automatically; a `☀/☾`
@@ -298,7 +358,7 @@ Schema:
 
 - `recipes(id, url, title, parsed_json, lang, saved_at, created_at, deleted_at, source, last_displayed_at, translated_keywords, tags)` — `translated_keywords` is the LLM-produced FR/DE search blob (NULL = pending, `""` = tried & gave up); `tags` is a comma-separated lowercase list (NULL = none).
 - `recipes_fts` — FTS5 virtual table over (title, ingredients, tags, translated). The `translated` column carries the LLM FR/DE keywords so a recipe stored in one language is searchable from the other.
-- `display_panel(id, recipe_id, page)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it.
+- `display_panel(id, recipe_id, page, servings, multiplier)` — singleton row (`id` locked to 1) tracking the saved recipe currently on the panel, so a container restart re-renders it. `servings` is the count it was scaled to on push, `multiplier` the batch factor for a recipe without a count (at most one is set; NULL = as written).
 - `schema_version(version, applied_at)` — which migrations have been applied (see Migrations below).
 - `meta(key, value)` — free-form bootstrap flags (e.g. `fts_rebuilt`).
 
