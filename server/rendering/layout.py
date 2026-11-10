@@ -35,6 +35,8 @@ from config import (
     DISPLAY_WIDTH,
     DISPLAY_HEIGHT,
     MARGIN,
+    MARGIN_TOP,
+    MARGIN_BOTTOM,
     COLUMN_GAP,
     INGREDIENTS_WIDTH_RATIO,
     FONT_REGULAR,
@@ -222,7 +224,7 @@ def render_recipe(
             source_inline = False
 
     title_line_h = font_title.size + 4
-    header_h = MARGIN + len(title_lines) * title_line_h + 4
+    header_h = MARGIN_TOP + len(title_lines) * title_line_h + 4
     if source and not source_inline:
         header_h += font_source.size + 4
     # Meta line — always reserved (carries no info on its own but holds
@@ -246,7 +248,7 @@ def render_recipe(
     # columns ~30 px more vertical room.
     section_h = font_section.size + 12
     footer_reserve = 0
-    available_h = DISPLAY_HEIGHT - col_top - MARGIN - section_h - footer_reserve
+    available_h = DISPLAY_HEIGHT - col_top - MARGIN_BOTTOM - section_h - footer_reserve
 
     # --- Pre-wrap ingredients into line groups (measured width) ---
     ingredients = recipe.get("ingredients", [])
@@ -362,7 +364,7 @@ def render_recipe(
     folio_text = f"{page} / {total_pages}" if total_pages > 1 else ""
 
     # --- Recipe page: serif title + inline source + hung folio + meta + rule + 2 cols ---
-    y = MARGIN
+    y = MARGIN_TOP
     for i, line in enumerate(title_lines):
         draw.text((MARGIN, y), line, font=font_title, fill=0)
         is_last = i == len(title_lines) - 1
@@ -427,7 +429,7 @@ def render_recipe(
 
     # --- Vertical hairline divider ---
     div_x = MARGIN + col_left_w + COLUMN_GAP // 2
-    draw.line([(div_x, col_top), (div_x, DISPLAY_HEIGHT - MARGIN)], fill=0, width=1)
+    draw.line([(div_x, col_top), (div_x, DISPLAY_HEIGHT - MARGIN_BOTTOM)], fill=0, width=1)
 
     col_body_top = col_top + section_h
 
@@ -437,7 +439,7 @@ def render_recipe(
         ingr_src = 0 if repeat_ingr else page - 1
         for grp_idx in ingr_pages[ingr_src]:
             for wline in ingr_groups[grp_idx]:
-                if y_left + line_h > DISPLAY_HEIGHT - MARGIN:
+                if y_left + line_h > DISPLAY_HEIGHT - MARGIN_BOTTOM:
                     break
                 draw.text((MARGIN, y_left), wline, font=font_body, fill=0)
                 y_left += line_h
@@ -457,7 +459,7 @@ def render_recipe(
                     y_right = rule_y + 6
                 continue
             for wline in block["lines"][start:end]:
-                if y_right + block["line_h"] > DISPLAY_HEIGHT - MARGIN:
+                if y_right + block["line_h"] > DISPLAY_HEIGHT - MARGIN_BOTTOM:
                     break
                 draw.text((col_right_x, y_right), wline, font=block["font"], fill=0)
                 y_right += block["line_h"]
