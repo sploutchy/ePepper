@@ -121,4 +121,6 @@ MARGIN: int = 10  # left / right
 MARGIN_TOP: int = 12
 MARGIN_BOTTOM: int = 8
 COLUMN_GAP: int = 16
+# Preferred ingredients-column share; the renderer searches nearby widths
+# per recipe and only moves off this when it saves a page or line wraps.
 INGREDIENTS_WIDTH_RATIO: float = 0.35
