@@ -2,7 +2,7 @@ python-telegram-bot==22.8
 fastapi==0.141.1
 uvicorn==0.52.1
 Pillow==13.0.0
-pillow-heif==1.5.0
+pillow-heif==1.8.1
 recipe-scrapers==15.12.0
 aiohttp==3.14.4
 beautifulsoup4==4.15.0
